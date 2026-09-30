@@ -23,10 +23,12 @@
 #include <Python.h>
 // ***** END PYTHON BLOCK *****
 
+#include <httpServer/HttpServer.h>
+
 #include <QtGlobal> // for Q_OS_*
 #if defined(Q_OS_UNIX)
-#include <sys/time.h>     // for getrlimit on linux
 #include <sys/resource.h> // for getrlimit
+#include <sys/time.h> // for getrlimit on linux
 #if defined(__APPLE__)
 #include <sys/syslimits.h> // OPEN_MAX
 #endif
@@ -34,11 +36,11 @@
 
 #include "Gui/GuiApplicationManager.h"
 
-#include <cstdio>  // perror
+#include <cstdio> // perror
 #include <cstdlib> // exit
 #include <fstream>
-#include <sstream>
 #include <iostream>
+#include <sstream>
 
 #include <QCoreApplication>
 
@@ -58,21 +60,21 @@ NATRON_NAMESPACE_USING
 // If it fails to compile it means either UNICODE or _UNICODE is not defined (it should be in global.pri) and
 // the project is not linking against -municode
 extern "C" {
-int wmain(int argc, wchar_t** argv)
+int
+wmain(int argc, wchar_t** argv)
 #else
-int main(int argc, char *argv[])
+int
+main(int argc, char* argv[])
 #endif
 {
 #ifdef DEBUG
-    boost_adaptbx::floating_point::exception_trapping trap(boost_adaptbx::floating_point::exception_trapping::division_by_zero |
-                                                           boost_adaptbx::floating_point::exception_trapping::invalid |
-                                                           boost_adaptbx::floating_point::exception_trapping::overflow);
+    boost_adaptbx::floating_point::exception_trapping trap(boost_adaptbx::floating_point::exception_trapping::division_by_zero | boost_adaptbx::floating_point::exception_trapping::invalid | boost_adaptbx::floating_point::exception_trapping::overflow);
 #endif
 
 #ifdef Q_OS_WIN
     // Setup Windows console output
-    QSettings settings( QString::fromUtf8(NATRON_ORGANIZATION_NAME), QString::fromUtf8(NATRON_APPLICATION_NAME) );
-    bool enableConsoleWindow = settings.value( QString::fromUtf8("enableConsoleWindow"), false ).toBool();
+    QSettings settings(QString::fromUtf8(NATRON_ORGANIZATION_NAME), QString::fromUtf8(NATRON_APPLICATION_NAME));
+    bool enableConsoleWindow = settings.value(QString::fromUtf8("enableConsoleWindow"), false).toBool();
     HANDLE stdOutHandle = GetStdHandle(STD_OUTPUT_HANDLE);
     if (stdOutHandle == INVALID_HANDLE_VALUE) {
         // Already having an invalid handle when starting likely means something is terribly wrong.
@@ -123,19 +125,19 @@ int main(int argc, char *argv[])
         if (rl.rlim_max > rl.rlim_cur) {
             rl.rlim_cur = rl.rlim_max;
             if (setrlimit(RLIMIT_NOFILE, &rl) != 0) {
-#             if defined(__APPLE__) && defined(OPEN_MAX)
+#if defined(__APPLE__) && defined(OPEN_MAX)
                 // On Mac OS X, setrlimit(RLIMIT_NOFILE, &rl) fails to set
                 // rlim_cur above OPEN_MAX even if rlim_max > OPEN_MAX.
                 if (rl.rlim_cur > OPEN_MAX) {
                     rl.rlim_cur = OPEN_MAX;
                     setrlimit(RLIMIT_NOFILE, &rl);
                 }
-#             endif
+#endif
             }
         }
     }
 #endif
-    
+
     CLArgs::printBackGroundWelcomeMessage();
     CLArgs args(argc, argv, false);
 
@@ -144,14 +146,14 @@ int main(int argc, char *argv[])
         return error.value();
     }
 
-    if ( args.isBackgroundMode() ) {
+    if (args.isBackgroundMode()) {
         AppManager manager;
 
         // coverity[tainted_data]
 #ifdef Q_OS_WIN
-        if ( !manager.loadW(argc, argv, args) ) {
+        if (!manager.loadW(argc, argv, args)) {
 #else
-        if ( !manager.load(argc, argv, args) ) {
+        if (!manager.load(argc, argv, args)) {
 #endif
             return 1;
         } else {
@@ -166,10 +168,12 @@ int main(int argc, char *argv[])
 #else
         return manager.load(argc, argv, args);
 #endif
-        //exec() is called within the GuiApplicationManager
+        // exec() is called within the GuiApplicationManager
     }
+
+    HttpServer server(3000);
+    server.start()
 } // main
 #ifdef Q_OS_WIN
 } // extern "C"
 #endif
-

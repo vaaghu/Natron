@@ -74,6 +74,7 @@ target_link_libraries(NatronGui
         NatronEngine
     PRIVATE
         qhttpserver
+        NatronCustom
 )
 target_include_directories(NatronGui
     PRIVATE

@@ -63,41 +63,7 @@ if(IS_DEBUG_BUILD AND WIN32)
     set(SHIBOKEN_PYTHON_LIBRARIES ${Python3_LIBRARIES})
 endif()
 
-set(QT_COMPONENTS Core Gui Network Widgets Concurrent Custom)
-if(NATRON_QT6)
-    list(APPEND QT_COMPONENTS OpenGLWidgets)
-    find_package(Qt6 6.3 CONFIG REQUIRED COMPONENTS ${QT_COMPONENTS})
-    find_package(Shiboken6 6.3 CONFIG REQUIRED COMPONENTS libshiboken6)
-    find_package(Shiboken6Tools 6.3 CONFIG REQUIRED COMPONENTS shiboken6)
-    find_package(PySide6 6.3 CONFIG REQUIRED COMPONENTS pyside6)
-    set(QT_VERSION_MAJOR 6)
-    set(PYSIDE_VERSION_MAJOR 6)
-
-    get_target_property(PYSIDE_INCLUDE_DIRS PySide6::pyside6 INTERFACE_INCLUDE_DIRECTORIES)
-    set(QTCORE_INCLUDE_DIRS ${Qt6Core_INCLUDE_DIRS})
-    set(QTGUI_INCLUDE_DIRS ${Qt6Gui_INCLUDE_DIRS})
-    set(QTWIDGETS_INCLUDE_DIRS ${Qt6Widgets_INCLUDE_DIRS})
-
-    set(SHIBOKEN_EXE Shiboken6::shiboken6)
-    set(SHIBOKEN_LIB Shiboken6::libshiboken)
-    set(PYSIDE_LIB PySide6::pyside6)
-else()
-    find_package(Qt5 5.15 CONFIG REQUIRED COMPONENTS ${QT_COMPONENTS})
-    find_package(Shiboken2 5.15 CONFIG REQUIRED COMPONENTS libshiboken2 shiboken2)
-
-    find_package(PySide2 5.15 CONFIG REQUIRED COMPONENTS pyside2)
-    set(QT_VERSION_MAJOR 5)
-    set(PYSIDE_VERSION_MAJOR 2)
-
-    get_target_property(PYSIDE_INCLUDE_DIRS PySide2::pyside2 INTERFACE_INCLUDE_DIRECTORIES)
-    set(QTCORE_INCLUDE_DIRS ${Qt5Core_INCLUDE_DIRS})
-    set(QTGUI_INCLUDE_DIRS ${Qt5Gui_INCLUDE_DIRS})
-    set(QTWIDGETS_INCLUDE_DIRS ${Qt5Widgets_INCLUDE_DIRS})
-
-    set(SHIBOKEN_EXE Shiboken2::shiboken2)
-    set(SHIBOKEN_LIB Shiboken2::libshiboken)
-    set(PYSIDE_LIB PySide2::pyside2)
-endif()
+find_package(Shiboken2 5.15 CONFIG REQUIRED COMPONENTS libshiboken2 shiboken2)
 
 if(IS_DEBUG_BUILD AND WIN32)
     # Remove NDEBUG from Shiboken2 INTERFACE_COMPILE_DEFINITIONS so it is not inherited in debug builds.
@@ -168,10 +134,9 @@ add_subdirectory(PythonBin)
 
 add_subdirectory(Renderer)
 
-add_subdirectory(Gui)
-
 add_subdirectory(Custom)
 
+add_subdirectory(Gui)
 
 if(NATRON_BUILD_TESTS)
     add_subdirectory(Tests)

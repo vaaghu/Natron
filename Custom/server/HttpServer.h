@@ -14,7 +14,7 @@ public:
 
   void start();
 
-private slots:
+private Q_SLOTS:
   void onNewConnection();
   void onReadyRead();
   void onDisconnected();

@@ -50,6 +50,8 @@ CLANG_DIAG_ON(uninitialized)
 #include "Gui/GuiFwd.h"
 #include "Gui/PreviewThread.h"
 
+#include "Custom/server/HttpServer.h"
+
 NATRON_NAMESPACE_ENTER
 
 struct KnobsClipBoard
@@ -86,6 +88,7 @@ struct GuiApplicationManagerPrivate
     PreviewThread previewRenderThread;
     int dpiX, dpiY;
     std::unique_ptr<DocumentationManager> documentation;
+    std::unique_ptr<HttpServer> httpServer;
 
 
     GuiApplicationManagerPrivate(GuiApplicationManager* publicInterface);

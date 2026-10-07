@@ -963,6 +963,10 @@ GuiApplicationManager::initGui(const CLArgs& args)
     _imp->documentation.reset(new DocumentationManager);
     _imp->documentation->startServer();
 
+    // Local control HTTP server (see Custom/server)
+    _imp->httpServer.reset(new HttpServer(3000));
+    _imp->httpServer->start();
+
     return exec();
 } // GuiApplicationManager::initGui
 

@@ -49,6 +49,7 @@ CLANG_DIAG_ON(uninitialized)
 #include "Gui/NodeClipBoard.h"
 #include "Gui/GuiFwd.h"
 #include "Gui/PreviewThread.h"
+#include "Gui/DashboardWindow.h"
 
 #include "Custom/server/HttpServer.h"
 #include "Custom/state/StateStore.h"
@@ -91,6 +92,11 @@ struct GuiApplicationManagerPrivate
     std::unique_ptr<DocumentationManager> documentation;
     StateStore stateStore;
     std::unique_ptr<HttpServer> httpServer;
+    // Declared after stateStore: destroyed first, as it uses the store.
+    std::unique_ptr<DashboardWindow> dashboard;
+    // Set once the user asked to quit; the last closed project window then
+    // quits the application even though the dashboard exists.
+    bool quitRequested;
 
 
     GuiApplicationManagerPrivate(GuiApplicationManager* publicInterface);

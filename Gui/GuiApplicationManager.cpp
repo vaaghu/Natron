@@ -33,6 +33,7 @@ CLANG_DIAG_OFF(uninitialized)
 #include <QtCore/QtGlobal> // for Q_OS_*
 #include <QtCore/QDebug>
 #include <QtCore/QSettings>
+#include <QtCore/QFileInfo>
 #include <QPixmapCache>
 #include <QApplication>
 #include <QFontDatabase>
@@ -47,6 +48,7 @@ CLANG_DIAG_ON(uninitialized)
 #include "Engine/Settings.h"
 #include "Engine/EffectInstance.h" // PLUGINID_OFX_*
 #include "Engine/PluginActionShortcut.h"
+#include "Engine/Project.h"
 #include "Gui/QtEnumConvert.h"
 #include "Gui/GuiAppInstance.h"
 #include "Gui/Gui.h"
@@ -80,6 +82,7 @@ GuiApplicationManager::~GuiApplicationManager()
         }
     }
     _imp->previewRenderThread.quitThread(false);
+    _imp->dashboard.reset();
 }
 
 void
@@ -1138,6 +1141,113 @@ GuiApplicationManager::getDocumentationServerPort()
 GuiApplicationManager::getStateStore() const
 {
     return &_imp->stateStore;
+}
+
+bool
+GuiApplicationManager::showStartWindow()
+{
+    if (!_imp->dashboard) {
+        _imp->dashboard.reset( new DashboardWindow(&_imp->stateStore) );
+    }
+    _imp->dashboard->show();
+    _imp->dashboard->raise();
+    _imp->dashboard->activateWindow();
+
+    return true;
+}
+
+bool
+GuiApplicationManager::onLastInstanceClosed()
+{
+    if (!_imp->dashboard || _imp->quitRequested) {
+        return false;
+    }
+
+    // Back to the dashboard.
+    _imp->dashboard->show();
+    _imp->dashboard->raise();
+    _imp->dashboard->activateWindow();
+
+    return true;
+}
+
+void
+GuiApplicationManager::newProjectWindow()
+{
+    CLArgs cl;
+    AppInstancePtr app = newAppInstance(cl, false);
+    Q_UNUSED(app);
+}
+
+void
+GuiApplicationManager::openProjectWindow(const QString& filename)
+{
+    QFileInfo file(filename);
+
+    if ( !file.exists() ) {
+        updateAllRecentFileMenus();
+
+        return;
+    }
+
+    const QString absoluteFileName = file.absoluteFilePath();
+
+    // Already open: bring its window to the front.
+    int openedProject = isProjectAlreadyOpened( absoluteFileName.toStdString() );
+    if (openedProject != -1) {
+        GuiAppInstancePtr instance = std::dynamic_pointer_cast<GuiAppInstance>( getAppInstance(openedProject) );
+        if ( instance && instance->getGui() ) {
+            instance->getGui()->raise();
+            instance->getGui()->activateWindow();
+
+            return;
+        }
+    }
+
+    CLArgs cl;
+    AppInstancePtr app = newAppInstance(cl, false);
+    if (!app) {
+        return;
+    }
+    app->getProject()->loadProject( file.path() + QLatin1Char('/'), file.fileName() );
+
+    QSettings settings;
+    QStringList recentFiles = settings.value( QString::fromUtf8("recentFileList") ).toStringList();
+    recentFiles.removeAll(absoluteFileName);
+    recentFiles.prepend(absoluteFileName);
+    while (recentFiles.size() > NATRON_MAX_RECENT_FILES) {
+        recentFiles.removeLast();
+    }
+    settings.setValue(QString::fromUtf8("recentFileList"), recentFiles);
+    updateAllRecentFileMenus();
+}
+
+bool
+GuiApplicationManager::requestQuit(bool warnUserForSave)
+{
+    _imp->quitRequested = true;
+
+    // Copy: closing a project removes its instance from the list.
+    const AppInstanceVec instances = getAppInstances();
+    for (AppInstanceVec::const_iterator it = instances.begin(); it != instances.end(); ++it) {
+        GuiAppInstancePtr app = std::dynamic_pointer_cast<GuiAppInstance>(*it);
+        if ( !app || !app->getGui() ) {
+            continue;
+        }
+        if ( !app->getGui()->abortProject(true, warnUserForSave, true) ) {
+            // The user cancelled saving: keep running.
+            _imp->quitRequested = false;
+
+            return false;
+        }
+    }
+
+    // Otherwise the last closing project window quits (see onLastInstanceClosed).
+    if (getNumInstances() == 0) {
+        qApp->quit();
+    }
+
+    return true;
 }
 
 double

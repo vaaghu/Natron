@@ -165,6 +165,26 @@ public:
     {
     }
 
+    /**
+     * @brief Called at GUI startup, before the first project window is created.
+     * Returns true if a start window (the dashboard) was shown. In that case no
+     * empty project window is created unless a file was given on the command line.
+     **/
+    virtual bool showStartWindow()
+    {
+        return false;
+    }
+
+    /**
+     * @brief Called when the last project window was closed.
+     * Returns true if the application should keep running without any project
+     * window (e.g. the dashboard is still open), false to quit.
+     **/
+    virtual bool onLastInstanceClosed()
+    {
+        return false;
+    }
+
     EffectInstancePtr createOFXEffect(NodePtr node,
                                   const CreateNodeArgs& args
 #ifndef NATRON_ENABLE_IO_META_NODES

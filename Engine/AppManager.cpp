@@ -526,8 +526,9 @@ AppManager::afterQuitProcessingCallback(const GenericWatcherCallerArgsPtr& args)
 
     int nbApps = getNumInstances();
     ///if we exited the last instance, exit the event loop, this will make
-    /// the exec() function return.
-    if (nbApps == 0) {
+    /// the exec() function return. (Unless a start window such as the
+    /// dashboard keeps the application running.)
+    if ( (nbApps == 0) && !onLastInstanceClosed() ) {
         assert(qApp);
         qApp->quit();
     }
@@ -1043,9 +1044,25 @@ AppManager::loadInternalAfterInitGui(const CLArgs& cl)
         args = cl;
     }
 
-    AppInstancePtr mainInstance = newAppInstance(args, false);
+    // In GUI mode, show the start window (dashboard). An empty project window
+    // is then only opened if a project/script/image was given on the command line.
+    bool startWindowShown = false;
+    if (_imp->_appType == eAppTypeGui) {
+        startWindowShown = showStartWindow();
+    }
+
+    AppInstancePtr mainInstance;
+    if ( !startWindowShown || !args.getScriptFilename().isEmpty() || !args.getImageFilename().isEmpty() ) {
+        mainInstance = newAppInstance(args, false);
+    }
 
     hideSplashScreen();
+
+    if (startWindowShown && !mainInstance) {
+        onLoadCompleted();
+
+        return true;
+    }
 
     if (!mainInstance) {
         qApp->quit();

@@ -66,6 +66,10 @@ GuiApplicationManagerPrivate::GuiApplicationManagerPrivate(GuiApplicationManager
     , previewRenderThread()
     , dpiX(96)
     , dpiY(96)
+    , stateStore()
+    , httpServer()
+    , dashboard()
+    , quitRequested(false)
 {
 }
 

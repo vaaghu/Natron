@@ -131,6 +131,10 @@ GuiApplicationManager::updateAllRecentFileMenus()
             gui->updateRecentFileActions();
         }
     }
+
+    if (_imp->dashboard) {
+        _imp->dashboard->refreshRecentProjects();
+    }
 }
 
 void
@@ -446,10 +450,14 @@ GuiApplicationManager::handleImageFileOpenRequest(const std::string& filename)
 void
 GuiApplicationManager::handleOpenFileRequest()
 {
-    AppInstancePtr mainApp = getAppInstance(0);
+    AppInstancePtr mainApp = getTopLevelInstance();
+    if (!mainApp) {
+        // Only the dashboard is open: open the file in a new project window.
+        CLArgs cl;
+        mainApp = newAppInstance(cl, false);
+    }
     GuiAppInstance* guiApp = dynamic_cast<GuiAppInstance*>( mainApp.get() );
 
-    assert(guiApp);
     if (guiApp) {
         ///Called when double-clicking a file from desktop
         std::string filename = _imp->_openFileRequest.toStdString();
@@ -469,35 +477,7 @@ GuiApplicationManager::onLoadCompleted()
 void
 GuiApplicationManager::exitApp(bool warnUserForSave)
 {
-    ///make a copy of the map because it will be modified when closing projects
-    AppInstanceVec instances = getAppInstances();
-    std::list<GuiAppInstancePtr> guiApps;
-
-    for (AppInstanceVec::const_iterator it = instances.begin(); it != instances.end(); ++it) {
-        GuiAppInstancePtr app = std::dynamic_pointer_cast<GuiAppInstance>(*it);
-        if (app) {
-            guiApps.push_back(app);
-        }
-    }
-
-    std::set<GuiAppInstancePtr> triedInstances;
-    while ( !guiApps.empty() ) {
-        GuiAppInstancePtr app = guiApps.front();
-        if (app) {
-            triedInstances.insert(app);
-            app->getGui()->abortProject(true, warnUserForSave, true);
-        }
-
-        //refreshg ui instances
-        instances = getAppInstances();
-        guiApps.clear();
-        for (AppInstanceVec::const_iterator it = instances.begin(); it != instances.end(); ++it) {
-            GuiAppInstancePtr ga = std::dynamic_pointer_cast<GuiAppInstance>(*it);
-            if ( ga && ( triedInstances.find(ga) == triedInstances.end() ) ) {
-                guiApps.push_back(ga);
-            }
-        }
-    }
+    requestQuit(warnUserForSave);
 }
 
 static bool

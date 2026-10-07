@@ -274,13 +274,15 @@ DocumentationManager::handler(QHttpRequest *req,
                             std::cerr << e.what() << std::endl;
                         }
 
-                        if (plugin) {
-        
-                            CreateNodeArgs args( pluginID.toStdString(), appPTR->getTopLevelInstance()->getProject() );
+                        // No project window open (only the dashboard): no project to create the node in.
+                        AppInstancePtr topLevelApp = appPTR->getTopLevelInstance();
+                        if (plugin && topLevelApp) {
+
+                            CreateNodeArgs args( pluginID.toStdString(), topLevelApp->getProject() );
                             args.setProperty<bool>(kCreateNodeArgsPropOutOfProject, true);
                             args.setProperty<bool>(kCreateNodeArgsPropNoNodeGUI, true);
 
-                            NodePtr node = appPTR->getTopLevelInstance()->createNode(args);
+                            NodePtr node = topLevelApp->createNode(args);
                             // IMPORTANT: this code is *very* similar to AppInstance::exportDocs
                             if ( node &&
                                  pluginID != QString::fromUtf8(PLUGINID_NATRON_READ) &&

@@ -208,6 +208,7 @@ SOURCES += \
     SpinBoxValidator.cpp \
     SplashScreen.cpp \
     StateBindingTab.cpp \
+    DashboardWindow.cpp \
     ../Custom/server/HttpServer.cpp \
     ../Custom/state/StateStore.cpp \
     ../Custom/state/Json.cpp \
@@ -350,6 +351,7 @@ HEADERS += \
     SpinBoxValidator.h \
     SplashScreen.h \
     StateBindingTab.h \
+    DashboardWindow.h \
     ../Custom/server/HttpServer.h \
     ../Custom/state/StateStore.h \
     ../Custom/state/Json.h \

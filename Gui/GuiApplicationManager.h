@@ -117,6 +117,19 @@ public:
 
     void updateAllRecentFileMenus();
 
+    // Dashboard (start window) actions: each opens a project in a new window.
+    void newProjectWindow();
+    void openProjectWindow(const QString& filename);
+
+    /**
+     * @brief Closes every project window (asking to save if warnUserForSave)
+     * and quits the application. Returns false if the user cancelled.
+     **/
+    bool requestQuit(bool warnUserForSave);
+
+    virtual bool showStartWindow() OVERRIDE FINAL;
+    virtual bool onLastInstanceClosed() OVERRIDE FINAL;
+
     bool isSplashcreenVisible() const;
 
     virtual void hideSplashScreen() OVERRIDE FINAL;

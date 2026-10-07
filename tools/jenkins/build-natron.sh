@@ -292,7 +292,9 @@ if [ "$NO_BUILD" != "1" ]; then
     echo "env CFLAGS=\"${BF:-}\" CXXFLAGS=\"${BF:-}\" \"$QMAKE\" -r CONFIG+=\"$COMPILE_TYPE\" QMAKE_CC=\"$CC\" QMAKE_CXX=\"$CXX\" QMAKE_LINK=\"$CXX\" QMAKE_OBJECTIVE_CC=\"$OBJECTIVE_CC\" QMAKE_OBJECTIVE_CXX=\"$OBJECTIVE_CXX\" ${QMAKE_FLAGS_EXTRA[*]} ${PYO:-} ../Project.pro"
     env CFLAGS="${BF:-}" CXXFLAGS="${BF:-}" "$QMAKE" -r CONFIG+="$COMPILE_TYPE" QMAKE_CC="$CC" QMAKE_CXX="$CXX" QMAKE_LINK="$CXX" QMAKE_OBJECTIVE_CC="$OBJECTIVE_CC" QMAKE_OBJECTIVE_CXX="$OBJECTIVE_CXX" "${QMAKE_FLAGS_EXTRA[@]}" ${PYO:-} "$srcdir"/Project.pro
     make -j"${MKJOBS}"
-    make -j"${MKJOBS}" -C Tests
+    if [ "${SKIP_NATRON_TESTS:-}" != "1" ]; then
+        make -j"${MKJOBS}" -C Tests
+    fi
     if [ "$PKGOS" = "OSX" ]; then
     # the app bundle is wrong when building in parallel
         make -C App clean
@@ -365,7 +367,9 @@ if [ "${MINIMIZE_DISK_USAGE:-}" = "1" ]; then
 fi
 
 
-cp Tests/$NATRON_TEST "$TMP_BINARIES_PATH/bin/"
+if [ "${SKIP_NATRON_TESTS:-}" != "1" ]; then
+    cp Tests/$NATRON_TEST "$TMP_BINARIES_PATH/bin/"
+fi
 TEST_BINARY_TO_RUN="$TMP_BINARIES_PATH/bin/Tests"
 if [ "$PKGOS" = "Windows" ]; then
     TEST_BINARY_TO_RUN="${TEST_BINARY_TO_RUN}.exe"
@@ -470,7 +474,9 @@ if [ "$PKGOS" = "Linux" ]; then
 elif [ "$PKGOS" = "OSX" ]; then
     export FONTCONFIG_FILE="$RES_DIR"/etc/fonts/fonts.conf
 fi
-if [ "$PKGOS" = "Linux" ]; then
+if [ "${SKIP_NATRON_TESTS:-}" = "1" ]; then
+    echo "Skipping Natron unit tests (SKIP_NATRON_TESTS=1)"
+elif [ "$PKGOS" = "Linux" ]; then
     rm -rf "$HOME/.cache/INRIA/Natron"* &> /dev/null || true
     ln -sf "$SDK_HOME"/lib .
     # Note: Several suppression files can be passed to valgrind.

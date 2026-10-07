@@ -23,8 +23,6 @@
 #include <Python.h>
 // ***** END PYTHON BLOCK *****
 #include "NodeSettingsPanel.h"
-#include <QLabel>
-#include <QVBoxLayout>
 
 #include <exception>
 #include <fstream>
@@ -57,6 +55,7 @@
 #include "Gui/NodeGraph.h"
 #include "Gui/NodeGui.h"
 #include "Gui/RotoPanel.h"
+#include "Gui/StateBindingTab.h"
 #include "Gui/TrackerPanel.h"
 
 using std::make_pair;
@@ -164,18 +163,13 @@ NodeSettingsPanel::initializeExtraGui(QVBoxLayout* layout)
         _multiPanel->createMultiInstanceGui(layout);
     }
 
-    QWidget* dynamicTab = new QWidget(this);
-
-    QVBoxLayout* dynamicLayout = new QVBoxLayout(dynamicTab);
-    dynamicLayout->setContentsMargins(4, 4, 4, 4);
-    dynamicLayout->setSpacing(4);
-
-    QLabel* title = new QLabel(tr("Dynamic"), dynamicTab);
-    dynamicLayout->addWidget(title);
-
-    dynamicLayout->addStretch();
-
-    addCustomTab(dynamicTab, tr("Dynamic"));
+    // "State" tab: bind the text of Text nodes to a key of the state store.
+    NodeGuiPtr nodeGui = getNode();
+    NodePtr node = nodeGui ? nodeGui->getNode() : NodePtr();
+    if ( StateBindingTab::isSupportedNode(node) ) {
+        StateBindingTab* stateTab = new StateBindingTab(node, appPTR->getStateStore(), this);
+        addCustomTab(stateTab, tr("State"));
+    }
 }
 
 void

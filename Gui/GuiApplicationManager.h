@@ -39,6 +39,8 @@
 
 #include "Gui/GuiFwd.h"
 
+class StateStore; // Custom/state/StateStore.h
+
 #if defined(appPTR)
 #undef appPTR
 #endif
@@ -188,6 +190,9 @@ public:
     void appendTaskToPreviewThread(const NodeGuiPtr& node, double time);
 
     int getDocumentationServerPort();
+
+    // Key/value store fed by the local HTTP server (POST /state)
+    ::StateStore* getStateStore() const;
 
 #ifdef Q_OS_DARWIN
     void onClickOnDock();

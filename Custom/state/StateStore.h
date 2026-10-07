@@ -1,13 +1,16 @@
 #pragma once
 
 #include <QHash>
+#include <QObject>
 #include <QVariant>
 #include <QStringList>
 
-class StateStore
+class StateStore : public QObject
 {
+  Q_OBJECT
+
 public:
-  StateStore() = default;
+  explicit StateStore(QObject *parent = nullptr);
   ~StateStore() = default;
 
   // Set or overwrite a value.
@@ -33,6 +36,17 @@ public:
 
   // Number of keys currently stored.
   int size() const;
+
+  // Value as display text: scalars via QVariant::toString(),
+  // lists/maps as compact JSON.
+  static QString toText(const QVariant &value);
+
+Q_SIGNALS:
+  // A key was set (added or overwritten) or removed.
+  void valueChanged(const QString &key);
+
+  // The set of keys changed (a key was added or removed).
+  void keysChanged();
 
 private:
   QHash<QString, QVariant> m_store;

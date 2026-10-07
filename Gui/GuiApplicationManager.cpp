@@ -1134,6 +1134,12 @@ GuiApplicationManager::getDocumentationServerPort()
     return _imp->documentation->serverPort();
 }
 
+::StateStore*
+GuiApplicationManager::getStateStore() const
+{
+    return &_imp->stateStore;
+}
+
 double
 GuiApplicationManager::getLogicalDPIXRATIO() const
 {

@@ -1922,6 +1922,8 @@ struct ManageUserParamsDialogPrivate {
     void rebuildUserPages();
 };
 
+NATRON_NAMESPACE_ANONYMOUS_EXIT
+
 void
 DockablePanel::addCustomTab(QWidget* widget, const QString& label)
 {
@@ -1937,8 +1939,6 @@ DockablePanel::addCustomTab(QWidget* widget, const QString& label)
 
     _imp->_tabWidget->addTab(widget, label);
 }
-
-NATRON_NAMESPACE_ANONYMOUS_EXIT
 
 NATRON_NAMESPACE_EXIT
 

@@ -51,6 +51,7 @@ CLANG_DIAG_ON(uninitialized)
 #include "Gui/PreviewThread.h"
 
 #include "Custom/server/HttpServer.h"
+#include "Custom/state/StateStore.h"
 
 NATRON_NAMESPACE_ENTER
 
@@ -88,6 +89,7 @@ struct GuiApplicationManagerPrivate
     PreviewThread previewRenderThread;
     int dpiX, dpiY;
     std::unique_ptr<DocumentationManager> documentation;
+    StateStore stateStore;
     std::unique_ptr<HttpServer> httpServer;
 
 

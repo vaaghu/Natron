@@ -21,8 +21,8 @@
 #   BUILD_TO            last step: 3 = stop after compiling Natron, 4 = also make the
 #                       portable archive (default: 4)
 #
-# QT_VERSION_MAJOR is forced to 5: the build scripts only pick Qt5 for branches
-# named RB-2.6..RB-2.9 and would otherwise fall back to Qt4 for this branch.
+# QT_VERSION_MAJOR  Qt to build against: 4 (default) or 5. Set explicitly because
+#                   the build scripts pick it from the branch name.
 #
 # To start from scratch: sudo rm -rf "$NATRON_BUILD_CACHE" (files are owned by root).
 
@@ -44,7 +44,7 @@ docker run --rm -it \
     --env GIT_URL=https://github.com/vaaghu/Natron.git \
     --env GIT_URL_IS_NATRON=1 \
     --env GIT_BRANCH="$(git -C "$SRC" rev-parse --abbrev-ref HEAD)" \
-    --env QT_VERSION_MAJOR=5 \
+    --env QT_VERSION_MAJOR="${QT_VERSION_MAJOR:-4}" \
     --env UNIT_TESTS=false \
     --env SKIP_NATRON_TESTS=1 \
     --env DEBUG_SCRIPTS=1 \

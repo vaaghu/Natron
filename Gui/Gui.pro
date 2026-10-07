@@ -210,6 +210,7 @@ SOURCES += \
     StateBindingTab.cpp \
     ../Custom/server/HttpServer.cpp \
     ../Custom/state/StateStore.cpp \
+    ../Custom/state/Json.cpp \
     Splitter.cpp \
     TabGroup.cpp \
     TabWidget.cpp \
@@ -351,6 +352,7 @@ HEADERS += \
     StateBindingTab.h \
     ../Custom/server/HttpServer.h \
     ../Custom/state/StateStore.h \
+    ../Custom/state/Json.h \
     Splitter.h \
     TabGroup.h \
     TabWidget.h \

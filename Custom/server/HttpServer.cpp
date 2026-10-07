@@ -1,12 +1,11 @@
 
 #include "HttpServer.h"
+#include "../state/Json.h"
 #include "../state/StateStore.h"
 
 #include <QDebug>
-#include <QJsonDocument>
-#include <QJsonObject>
-#include <QJsonParseError>
 #include <QList>
+#include <QVariantMap>
 
 namespace
 {
@@ -24,9 +23,9 @@ HttpServer::HttpServer(
 {
   connect(
       &m_server,
-      &QTcpServer::newConnection,
+      SIGNAL(newConnection()),
       this,
-      &HttpServer::onNewConnection);
+      SLOT(onNewConnection()));
 }
 
 HttpServer::~HttpServer()
@@ -65,15 +64,15 @@ void HttpServer::onNewConnection()
 
     connect(
         socket,
-        &QTcpSocket::readyRead,
+        SIGNAL(readyRead()),
         this,
-        &HttpServer::onReadyRead);
+        SLOT(onReadyRead()));
 
     connect(
         socket,
-        &QTcpSocket::disconnected,
+        SIGNAL(disconnected()),
         this,
-        &HttpServer::onDisconnected);
+        SLOT(onDisconnected()));
   }
 }
 
@@ -215,10 +214,10 @@ void HttpServer::handleRequest(
 // Body: a JSON object; every key/value pair is written into the store.
 void HttpServer::handleSetState(QTcpSocket *socket, const QByteArray &body)
 {
-  QJsonParseError error;
-  const QJsonDocument doc = QJsonDocument::fromJson(body, &error);
+  bool ok = false;
+  const QVariant doc = Json::parse(body, &ok);
 
-  if (error.error != QJsonParseError::NoError || !doc.isObject())
+  if (!ok || doc.type() != QVariant::Map)
   {
     sendResponse(
         socket,
@@ -230,22 +229,19 @@ void HttpServer::handleSetState(QTcpSocket *socket, const QByteArray &body)
     return;
   }
 
-  const QJsonObject object = doc.object();
+  const QVariantMap object = doc.toMap();
 
-  for (QJsonObject::const_iterator it = object.constBegin(); it != object.constEnd(); ++it)
+  for (QVariantMap::const_iterator it = object.constBegin(); it != object.constEnd(); ++it)
   {
-    m_store.set(it.key(), it.value().toVariant());
+    m_store.set(it.key(), it.value());
   }
-
-  QJsonObject result;
-  result.insert(QStringLiteral("saved"), object.size());
 
   sendResponse(
       socket,
       200,
       "OK",
       "application/json",
-      QJsonDocument(result).toJson(QJsonDocument::Compact));
+      "{\"saved\":" + QByteArray::number(object.size()) + "}");
 }
 
 void HttpServer::sendResponse(

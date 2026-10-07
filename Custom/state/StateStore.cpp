@@ -1,6 +1,6 @@
 #include "StateStore.h"
 
-#include <QJsonDocument>
+#include "Json.h"
 
 StateStore::StateStore(QObject *parent)
     : QObject(parent)
@@ -77,12 +77,11 @@ int StateStore::size() const
 
 QString StateStore::toText(const QVariant &value)
 {
-  const int type = value.userType();
+  const QVariant::Type type = value.type();
 
-  if (type == QMetaType::QVariantList || type == QMetaType::QVariantMap)
+  if (type == QVariant::List || type == QVariant::Map)
   {
-    return QString::fromUtf8(
-        QJsonDocument::fromVariant(value).toJson(QJsonDocument::Compact));
+    return QString::fromUtf8(Json::serialize(value));
   }
 
   return value.toString();

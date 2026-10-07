@@ -3,6 +3,8 @@ add_library(NatronCustom STATIC
     server/HttpServer.cpp
     state/StateStore.h
     state/StateStore.cpp
+    state/Json.h
+    state/Json.cpp
 )
 target_link_libraries(NatronCustom
     PUBLIC

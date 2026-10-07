@@ -35,7 +35,6 @@ CLANG_DIAG_OFF(uninitialized)
 #include <QLabel>
 #include <QLineEdit>
 #include <QPushButton>
-#include <QSignalBlocker>
 #include <QVBoxLayout>
 CLANG_DIAG_ON(deprecated)
 CLANG_DIAG_ON(uninitialized)
@@ -101,6 +100,7 @@ StateBindingTab::StateBindingTab(const NodePtr& node,
     form->addRow(tr("Key"), keyRow);
 
     _valueLabel = new QLabel(this);
+    _valueLabel->setTextFormat(Qt::PlainText);
     _valueLabel->setWordWrap(true);
     _valueLabel->setTextInteractionFlags(Qt::TextSelectableByMouse);
     form->addRow(tr("Value"), _valueLabel);
@@ -136,8 +136,9 @@ StateBindingTab::setBoundKey(const QString& key)
     const QString trimmed = key.trimmed();
 
     if ( _keyCombo->currentText() != trimmed ) {
-        QSignalBlocker blocker(_keyCombo);
+        const bool wasBlocked = _keyCombo->blockSignals(true);
         _keyCombo->setEditText(trimmed);
+        _keyCombo->blockSignals(wasBlocked);
     }
 
     if (trimmed == _boundKey) {
@@ -189,11 +190,12 @@ StateBindingTab::refreshKeyList()
     keys.sort();
 
     // Rebuilding the list must not change the key being typed/bound.
-    QSignalBlocker blocker(_keyCombo);
+    const bool wasBlocked = _keyCombo->blockSignals(true);
     const QString current = _keyCombo->currentText();
     _keyCombo->clear();
     _keyCombo->addItems(keys);
     _keyCombo->setEditText(current);
+    _keyCombo->blockSignals(wasBlocked);
 }
 
 void
@@ -202,11 +204,11 @@ StateBindingTab::refreshPreview()
     _unbindButton->setEnabled( !_boundKey.isEmpty() );
 
     if ( _boundKey.isEmpty() ) {
-        _valueLabel->setText( tr("<i>Not bound</i>") );
+        _valueLabel->setText( tr("Not bound") );
     } else if ( !_store || !_store->has(_boundKey) ) {
-        _valueLabel->setText( tr("<i>Key not in store yet; text will update when it is set.</i>") );
+        _valueLabel->setText( tr("Key not in store yet; text will update when it is set.") );
     } else {
-        _valueLabel->setText( ::StateStore::toText( _store->get(_boundKey) ).toHtmlEscaped() );
+        _valueLabel->setText( ::StateStore::toText( _store->get(_boundKey) ) );
     }
 }
 

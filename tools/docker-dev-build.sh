@@ -18,6 +18,9 @@
 #   MKJOBS              parallel jobs (default: 2)
 #   BUILD_GMIC=0        do not build the G'MIC plug-ins (also BUILD_IO, BUILD_MISC, BUILD_ARENA)
 #
+#   BUILD_NAME          output folder name (default: natron-<branch>)
+#   BUILD_NUMBER        output sub-folder (default: date-time, e.g. 20261008-1530);
+#                       the archive lands in builds_archive/<BUILD_NAME>/<BUILD_NUMBER>/
 #   BUILD_TO            last step: 3 = stop after compiling Natron, 4 = also make the
 #                       portable archive (default: 4)
 #
@@ -45,6 +48,8 @@ docker run --rm -it \
     --env GIT_URL_IS_NATRON=1 \
     --env GIT_BRANCH="$(git -C "$SRC" rev-parse --abbrev-ref HEAD)" \
     --env QT_VERSION_MAJOR="${QT_VERSION_MAJOR:-4}" \
+    --env BUILD_NAME="${BUILD_NAME:-natron-$(git -C "$SRC" rev-parse --abbrev-ref HEAD)}" \
+    --env BUILD_NUMBER="${BUILD_NUMBER:-$(date +%Y%m%d-%H%M)}" \
     --env UNIT_TESTS=false \
     --env SKIP_NATRON_TESTS=1 \
     --env DEBUG_SCRIPTS=1 \

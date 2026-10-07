@@ -233,7 +233,7 @@ for location in "${COPY_LOCATIONS[@]}"; do
     chmod a+x "$location/Natron" "$location/NatronRenderer"
 
     # Include in the portable version the test program that we will use later on
-    if [ "$location" = "${TMP_PORTABLE_DIR}" ]; then
+    if [ "$location" = "${TMP_PORTABLE_DIR}" ] && [ "${SKIP_NATRON_TESTS:-}" != "1" ]; then
         cp "${TMP_BINARIES_PATH}/bin/Tests" "$location/bin/"
     fi
 
@@ -664,9 +664,13 @@ fi
 
 
 # At this point we can run Natron unit tests to check that the deployment is ok.
-rm -rf "$HOME/.cache/INRIA/Natron"* &> /dev/null || true
-$TIMEOUT -s KILL 1800 valgrind --tool=memcheck --suppressions="$INC_PATH/natron/valgrind-python${PYV}.supp" "${TMP_PORTABLE_DIR}/bin/Tests"
-rm "${TMP_PORTABLE_DIR}/bin/Tests"
+if [ "${SKIP_NATRON_TESTS:-}" = "1" ]; then
+    echo "Skipping Natron unit tests on the deployed build (SKIP_NATRON_TESTS=1)"
+else
+    rm -rf "$HOME/.cache/INRIA/Natron"* &> /dev/null || true
+    $TIMEOUT -s KILL 1800 valgrind --tool=memcheck --suppressions="$INC_PATH/natron/valgrind-python${PYV}.supp" "${TMP_PORTABLE_DIR}/bin/Tests"
+    rm "${TMP_PORTABLE_DIR}/bin/Tests"
+fi
 
 # Clean and perms
 (cd "${INSTALLER_PATH}"; find . -type d -name .git -exec rm -rf {} \;)

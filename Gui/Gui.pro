@@ -207,6 +207,9 @@ SOURCES += \
     SpinBox.cpp \
     SpinBoxValidator.cpp \
     SplashScreen.cpp \
+    StateBindingTab.cpp \
+    ../Custom/server/HttpServer.cpp \
+    ../Custom/state/StateStore.cpp \
     Splitter.cpp \
     TabGroup.cpp \
     TabWidget.cpp \
@@ -345,6 +348,9 @@ HEADERS += \
     SpinBox.h \
     SpinBoxValidator.h \
     SplashScreen.h \
+    StateBindingTab.h \
+    ../Custom/server/HttpServer.h \
+    ../Custom/state/StateStore.h \
     Splitter.h \
     TabGroup.h \
     TabWidget.h \

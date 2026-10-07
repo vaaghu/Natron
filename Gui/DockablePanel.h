@@ -32,9 +32,9 @@
 
 CLANG_DIAG_OFF(deprecated)
 CLANG_DIAG_OFF(uninitialized)
+#include <QDialog>
 #include <QFrame>
 #include <QTabWidget>
-#include <QDialog>
 CLANG_DIAG_ON(deprecated)
 CLANG_DIAG_ON(uninitialized)
 
@@ -53,17 +53,14 @@ NATRON_NAMESPACE_ENTER
  **/
 struct DockablePanelPrivate;
 class DockablePanel
-    : public QFrame
-      , public KnobGuiContainerHelper
-{
-GCC_DIAG_SUGGEST_OVERRIDE_OFF
+    : public QFrame,
+      public KnobGuiContainerHelper {
+    GCC_DIAG_SUGGEST_OVERRIDE_OFF
     Q_OBJECT
-GCC_DIAG_SUGGEST_OVERRIDE_ON
+    GCC_DIAG_SUGGEST_OVERRIDE_ON
 
 public:
-
-    enum HeaderModeEnum
-    {
+    enum HeaderModeEnum {
         eHeaderModeFullyFeatured = 0,
         eHeaderModeReadOnlyName,
         eHeaderModeNoHeader
@@ -75,11 +72,13 @@ public:
                            HeaderModeEnum headerMode,
                            bool useScrollAreasForTabs,
                            const QUndoStackPtr& stack,
-                           const QString & initialName = QString(),
-                           const QString & helpToolTip = QString(),
-                           QWidget *parent = 0);
+                           const QString& initialName = QString(),
+                           const QString& helpToolTip = QString(),
+                           QWidget* parent = 0);
 
     virtual ~DockablePanel() OVERRIDE;
+
+    void addCustomTab(QWidget* widget, const QString& label);
 
     bool isMinimized() const;
     QVBoxLayout* getContainer() const;
@@ -100,14 +99,14 @@ public:
 
     QWidget* getHeaderWidget() const;
 
-    ///MT-safe
+    /// MT-safe
     virtual QColor getCurrentColor() const
     {
         return Qt::black;
     }
 
-    ///MT-safe
-    void setCurrentColor(const QColor & c);
+    /// MT-safe
+    void setCurrentColor(const QColor& c);
 
     void setOverlayColor(const QColor& c);
 
@@ -127,9 +126,7 @@ public:
 
     void onGuiClosing();
 
-
     virtual Gui* getGui() const OVERRIDE FINAL WARN_UNUSED_RETURN;
-
 
     FloatingWidget* getFloatingWindow() const;
 
@@ -137,8 +134,6 @@ public:
     void restoreMinimizedState(bool minimized);
 
 public:
-
-
     /**
      * @brief When called, all knobs will go into the same page which will appear as a plain Widget and not as a tab
      **/
@@ -155,11 +150,9 @@ public:
     virtual bool isPagingEnabled() const OVERRIDE FINAL;
     virtual bool useScrollAreaForTabs() const OVERRIDE FINAL;
     virtual void onKnobsInitialized() OVERRIDE FINAL;
-
     virtual void setPyPlugUIEnabled(bool enabled);
 
 private:
-
     virtual void refreshUndoRedoButtonsEnabledNess(bool canUndo, bool canRedo) OVERRIDE FINAL;
     virtual QWidget* createKnobHorizontalFieldContainer(QWidget* parent) const OVERRIDE FINAL;
     virtual QWidget* getPagesContainer() const OVERRIDE FINAL;
@@ -185,8 +178,8 @@ public Q_SLOTS:
     /*Internal slot, not meant to be called externally.*/
     void showHelp();
 
-    ///Set the name on the line-edit/label header
-    void setName(const QString & str);
+    /// Set the name on the line-edit/label header
+    void setName(const QString& str);
 
     /*Internal slot, not meant to be called externally.*/
     void onUndoClicked();
@@ -204,13 +197,13 @@ public Q_SLOTS:
 
     void onOverlayButtonClicked();
 
-    void onColorDialogColorChanged(const QColor & color);
+    void onColorDialogColorChanged(const QColor& color);
 
     void onOverlayColorDialogColorChanged(const QColor& color);
 
     void setClosed(bool closed);
 
-    void onRightClickMenuRequested(const QPoint & pos);
+    void onRightClickMenuRequested(const QPoint& pos);
 
     void setKeyOnAllParameters();
     void removeAnimationOnAllParameters();
@@ -226,7 +219,6 @@ public Q_SLOTS:
     void onEnterInGroupClicked();
 
     void onSubGraphEditionChanged(bool editable);
-
 
 Q_SIGNALS:
 
@@ -253,11 +245,10 @@ Q_SIGNALS:
     void colorChanged(QColor);
 
 protected:
-
     /**
      * @brief Called when the "center on..." button is clicked
      **/
-    virtual void centerOnItem() {}
+    virtual void centerOnItem() { }
 
     virtual RotoPanel* initializeRotoPanel()
     {
@@ -274,7 +265,6 @@ protected:
     }
 
 private:
-
     void setClosedInternal(bool c);
 
     void initializeKnobsInternal();

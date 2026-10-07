@@ -32,10 +32,10 @@
 
 CLANG_DIAG_OFF(deprecated)
 CLANG_DIAG_OFF(uninitialized)
-#include <QtCore/QMutex>
+#include <QDialog>
 #include <QFrame>
 #include <QTabWidget>
-#include <QDialog>
+#include <QtCore/QMutex>
 CLANG_DIAG_ON(deprecated)
 CLANG_DIAG_ON(uninitialized)
 
@@ -43,15 +43,14 @@ CLANG_DIAG_ON(uninitialized)
 
 #include "Engine/DockablePanelI.h"
 
-#include "Gui/DockablePanel.h"
 #include "Gui/Button.h"
+#include "Gui/DockablePanel.h"
 #include "Gui/GuiFwd.h"
+#include <vector>
 
 NATRON_NAMESPACE_ENTER
 
-
-struct DockablePanelPrivate
-{
+struct DockablePanelPrivate {
     DockablePanel* _publicInterface;
     Gui* _gui;
     QVBoxLayout* _container; /*!< ptr to the layout containing this DockablePanel*/
@@ -61,7 +60,7 @@ struct DockablePanelPrivate
 
     /*Header related*/
     QFrame* _headerWidget;
-    QHBoxLayout *_headerLayout;
+    QHBoxLayout* _headerLayout;
     LineEdit* _nameLineEdit; /*!< if the name is editable*/
     Label* _nameLabel; /*!< if the name is read-only*/
     QHBoxLayout* _horizLayout;
@@ -91,8 +90,8 @@ struct DockablePanelPrivate
     bool _floating; /*!< true if the panel is floating*/
     FloatingWidget* _floatingWidget;
 
-    ///THe visibility of the knobs before the hide/show unmodified button is clicked
-    ///to show only the knobs that need to afterwards
+    /// THe visibility of the knobs before the hide/show unmodified button is clicked
+    /// to show only the knobs that need to afterwards
     typedef std::map<KnobGuiWPtr, bool, std::owner_less<KnobGuiWPtr>> KnobGuisMap;
     KnobGuisMap _knobsVisibilityBeforeHideModif;
     KnobHolder* _holder;
@@ -108,6 +107,13 @@ struct DockablePanelPrivate
     TrackerPanel* _trackerPanel;
     Label* _iconLabel;
 
+    struct CustomTab {
+        QWidget* widget;
+        QString label;
+    };
+
+    std::vector<CustomTab> _customTabs;
+
     DockablePanelPrivate(DockablePanel* publicI,
                          Gui* gui,
                          KnobHolder* holder,
@@ -118,24 +124,20 @@ struct DockablePanelPrivate
 };
 
 class OverlayColorButton
-    : public Button
-{
-GCC_DIAG_SUGGEST_OVERRIDE_OFF
+    : public Button {
+    GCC_DIAG_SUGGEST_OVERRIDE_OFF
     Q_OBJECT
-GCC_DIAG_SUGGEST_OVERRIDE_ON
+    GCC_DIAG_SUGGEST_OVERRIDE_ON
 
 private:
     DockablePanel* _panel;
 
 public:
-
-
     OverlayColorButton(DockablePanel* panel,
                        const QIcon& icon,
                        QWidget* parent);
 
 private:
-
     virtual void mousePressEvent(QMouseEvent* e) OVERRIDE FINAL;
 };
 

@@ -35,18 +35,18 @@ GCC_DIAG_UNUSED_PRIVATE_FIELD_OFF
 // /opt/local/include/QtGui/qmime.h:119:10: warning: private field 'type' is not used [-Wunused-private-field]
 #include <QMouseEvent>
 GCC_DIAG_UNUSED_PRIVATE_FIELD_ON
+#include <QDesktopServices>
 #include <QHBoxLayout>
+#include <QTextDocument>
 #include <QVBoxLayout>
 #include <QtCore/QFile>
 #include <QtCore/QTextStream>
-#include <QDesktopServices>
-#include <QTextDocument>
 
 #include <ofxNatron.h>
 
+#include "Engine/GroupOutput.h"
 #include "Engine/Image.h" // Image::clamp
 #include "Engine/KnobTypes.h" // KnobButton
-#include "Engine/GroupOutput.h"
 #include "Engine/Node.h"
 #include "Engine/NodeGroup.h"
 #include "Engine/NodeGuiI.h"
@@ -79,8 +79,8 @@ GCC_DIAG_UNUSED_PRIVATE_FIELD_ON
 #include "Gui/NodeGraphUndoRedo.h" // RenameNodeUndoRedoCommand
 #include "Gui/NodeGui.h"
 #include "Gui/NodeSettingsPanel.h"
-#include "Gui/RightClickableWidget.h"
 #include "Gui/PropertiesBinWrapper.h"
+#include "Gui/RightClickableWidget.h"
 #include "Gui/RotoPanel.h"
 #include "Gui/TabGroup.h"
 #include "Gui/TabWidget.h"
@@ -91,7 +91,6 @@ GCC_DIAG_UNUSED_PRIVATE_FIELD_ON
 
 using std::make_pair;
 
-
 NATRON_NAMESPACE_ENTER
 
 // called by NodeSettingsPanel::NodeSettingsPanel()
@@ -101,12 +100,12 @@ DockablePanel::DockablePanel(Gui* gui,
                              HeaderModeEnum headerMode,
                              bool useScrollAreasForTabs,
                              const QUndoStackPtr& stack,
-                             const QString & initialName,
-                             const QString & helpToolTip,
-                             QWidget *parent)
+                             const QString& initialName,
+                             const QString& helpToolTip,
+                             QWidget* parent)
     : QFrame(parent)
     , KnobGuiContainerHelper(holder, stack)
-    , _imp( new DockablePanelPrivate(this, gui, holder, container, headerMode, useScrollAreasForTabs, helpToolTip) )
+    , _imp(new DockablePanelPrivate(this, gui, holder, container, headerMode, useScrollAreasForTabs, helpToolTip))
 {
     setContainerWidget(this);
 
@@ -126,7 +125,7 @@ DockablePanel::DockablePanel(Gui* gui,
     EffectInstance* isEffect = dynamic_cast<EffectInstance*>(holder);
     QString pluginLabelVersioned;
     if (isEffect) {
-        if ( dynamic_cast<GroupOutput*>(isEffect) ) {
+        if (dynamic_cast<GroupOutput*>(isEffect)) {
             headerMode = eHeaderModeReadOnlyName;
         }
         // if this is a Read or Write plugin, get the info from the embedded plugin
@@ -134,11 +133,10 @@ DockablePanel::DockablePanel(Gui* gui,
         nodeForDocumentation = node;
         if (node) {
             const std::string pluginID = isEffect->getPluginID();
-            if (pluginID == PLUGINID_NATRON_READ ||
-                pluginID == PLUGINID_NATRON_WRITE) {
+            if (pluginID == PLUGINID_NATRON_READ || pluginID == PLUGINID_NATRON_WRITE) {
                 EffectInstancePtr effectInstance = node->getEffectInstance();
-                if ( effectInstance && effectInstance->isReader() ) {
-                    ReadNode* isReadNode = dynamic_cast<ReadNode*>( effectInstance.get() );
+                if (effectInstance && effectInstance->isReader()) {
+                    ReadNode* isReadNode = dynamic_cast<ReadNode*>(effectInstance.get());
 
                     if (isReadNode) {
                         NodePtr subnode = isReadNode->getEmbeddedReader();
@@ -146,8 +144,8 @@ DockablePanel::DockablePanel(Gui* gui,
                             nodeForDocumentation = subnode;
                         }
                     }
-                } else if ( effectInstance && effectInstance->isWriter() ) {
-                    WriteNode* isWriteNode = dynamic_cast<WriteNode*>( effectInstance.get() );
+                } else if (effectInstance && effectInstance->isWriter()) {
+                    WriteNode* isWriteNode = dynamic_cast<WriteNode*>(effectInstance.get());
 
                     if (isWriteNode) {
                         NodePtr subnode = isWriteNode->getEmbeddedWriter();
@@ -160,7 +158,7 @@ DockablePanel::DockablePanel(Gui* gui,
 
             const Plugin* plugin = nodeForDocumentation->getPlugin();
             if (plugin) {
-                _imp->_helpToolTip = QString::fromUtf8( nodeForDocumentation->getPluginDescription().c_str() );
+                _imp->_helpToolTip = QString::fromUtf8(nodeForDocumentation->getPluginDescription().c_str());
                 _imp->_pluginLabel = plugin->getPluginLabel();
                 _imp->_pluginID = plugin->getPluginID();
                 _imp->_pluginVersionMajor = plugin->getMajorVersion();
@@ -178,8 +176,8 @@ DockablePanel::DockablePanel(Gui* gui,
         }
     }
 
-    const QSize mediumBSize( TO_DPIX(NATRON_MEDIUM_BUTTON_SIZE), TO_DPIY(NATRON_MEDIUM_BUTTON_SIZE) );
-    const QSize mediumIconSize( TO_DPIX(NATRON_MEDIUM_BUTTON_ICON_SIZE), TO_DPIY(NATRON_MEDIUM_BUTTON_ICON_SIZE) );
+    const QSize mediumBSize(TO_DPIX(NATRON_MEDIUM_BUTTON_SIZE), TO_DPIY(NATRON_MEDIUM_BUTTON_SIZE));
+    const QSize mediumIconSize(TO_DPIX(NATRON_MEDIUM_BUTTON_ICON_SIZE), TO_DPIY(NATRON_MEDIUM_BUTTON_ICON_SIZE));
     int iconSize = TO_DPIX(NATRON_MEDIUM_BUTTON_ICON_SIZE);
     QColor currentColor;
     if (headerMode != eHeaderModeNoHeader) {
@@ -192,21 +190,20 @@ DockablePanel::DockablePanel(Gui* gui,
         _imp->_headerWidget->setLayout(_imp->_headerLayout);
 
         if (isEffect) {
-            _imp->_iconLabel = new Label( getHeaderWidget() );
+            _imp->_iconLabel = new Label(getHeaderWidget());
             _imp->_iconLabel->setContentsMargins(2, 2, 2, 2);
             _imp->_iconLabel->setToolTip(pluginLabelVersioned);
             _imp->_headerLayout->addWidget(_imp->_iconLabel);
-
 
             std::string iconFilePath;
             if (nodeForDocumentation) {
                 iconFilePath = nodeForDocumentation->getPluginIconFilePath();
             }
-            if ( !iconFilePath.empty() ) {
+            if (!iconFilePath.empty()) {
                 QPixmap ic;
-                if ( ic.load( QString::fromUtf8( iconFilePath.c_str() ) ) ) {
+                if (ic.load(QString::fromUtf8(iconFilePath.c_str()))) {
                     int size = TO_DPIX(NATRON_MEDIUM_BUTTON_ICON_SIZE);
-                    if (std::max( ic.width(), ic.height() ) != size) {
+                    if (std::max(ic.width(), ic.height()) != size) {
                         ic = ic.scaled(size, size, Qt::KeepAspectRatio, Qt::SmoothTransformation);
                     }
                     _imp->_iconLabel->setPixmap(ic);
@@ -217,40 +214,39 @@ DockablePanel::DockablePanel(Gui* gui,
                 _imp->_iconLabel->hide();
             }
 
-
             QPixmap pixCenter;
             appPTR->getIcon(NATRON_PIXMAP_VIEWER_CENTER, iconSize, &pixCenter);
-            _imp->_centerNodeButton = new Button( QIcon(pixCenter), QString(), getHeaderWidget() );
+            _imp->_centerNodeButton = new Button(QIcon(pixCenter), QString(), getHeaderWidget());
             _imp->_centerNodeButton->setFixedSize(mediumBSize);
             _imp->_centerNodeButton->setIconSize(mediumIconSize);
-            _imp->_centerNodeButton->setToolTip( NATRON_NAMESPACE::convertFromPlainText(tr("Centers the node graph on this item."), NATRON_NAMESPACE::WhiteSpaceNormal) );
+            _imp->_centerNodeButton->setToolTip(NATRON_NAMESPACE::convertFromPlainText(tr("Centers the node graph on this item."), NATRON_NAMESPACE::WhiteSpaceNormal));
             _imp->_centerNodeButton->setFocusPolicy(Qt::NoFocus);
-            QObject::connect( _imp->_centerNodeButton, SIGNAL(clicked()), this, SLOT(onCenterButtonClicked()) );
+            QObject::connect(_imp->_centerNodeButton, SIGNAL(clicked()), this, SLOT(onCenterButtonClicked()));
             _imp->_headerLayout->addWidget(_imp->_centerNodeButton);
 
             NodeGroup* isGroup = dynamic_cast<NodeGroup*>(isEffect);
-            if ( isGroup && (isGroup->getPluginID() == PLUGINID_NATRON_GROUP) ) {
+            if (isGroup && (isGroup->getPluginID() == PLUGINID_NATRON_GROUP)) {
                 QPixmap enterPix;
                 appPTR->getIcon(NATRON_PIXMAP_ENTER_GROUP, iconSize, &enterPix);
                 _imp->_enterInGroupButton = new Button(QIcon(enterPix), QString(), _imp->_headerWidget);
-                QObject::connect( _imp->_enterInGroupButton, SIGNAL(clicked(bool)), this, SLOT(onEnterInGroupClicked()) );
-                QObject::connect( isGroup, SIGNAL(graphEditableChanged(bool)), this, SLOT(onSubGraphEditionChanged(bool)) );
+                QObject::connect(_imp->_enterInGroupButton, SIGNAL(clicked(bool)), this, SLOT(onEnterInGroupClicked()));
+                QObject::connect(isGroup, SIGNAL(graphEditableChanged(bool)), this, SLOT(onSubGraphEditionChanged(bool)));
                 _imp->_enterInGroupButton->setFixedSize(mediumBSize);
                 _imp->_enterInGroupButton->setIconSize(mediumIconSize);
                 _imp->_enterInGroupButton->setFocusPolicy(Qt::NoFocus);
-                _imp->_enterInGroupButton->setToolTip( NATRON_NAMESPACE::convertFromPlainText(tr("Pressing this button will show the underlying node graph used for the implementation of this node."), NATRON_NAMESPACE::WhiteSpaceNormal) );
+                _imp->_enterInGroupButton->setToolTip(NATRON_NAMESPACE::convertFromPlainText(tr("Pressing this button will show the underlying node graph used for the implementation of this node."), NATRON_NAMESPACE::WhiteSpaceNormal));
             }
 
             QPixmap pixHelp;
             appPTR->getIcon(NATRON_PIXMAP_HELP_WIDGET, iconSize, &pixHelp);
             _imp->_helpButton = new Button(QIcon(pixHelp), QString(), _imp->_headerWidget);
 
-            _imp->_helpButton->setToolTip( helpString() );
+            _imp->_helpButton->setToolTip(helpString());
             _imp->_helpButton->setFixedSize(mediumBSize);
             _imp->_helpButton->setIconSize(mediumIconSize);
             _imp->_helpButton->setFocusPolicy(Qt::NoFocus);
 
-            QObject::connect( _imp->_helpButton, SIGNAL(clicked()), this, SLOT(showHelp()) );
+            QObject::connect(_imp->_helpButton, SIGNAL(clicked()), this, SLOT(showHelp()));
             QPixmap pixHide, pixShow;
             appPTR->getIcon(NATRON_PIXMAP_UNHIDE_UNMODIFIED, iconSize, &pixShow);
             appPTR->getIcon(NATRON_PIXMAP_HIDE_UNMODIFIED, iconSize, &pixHide);
@@ -258,13 +254,13 @@ DockablePanel::DockablePanel(Gui* gui,
             icHideShow.addPixmap(pixShow, QIcon::Normal, QIcon::Off);
             icHideShow.addPixmap(pixHide, QIcon::Normal, QIcon::On);
             _imp->_hideUnmodifiedButton = new Button(icHideShow, QString(), _imp->_headerWidget);
-            _imp->_hideUnmodifiedButton->setToolTip( NATRON_NAMESPACE::convertFromPlainText(tr("Show/Hide all parameters without modifications."), NATRON_NAMESPACE::WhiteSpaceNormal) );
+            _imp->_hideUnmodifiedButton->setToolTip(NATRON_NAMESPACE::convertFromPlainText(tr("Show/Hide all parameters without modifications."), NATRON_NAMESPACE::WhiteSpaceNormal));
             _imp->_hideUnmodifiedButton->setFocusPolicy(Qt::NoFocus);
             _imp->_hideUnmodifiedButton->setFixedSize(mediumBSize);
             _imp->_hideUnmodifiedButton->setIconSize(mediumIconSize);
             _imp->_hideUnmodifiedButton->setCheckable(true);
             _imp->_hideUnmodifiedButton->setChecked(false);
-            QObject::connect( _imp->_hideUnmodifiedButton, SIGNAL(clicked(bool)), this, SLOT(onHideUnmodifiedButtonClicked(bool)) );
+            QObject::connect(_imp->_hideUnmodifiedButton, SIGNAL(clicked(bool)), this, SLOT(onHideUnmodifiedButtonClicked(bool)));
         }
         QPixmap pixM;
         appPTR->getIcon(NATRON_PIXMAP_MINIMIZE_WIDGET, iconSize, &pixM);
@@ -280,62 +276,60 @@ DockablePanel::DockablePanel(Gui* gui,
         _imp->_minimize->setIconSize(mediumIconSize);
         _imp->_minimize->setCheckable(true);
         _imp->_minimize->setFocusPolicy(Qt::NoFocus);
-        QObject::connect( _imp->_minimize, SIGNAL(toggled(bool)), this, SLOT(minimizeOrMaximize(bool)) );
+        QObject::connect(_imp->_minimize, SIGNAL(toggled(bool)), this, SLOT(minimizeOrMaximize(bool)));
 
         _imp->_floatButton = new Button(QIcon(pixF), QString(), _imp->_headerWidget);
         _imp->_floatButton->setFixedSize(mediumBSize);
         _imp->_floatButton->setIconSize(mediumIconSize);
         _imp->_floatButton->setFocusPolicy(Qt::NoFocus);
-        QObject::connect( _imp->_floatButton, SIGNAL(clicked()), this, SLOT(floatPanel()) );
-
+        QObject::connect(_imp->_floatButton, SIGNAL(clicked()), this, SLOT(floatPanel()));
 
         _imp->_cross = new Button(QIcon(pixC), QString(), _imp->_headerWidget);
         _imp->_cross->setFixedSize(mediumBSize);
         _imp->_cross->setIconSize(mediumIconSize);
         _imp->_cross->setFocusPolicy(Qt::NoFocus);
-        QObject::connect( _imp->_cross, SIGNAL(clicked()), this, SLOT(closePanel()) );
-
+        QObject::connect(_imp->_cross, SIGNAL(clicked()), this, SLOT(closePanel()));
 
         if (node) {
             NodeGuiIPtr gui_i = node->getNodeGui();
             assert(gui_i);
             double r, g, b;
             gui_i->getColor(&r, &g, &b);
-            currentColor.setRgbF( Image::clamp(r, 0., 1.),
-                                  Image::clamp(g, 0., 1.),
-                                  Image::clamp(b, 0., 1.) );
+            currentColor.setRgbF(Image::clamp(r, 0., 1.),
+                                 Image::clamp(g, 0., 1.),
+                                 Image::clamp(b, 0., 1.));
             QPixmap p(NATRON_MEDIUM_BUTTON_ICON_SIZE, NATRON_MEDIUM_BUTTON_ICON_SIZE);
             p.fill(currentColor);
-
 
             _imp->_colorButton = new Button(QIcon(p), QString(), _imp->_headerWidget);
             _imp->_colorButton->setFixedSize(mediumBSize);
             _imp->_colorButton->setIconSize(mediumIconSize);
-            _imp->_colorButton->setToolTip( NATRON_NAMESPACE::convertFromPlainText(tr("Node color in the nodegraph. "
-                                                                              "The default node color is set in the "
-                                                                              "%1 preferences.").arg( QString::fromUtf8(NATRON_APPLICATION_NAME) ),
-                                                                           NATRON_NAMESPACE::WhiteSpaceNormal) );
+            _imp->_colorButton->setToolTip(NATRON_NAMESPACE::convertFromPlainText(tr("Node color in the nodegraph. "
+                                                                                     "The default node color is set in the "
+                                                                                     "%1 preferences.")
+                                                                                      .arg(QString::fromUtf8(NATRON_APPLICATION_NAME)),
+                                                                                  NATRON_NAMESPACE::WhiteSpaceNormal));
             _imp->_colorButton->setFocusPolicy(Qt::NoFocus);
-            QObject::connect( _imp->_colorButton, SIGNAL(clicked()), this, SLOT(onColorButtonClicked()) );
+            QObject::connect(_imp->_colorButton, SIGNAL(clicked()), this, SLOT(onColorButtonClicked()));
 
-            if ( node && !node->isMultiInstance() ) {
-                ///Show timeline keyframe markers to be consistent with the fact that the panel is opened by default
+            if (node && !node->isMultiInstance()) {
+                /// Show timeline keyframe markers to be consistent with the fact that the panel is opened by default
                 node->showKeyframesOnTimeline(true);
             }
 
-
-            if ( node && node->hasOverlay() ) {
+            if (node && node->hasOverlay()) {
                 QPixmap pixOverlay;
                 appPTR->getIcon(NATRON_PIXMAP_OVERLAY, iconSize, &pixOverlay);
                 _imp->_overlayColor.setRgbF(1., 1., 1.);
                 _imp->_overlayButton = new OverlayColorButton(this, QIcon(pixOverlay), _imp->_headerWidget);
                 _imp->_overlayButton->setFixedSize(mediumBSize);
                 _imp->_overlayButton->setIconSize(mediumIconSize);
-                _imp->_overlayButton->setToolTip( NATRON_NAMESPACE::convertFromPlainText(tr("Overlay color in the viewer. "
-                                                                                    "Some plug-ins will use it to change the color of "
-                                                                                    "the overlay."), NATRON_NAMESPACE::WhiteSpaceNormal) );
+                _imp->_overlayButton->setToolTip(NATRON_NAMESPACE::convertFromPlainText(tr("Overlay color in the viewer. "
+                                                                                           "Some plug-ins will use it to change the color of "
+                                                                                           "the overlay."),
+                                                                                        NATRON_NAMESPACE::WhiteSpaceNormal));
                 _imp->_overlayButton->setFocusPolicy(Qt::NoFocus);
-                QObject::connect( _imp->_overlayButton, SIGNAL(clicked()), this, SLOT(onOverlayButtonClicked()) );
+                QObject::connect(_imp->_overlayButton, SIGNAL(clicked()), this, SLOT(onOverlayButtonClicked()));
             }
         }
         QPixmap pixUndo;
@@ -348,7 +342,7 @@ DockablePanel::DockablePanel(Gui* gui,
         _imp->_undoButton = new Button(icUndo, QString(), _imp->_headerWidget);
         _imp->_undoButton->setFixedSize(mediumBSize);
         _imp->_undoButton->setIconSize(mediumIconSize);
-        _imp->_undoButton->setToolTip( NATRON_NAMESPACE::convertFromPlainText(tr("Undo the last change made to this operator."), NATRON_NAMESPACE::WhiteSpaceNormal) );
+        _imp->_undoButton->setToolTip(NATRON_NAMESPACE::convertFromPlainText(tr("Undo the last change made to this operator."), NATRON_NAMESPACE::WhiteSpaceNormal));
         _imp->_undoButton->setEnabled(false);
         _imp->_undoButton->setFocusPolicy(Qt::NoFocus);
         QPixmap pixRedo;
@@ -361,7 +355,7 @@ DockablePanel::DockablePanel(Gui* gui,
         _imp->_redoButton = new Button(icRedo, QString(), _imp->_headerWidget);
         _imp->_redoButton->setFixedSize(mediumBSize);
         _imp->_redoButton->setIconSize(mediumIconSize);
-        _imp->_redoButton->setToolTip( NATRON_NAMESPACE::convertFromPlainText(tr("Redo the last change undone to this operator."), NATRON_NAMESPACE::WhiteSpaceNormal) );
+        _imp->_redoButton->setToolTip(NATRON_NAMESPACE::convertFromPlainText(tr("Redo the last change undone to this operator."), NATRON_NAMESPACE::WhiteSpaceNormal));
         _imp->_redoButton->setEnabled(false);
         _imp->_redoButton->setFocusPolicy(Qt::NoFocus);
 
@@ -372,35 +366,35 @@ DockablePanel::DockablePanel(Gui* gui,
         _imp->_restoreDefaultsButton = new Button(icRestore, QString(), _imp->_headerWidget);
         _imp->_restoreDefaultsButton->setFixedSize(mediumBSize);
         _imp->_restoreDefaultsButton->setIconSize(mediumIconSize);
-        _imp->_restoreDefaultsButton->setToolTip( NATRON_NAMESPACE::convertFromPlainText(tr("Restore default values for this operator."), NATRON_NAMESPACE::WhiteSpaceNormal) );
+        _imp->_restoreDefaultsButton->setToolTip(NATRON_NAMESPACE::convertFromPlainText(tr("Restore default values for this operator."), NATRON_NAMESPACE::WhiteSpaceNormal));
         _imp->_restoreDefaultsButton->setFocusPolicy(Qt::NoFocus);
-        QObject::connect( _imp->_restoreDefaultsButton, SIGNAL(clicked()), this, SLOT(onRestoreDefaultsButtonClicked()) );
-        QObject::connect( _imp->_undoButton, SIGNAL(clicked()), this, SLOT(onUndoClicked()) );
-        QObject::connect( _imp->_redoButton, SIGNAL(clicked()), this, SLOT(onRedoPressed()) );
+        QObject::connect(_imp->_restoreDefaultsButton, SIGNAL(clicked()), this, SLOT(onRestoreDefaultsButtonClicked()));
+        QObject::connect(_imp->_undoButton, SIGNAL(clicked()), this, SLOT(onUndoClicked()));
+        QObject::connect(_imp->_redoButton, SIGNAL(clicked()), this, SLOT(onRedoPressed()));
 
         if (headerMode != eHeaderModeReadOnlyName) {
             _imp->_nameLineEdit = new LineEdit(_imp->_headerWidget);
             if (isEffect) {
-                onNodeScriptChanged( QString::fromUtf8( isEffect->getScriptName().c_str() ) );
-                QObject::connect( node.get(), SIGNAL(scriptNameChanged(QString)), this, SLOT(onNodeScriptChanged(QString)) );
+                onNodeScriptChanged(QString::fromUtf8(isEffect->getScriptName().c_str()));
+                QObject::connect(node.get(), SIGNAL(scriptNameChanged(QString)), this, SLOT(onNodeScriptChanged(QString)));
             }
             _imp->_nameLineEdit->setText(initialName);
-            QObject::connect( _imp->_nameLineEdit, SIGNAL(returnPressed()), this, SLOT(onLineEditNameEditingFinished()) );
+            QObject::connect(_imp->_nameLineEdit, SIGNAL(returnPressed()), this, SLOT(onLineEditNameEditingFinished()));
             _imp->_headerLayout->addWidget(_imp->_nameLineEdit);
         } else {
             _imp->_nameLabel = new Label(initialName, _imp->_headerWidget);
             if (isEffect) {
-                onNodeScriptChanged( QString::fromUtf8( isEffect->getScriptName().c_str() ) );
+                onNodeScriptChanged(QString::fromUtf8(isEffect->getScriptName().c_str()));
             }
             _imp->_headerLayout->addWidget(_imp->_nameLabel);
         }
 
         _imp->_headerLayout->addStretch();
 
-        if ( (headerMode != eHeaderModeReadOnlyName) && _imp->_colorButton ) {
+        if ((headerMode != eHeaderModeReadOnlyName) && _imp->_colorButton) {
             _imp->_headerLayout->addWidget(_imp->_colorButton);
         }
-        if ( (headerMode != eHeaderModeReadOnlyName) && _imp->_overlayButton ) {
+        if ((headerMode != eHeaderModeReadOnlyName) && _imp->_overlayButton) {
             _imp->_headerLayout->addWidget(_imp->_overlayButton);
         }
         _imp->_headerLayout->addWidget(_imp->_undoButton);
@@ -424,7 +418,6 @@ DockablePanel::DockablePanel(Gui* gui,
         _imp->_mainLayout->addWidget(_imp->_headerWidget);
     }
 
-
     _imp->_horizContainer = new QWidget(this);
     _imp->_horizLayout = new QHBoxLayout(_imp->_horizContainer);
     _imp->_horizLayout->setContentsMargins(0, 3, 3, 0);
@@ -447,17 +440,16 @@ DockablePanel::DockablePanel(Gui* gui,
     } else {
         DockablePanelTabWidget* tabWidget = new DockablePanelTabWidget(gui, this);
         _imp->_tabWidget = tabWidget;
-        tabWidget->getTabBar()->setObjectName( QString::fromUtf8("DockablePanelTabWidget") );
+        tabWidget->getTabBar()->setObjectName(QString::fromUtf8("DockablePanelTabWidget"));
         _imp->_tabWidget->setSizePolicy(QSizePolicy::Ignored, QSizePolicy::Preferred);
     }
-    QObject::connect( _imp->_tabWidget, SIGNAL(currentChanged(int)), this, SLOT(onPageIndexChanged(int)) );
+    QObject::connect(_imp->_tabWidget, SIGNAL(currentChanged(int)), this, SLOT(onPageIndexChanged(int)));
     _imp->_horizLayout->addWidget(_imp->_rightContainer);
     _imp->_mainLayout->addWidget(_imp->_horizContainer);
 }
 
 DockablePanel::~DockablePanel()
 {
-    
 }
 
 bool
@@ -476,8 +468,8 @@ QWidget*
 DockablePanel::createKnobHorizontalFieldContainer(QWidget* parent) const
 {
     RightClickableWidget* clickableWidget = new RightClickableWidget(this, parent);
-    QObject::connect( clickableWidget, SIGNAL(rightClicked(QPoint)), this, SLOT(onRightClickMenuRequested(QPoint)) );
-    QObject::connect( clickableWidget, SIGNAL(escapePressed()), this, SLOT(closePanel()) );
+    QObject::connect(clickableWidget, SIGNAL(rightClicked(QPoint)), this, SLOT(onRightClickMenuRequested(QPoint)));
+    QObject::connect(clickableWidget, SIGNAL(escapePressed()), this, SLOT(closePanel()));
     clickableWidget->setFocusPolicy(Qt::NoFocus);
     return clickableWidget;
 }
@@ -496,8 +488,8 @@ QWidget*
 DockablePanel::createPageMainWidget(QWidget* parent) const
 {
     RightClickableWidget* clickableWidget = new RightClickableWidget(this, parent);
-    QObject::connect( clickableWidget, SIGNAL(rightClicked(QPoint)), this, SLOT(onRightClickMenuRequested(QPoint)) );
-    QObject::connect( clickableWidget, SIGNAL(escapePressed()), this, SLOT(closePanel()) );
+    QObject::connect(clickableWidget, SIGNAL(rightClicked(QPoint)), this, SLOT(onRightClickMenuRequested(QPoint)));
+    QObject::connect(clickableWidget, SIGNAL(escapePressed()), this, SLOT(closePanel()));
 
     clickableWidget->setFocusPolicy(Qt::NoFocus);
 
@@ -511,7 +503,7 @@ DockablePanel::onPageLabelChanged(const KnobPageGuiPtr& page)
         int nTabs = _imp->_tabWidget->count();
         for (int i = 0; i < nTabs; ++i) {
             if (_imp->_tabWidget->widget(i) == page->tab) {
-                QString newLabel = QString::fromUtf8( page->pageKnob.lock()->getLabel().c_str() );
+                QString newLabel = QString::fromUtf8(page->pageKnob.lock()->getLabel().c_str());
                 _imp->_tabWidget->setTabText(i, newLabel);
                 break;
             }
@@ -523,7 +515,7 @@ void
 DockablePanel::addPageToPagesContainer(const KnobPageGuiPtr& page)
 {
     if (_imp->_tabWidget) {
-        QString name = QString::fromUtf8( page->pageKnob.lock()->getLabel().c_str() );
+        QString name = QString::fromUtf8(page->pageKnob.lock()->getLabel().c_str());
         _imp->_tabWidget->addTab(page->tab, name);
     } else {
         _imp->_horizLayout->addWidget(page->tab);
@@ -548,18 +540,30 @@ DockablePanel::setPagesOrder(const std::list<KnobPageGuiPtr>& orderedPages,
 {
     _imp->_tabWidget->clear();
 
-
     int index = 0;
     int i = 0;
     for (std::list<KnobPageGuiPtr>::const_iterator it = orderedPages.begin(); it != orderedPages.end(); ++it, ++i) {
-        QString tabName = QString::fromUtf8( (*it)->pageKnob.lock()->getLabel().c_str() );
-        _imp->_tabWidget->addTab( (*it)->tab, tabName );
-        if ( restorePageIndex && (*it == curPage) ) {
+        QString tabName = QString::fromUtf8((*it)->pageKnob.lock()->getLabel().c_str());
+        _imp->_tabWidget->addTab((*it)->tab, tabName);
+        if (restorePageIndex && (*it == curPage)) {
             index = i;
         }
     }
 
-    if ( (index >= 0) && ( index < int( orderedPages.size() ) ) ) {
+    if ((index >= 0) && (index < int(orderedPages.size()))) {
+        _imp->_tabWidget->setCurrentIndex(index);
+    }
+    // Restore custom tabs after Natron's normal node pages.
+    for (std::vector<DockablePanelPrivate::CustomTab>::const_iterator it = _imp->_customTabs.begin();
+         it != _imp->_customTabs.end();
+         ++it) {
+
+        if (it->widget) {
+            _imp->_tabWidget->addTab(it->widget, it->label);
+        }
+    }
+
+    if ((index >= 0) && (index < _imp->_tabWidget->count())) {
         _imp->_tabWidget->setCurrentIndex(index);
     }
 }
@@ -574,7 +578,7 @@ DockablePanel::onKnobsRecreated()
         Gui* gui = getGui();
         if (gui) {
             NodeGuiPtr node = isNodePanel->getNode();
-            gui->getCurveEditor()->removeNode( node.get() );
+            gui->getCurveEditor()->removeNode(node.get());
             gui->getCurveEditor()->addNode(node);
 
             gui->removeNodeGuiFromDopeSheetEditor(node);
@@ -598,7 +602,7 @@ DockablePanel::onPageIndexChanged(int index)
             EffectInstance* isEffect = dynamic_cast<EffectInstance*>(_imp->_holder);
             if (isEffect) {
                 NodePtr node = isEffect->getNode();
-                if (node && node->hasOverlay() ) {
+                if (node && node->hasOverlay()) {
                     isEffect->getApp()->redrawAllViewers();
                 }
             }
@@ -609,7 +613,7 @@ DockablePanel::onPageIndexChanged(int index)
 void
 DockablePanel::refreshCurrentPage()
 {
-    onPageIndexChanged( _imp->_tabWidget ? _imp->_tabWidget->currentIndex() : 0);
+    onPageIndexChanged(_imp->_tabWidget ? _imp->_tabWidget->currentIndex() : 0);
 }
 
 void
@@ -642,18 +646,18 @@ DockablePanel::setPluginIDAndVersion(const std::string& pluginLabel,
                                      unsigned int version)
 {
     if (_imp->_iconLabel) {
-        QString pluginLabelVersioned = tr("%1 version %2").arg( QString::fromUtf8( pluginLabel.c_str() ) ).arg(version);
+        QString pluginLabelVersioned = tr("%1 version %2").arg(QString::fromUtf8(pluginLabel.c_str())).arg(version);
         _imp->_iconLabel->setToolTip(pluginLabelVersioned);
     }
     if (_imp->_helpButton) {
-        _imp->_helpToolTip = QString::fromUtf8( pluginDesc.c_str() );
-        _imp->_helpButton->setToolTip( helpString() );
+        _imp->_helpToolTip = QString::fromUtf8(pluginDesc.c_str());
+        _imp->_helpButton->setToolTip(helpString());
         EffectInstance* iseffect = dynamic_cast<EffectInstance*>(_imp->_holder);
         if (iseffect) {
-            _imp->_pluginID = QString::fromUtf8( pluginID.c_str() );
+            _imp->_pluginID = QString::fromUtf8(pluginID.c_str());
             _imp->_pluginVersionMajor = version;
             _imp->_pluginVersionMinor = 0;
-            _imp->_helpButton->setToolTip( helpString() );
+            _imp->_helpButton->setToolTip(helpString());
         }
     }
 }
@@ -663,7 +667,7 @@ DockablePanel::setPluginIcon(const QPixmap& pix)
 {
     if (_imp->_iconLabel) {
         _imp->_iconLabel->setPixmap(pix);
-        if ( !_imp->_iconLabel->isVisible() ) {
+        if (!_imp->_iconLabel->isVisible()) {
             _imp->_iconLabel->show();
         }
     }
@@ -673,9 +677,9 @@ void
 DockablePanel::onNodeScriptChanged(const QString& label)
 {
     if (_imp->_nameLineEdit) {
-        _imp->_nameLineEdit->setToolTip( QString::fromUtf8("<p>%1<br /><b><font size=4>%2</b></font></p>").arg( tr("Script name:") ).arg(label) );
+        _imp->_nameLineEdit->setToolTip(QString::fromUtf8("<p>%1<br /><b><font size=4>%2</b></font></p>").arg(tr("Script name:")).arg(label));
     } else if (_imp->_nameLabel) {
-        _imp->_nameLabel->setToolTip( QString::fromUtf8("<p>%1<br /><b><font size=4>%2</b></font></p>").arg( tr("Script name:") ).arg(label) );
+        _imp->_nameLabel->setToolTip(QString::fromUtf8("<p>%1<br /><b><font size=4>%2</b></font></p>").arg(tr("Script name:")).arg(label));
     }
 }
 
@@ -686,7 +690,7 @@ DockablePanel::onGuiClosing()
         _imp->_holder->discardPanelPointer();
     }
     if (_imp->_nameLineEdit) {
-        QObject::disconnect( _imp->_nameLineEdit, SIGNAL(editingFinished()), this, SLOT(onLineEditNameEditingFinished()) );
+        QObject::disconnect(_imp->_nameLineEdit, SIGNAL(editingFinished()), this, SLOT(onLineEditNameEditingFinished()));
     }
     _imp->_gui = 0;
 }
@@ -704,29 +708,28 @@ DockablePanel::onRestoreDefaultsButtonClicked()
     MultiInstancePanelPtr multiPanel = getMultiInstancePanel();
 
     if (multiPanel) {
-        const std::list<std::pair<NodeWPtr, bool> > & instances = multiPanel->getInstances();
-        for (std::list<std::pair<NodeWPtr, bool> >::const_iterator it = instances.begin(); it != instances.end(); ++it) {
-            const std::vector<KnobIPtr> & knobs = it->first.lock()->getKnobs();
+        const std::list<std::pair<NodeWPtr, bool>>& instances = multiPanel->getInstances();
+        for (std::list<std::pair<NodeWPtr, bool>>::const_iterator it = instances.begin(); it != instances.end(); ++it) {
+            const std::vector<KnobIPtr>& knobs = it->first.lock()->getKnobs();
             for (std::vector<KnobIPtr>::const_iterator it2 = knobs.begin(); it2 != knobs.end(); ++it2) {
-                KnobButton* isBtn = dynamic_cast<KnobButton*>( it2->get() );
-                KnobPage* isPage = dynamic_cast<KnobPage*>( it2->get() );
-                KnobGroup* isGroup = dynamic_cast<KnobGroup*>( it2->get() );
-                KnobSeparator* isSeparator = dynamic_cast<KnobSeparator*>( it2->get() );
-                if ( !isBtn && !isPage && !isGroup && !isSeparator && ( (*it2)->getName() != kUserLabelKnobName ) &&
-                     ( (*it2)->getName() != kNatronOfxParamStringSublabelName ) ) {
+                KnobButton* isBtn = dynamic_cast<KnobButton*>(it2->get());
+                KnobPage* isPage = dynamic_cast<KnobPage*>(it2->get());
+                KnobGroup* isGroup = dynamic_cast<KnobGroup*>(it2->get());
+                KnobSeparator* isSeparator = dynamic_cast<KnobSeparator*>(it2->get());
+                if (!isBtn && !isPage && !isGroup && !isSeparator && ((*it2)->getName() != kUserLabelKnobName) && ((*it2)->getName() != kNatronOfxParamStringSublabelName)) {
                     knobsList.push_back(*it2);
                 }
             }
         }
         multiPanel->clearSelection();
     } else {
-        const std::vector<KnobIPtr> & knobs = _imp->_holder->getKnobs();
+        const std::vector<KnobIPtr>& knobs = _imp->_holder->getKnobs();
         for (std::vector<KnobIPtr>::const_iterator it = knobs.begin(); it != knobs.end(); ++it) {
-            KnobButton* isBtn = dynamic_cast<KnobButton*>( it->get() );
-            KnobPage* isPage = dynamic_cast<KnobPage*>( it->get() );
-            KnobGroup* isGroup = dynamic_cast<KnobGroup*>( it->get() );
-            KnobSeparator* isSeparator = dynamic_cast<KnobSeparator*>( it->get() );
-            if ( !isBtn && !isPage && !isGroup && !isSeparator && ( (*it)->getName() != kUserLabelKnobName ) ) {
+            KnobButton* isBtn = dynamic_cast<KnobButton*>(it->get());
+            KnobPage* isPage = dynamic_cast<KnobPage*>(it->get());
+            KnobGroup* isGroup = dynamic_cast<KnobGroup*>(it->get());
+            KnobSeparator* isSeparator = dynamic_cast<KnobSeparator*>(it->get());
+            if (!isBtn && !isPage && !isGroup && !isSeparator && ((*it)->getName() != kUserLabelKnobName)) {
                 knobsList.push_back(*it);
             }
         }
@@ -737,13 +740,13 @@ DockablePanel::onRestoreDefaultsButtonClicked()
        may not revert its state to the original as if after the createInstanceAction.
        We may not either kill this node and create a new one because otherwise the undo/redo stack will be wiped.
      */
-    pushUndoCommand( new RestoreDefaultsCommand(true, knobsList, -1) );
+    pushUndoCommand(new RestoreDefaultsCommand(true, knobsList, -1));
 }
 
 void
 DockablePanel::onLineEditNameEditingFinished()
 {
-    if ( _imp->_gui->getApp()->isClosing() ) {
+    if (_imp->_gui->getApp()->isClosing()) {
         return;
     }
 
@@ -755,14 +758,14 @@ DockablePanel::onLineEditNameEditingFinished()
         node = panel->getNode();
         assert(node);
         if (node) {
-            oldName = QString::fromUtf8( node->getNode()->getLabel().c_str() );
+            oldName = QString::fromUtf8(node->getNode()->getLabel().c_str());
         }
     }
 
     if (oldName == newName) {
         return;
     }
-    if ( NATRON_PYTHON_NAMESPACE::isKeyword(newName.toStdString()) ) {
+    if (NATRON_PYTHON_NAMESPACE::isKeyword(newName.toStdString())) {
         _imp->_nameLineEdit->setText(oldName);
         Dialogs::errorDialog(_imp->_pluginLabel.toStdString(), newName.toStdString() + " is a Python keyword");
 
@@ -772,7 +775,7 @@ DockablePanel::onLineEditNameEditingFinished()
     assert(node);
 
     if (node) {
-        pushUndoCommand( new RenameNodeUndoRedoCommand(node, oldName, newName) );
+        pushUndoCommand(new RenameNodeUndoRedoCommand(node, oldName, newName));
     }
 }
 
@@ -782,24 +785,22 @@ DockablePanel::onKnobsInitialized()
     assert(_imp->_tabWidget);
     _imp->_rightContainerLayout->addWidget(_imp->_tabWidget);
 
-
     RotoPanel* roto = initializeRotoPanel();
     if (roto) {
         _imp->_rightContainerLayout->addWidget(roto);
     }
 
-
     assert(!_imp->_trackerPanel);
     _imp->_trackerPanel = initializeTrackerPanel();
 
     if (_imp->_trackerPanel) {
-        if ( !_imp->_tabWidget->count() ) {
+        if (!_imp->_tabWidget->count()) {
             // No page, add it to the bottom
             _imp->_rightContainerLayout->addWidget(_imp->_trackerPanel);
         } else {
             // There is a page, add it to the first page
 
-            QGridLayout* layout = dynamic_cast<QGridLayout*>( _imp->_tabWidget->widget(0)->layout() );
+            QGridLayout* layout = dynamic_cast<QGridLayout*>(_imp->_tabWidget->widget(0)->layout());
             assert(layout);
             if (layout) {
                 layout->addWidget(_imp->_trackerPanel, layout->rowCount(), 0, 1, 2);
@@ -820,9 +821,9 @@ DockablePanel::onKnobsInitialized()
         assert(node);
         if (node) {
             NodeCollectionPtr collec = node->getGroup();
-            NodeGroup* isGroup = dynamic_cast<NodeGroup*>( collec.get() );
+            NodeGroup* isGroup = dynamic_cast<NodeGroup*>(collec.get());
             if (isGroup) {
-                if ( !isGroup->getNode()->hasPyPlugBeenEdited() ) {
+                if (!isGroup->getNode()->hasPyPlugBeenEdited()) {
                     isNodePanel->setPyPlugUIEnabled(false);
                 }
             }
@@ -841,7 +842,7 @@ DockablePanel::setPyPlugUIEnabled(bool enabled)
     btns.append(_imp->_overlayButton);
     btns.append(_imp->_restoreDefaultsButton);
     btns.append(_imp->_nameLineEdit);
-    Q_FOREACH(QWidget* btn, btns) {  // for (QWidget* btn : btns)
+    Q_FOREACH (QWidget* btn, btns) { // for (QWidget* btn : btns)
         if (btn) {
             btn->setEnabled(enabled);
         }
@@ -868,7 +869,7 @@ DockablePanel::refreshTabWidgetMaxHeight()
        layout being adjusted everytimes the user switches from tab to tab
      */
 
-    //Disabled for now - it leads to bad behaviour if the Node tab is bigger than the main actual tab
+    // Disabled for now - it leads to bad behaviour if the Node tab is bigger than the main actual tab
 #if 0
     if (_imp->_tabWidget && !_imp->_useScrollAreasForTabs) {
         //Compute the tab maximum height
@@ -903,8 +904,8 @@ DockablePanel::onUndoClicked()
 
     stack->undo();
     if (_imp->_undoButton && _imp->_redoButton) {
-        _imp->_undoButton->setEnabled( stack->canUndo() );
-        _imp->_redoButton->setEnabled( stack->canRedo() );
+        _imp->_undoButton->setEnabled(stack->canUndo());
+        _imp->_redoButton->setEnabled(stack->canRedo());
     }
     Q_EMIT undoneChange();
 }
@@ -916,8 +917,8 @@ DockablePanel::onRedoPressed()
 
     stack->redo();
     if (_imp->_undoButton && _imp->_redoButton) {
-        _imp->_undoButton->setEnabled( stack->canUndo() );
-        _imp->_redoButton->setEnabled( stack->canRedo() );
+        _imp->_undoButton->setEnabled(stack->canUndo());
+        _imp->_redoButton->setEnabled(stack->canRedo());
     }
     Q_EMIT redoneChange();
 }
@@ -925,7 +926,7 @@ DockablePanel::onRedoPressed()
 QString
 DockablePanel::helpString() const
 {
-    //Base help
+    // Base help
     QString tt;
     bool isMarkdown = false;
     EffectInstance* iseffect = dynamic_cast<EffectInstance*>(_imp->_holder);
@@ -941,19 +942,19 @@ DockablePanel::helpString() const
     }
 
     if (iseffect) {
-        //Prepend the plugin ID
-        if ( !_imp->_pluginID.isEmpty() ) {
+        // Prepend the plugin ID
+        if (!_imp->_pluginID.isEmpty()) {
             QString pluginLabelVersioned = tr("%1 version %2.%3")
-                                            .arg(_imp->_pluginID)
-                                            .arg(_imp->_pluginVersionMajor)
-                                            .arg(_imp->_pluginVersionMinor);
-            if ( !pluginLabelVersioned.isEmpty() ) {
+                                               .arg(_imp->_pluginID)
+                                               .arg(_imp->_pluginVersionMajor)
+                                               .arg(_imp->_pluginVersionMinor);
+            if (!pluginLabelVersioned.isEmpty()) {
                 if (isMarkdown) {
                     tt.prepend(pluginLabelVersioned + QString::fromUtf8("\n=========\n\n"));
                 } else {
                     QString toPrepend = QString::fromUtf8("<p><b>");
                     toPrepend.append(pluginLabelVersioned);
-                    toPrepend.append( QString::fromUtf8("</b></p>") );
+                    toPrepend.append(QString::fromUtf8("</b></p>"));
                     tt.prepend(toPrepend);
                 }
             }
@@ -963,8 +964,8 @@ DockablePanel::helpString() const
     if (isMarkdown) {
         tt = Markdown::convert2html(tt);
         // Shrink H1/H2 (Can't do it in qt stylesheet)
-        tt.replace( QString::fromUtf8("<h1>"), QString::fromUtf8("<h1 style=\"font-size:large;\">") );
-        tt.replace( QString::fromUtf8("<h2>"), QString::fromUtf8("<h2 style=\"font-size:large;\">") );
+        tt.replace(QString::fromUtf8("<h1>"), QString::fromUtf8("<h1 style=\"font-size:large;\">"));
+        tt.replace(QString::fromUtf8("<h2>"), QString::fromUtf8("<h2 style=\"font-size:large;\">"));
     }
 
     return tt;
@@ -982,22 +983,22 @@ DockablePanel::showHelp()
 #ifdef NATRON_DOCUMENTATION_ONLINE
         QString remoteUrl = QString::fromUtf8(NATRON_DOCUMENTATION_ONLINE) + QString::fromUtf8("/plugins/") + _imp->_pluginID + QString::fromUtf8(".html");
         int docSource = appPTR->getCurrentSettings()->getDocumentationSource();
-        if ( (serverPort == 0) && (docSource == 0) ) {
+        if ((serverPort == 0) && (docSource == 0)) {
             docSource = 1;
         }
         switch (docSource) {
-            case 0:
-                QDesktopServices::openUrl( QUrl(localUrl) );
-                break;
-            case 1:
-                QDesktopServices::openUrl( QUrl(remoteUrl) );
-                break;
-            case 2:
-                Dialogs::informationDialog(_imp->_pluginLabel.toStdString(), helpString().toStdString(), true);
-                break;
+        case 0:
+            QDesktopServices::openUrl(QUrl(localUrl));
+            break;
+        case 1:
+            QDesktopServices::openUrl(QUrl(remoteUrl));
+            break;
+        case 2:
+            Dialogs::informationDialog(_imp->_pluginLabel.toStdString(), helpString().toStdString(), true);
+            break;
         }
 #else
-        QDesktopServices::openUrl( QUrl(localUrl) );
+        QDesktopServices::openUrl(QUrl(localUrl));
 #endif
     }
 }
@@ -1025,7 +1026,6 @@ DockablePanel::setClosedInternal(bool c)
         _imp->_isClosed = c;
     }
 
-
     if (_imp->_floating) {
         floatPanel();
 
@@ -1039,10 +1039,10 @@ DockablePanel::setClosedInternal(bool c)
         _imp->_gui->buildTabFocusOrderPropertiesBin();
     }
 
-    ///Remove any color picker active
+    /// Remove any color picker active
     const KnobsGuiMapping& knobs = getKnobsMapping();
     for (KnobsGuiMapping::const_iterator it = knobs.begin(); it != knobs.end(); ++it) {
-        KnobGuiColor* ck = dynamic_cast<KnobGuiColor*>( it->second.get() );
+        KnobGuiColor* ck = dynamic_cast<KnobGuiColor*>(it->second.get());
         if (ck) {
             ck->setPickingEnabled(false);
         }
@@ -1061,7 +1061,7 @@ DockablePanel::setClosedInternal(bool c)
                 if (app) {
                     TimeLinePtr timeline = app->getTimeLine();
                     if (timeline) {
-                        internalNode->getEffectInstance()->refreshAfterTimeChange( false, timeline->currentFrame() );
+                        internalNode->getEffectInstance()->refreshAfterTimeChange(false, timeline->currentFrame());
                     }
                 }
             }
@@ -1102,28 +1102,28 @@ DockablePanel::setClosedInternal(bool c)
         }
 
         if (panel) {
-            ///show all selected instances
-            const std::list<std::pair<NodeWPtr, bool> > & childrenInstances = panel->getInstances();
-            std::list<std::pair<NodeWPtr, bool> >::const_iterator next = childrenInstances.begin();
-            if ( next != childrenInstances.end() ) {
+            /// show all selected instances
+            const std::list<std::pair<NodeWPtr, bool>>& childrenInstances = panel->getInstances();
+            std::list<std::pair<NodeWPtr, bool>>::const_iterator next = childrenInstances.begin();
+            if (next != childrenInstances.end()) {
                 ++next;
             }
-            for (std::list<std::pair<NodeWPtr, bool> >::const_iterator it = childrenInstances.begin();
+            for (std::list<std::pair<NodeWPtr, bool>>::const_iterator it = childrenInstances.begin();
                  it != childrenInstances.end();
                  ++it) {
                 if (c) {
-                    it->first.lock()->hideKeyframesFromTimeline( next == childrenInstances.end() );
+                    it->first.lock()->hideKeyframesFromTimeline(next == childrenInstances.end());
                 } else if (!c && it->second) {
-                    it->first.lock()->showKeyframesOnTimeline( next == childrenInstances.end() );
+                    it->first.lock()->showKeyframesOnTimeline(next == childrenInstances.end());
                 }
 
                 // increment for next iteration
-                if ( next != childrenInstances.end() ) {
+                if (next != childrenInstances.end()) {
                     ++next;
                 }
             } // for(it)
         } else {
-            ///Regular show/hide
+            /// Regular show/hide
             if (c) {
                 internalNode->hideKeyframesFromTimeline(true);
             } else {
@@ -1141,7 +1141,7 @@ DockablePanel::closePanel()
     close();
     setClosedInternal(true);
 
-    ///Closing a panel always gives focus to some line-edit in the application which is quite annoying
+    /// Closing a panel always gives focus to some line-edit in the application which is quite annoying
     QWidget* hasFocus = qApp->focusWidget();
     if (hasFocus) {
         hasFocus->clearFocus();
@@ -1177,7 +1177,7 @@ DockablePanel::minimizeOrMaximize(bool toggled)
 
                 gui->getNodesEntitledForOverlays(overlayNodes);
                 NodesList::iterator found = std::find(overlayNodes.begin(), overlayNodes.end(), node);
-                if ( found != overlayNodes.end() ) {
+                if (found != overlayNodes.end()) {
                     redraw = true;
                     // qDebug() << "redraw (minimized)";
                     // assert(toggled);
@@ -1195,7 +1195,7 @@ DockablePanel::minimizeOrMaximize(bool toggled)
     _imp->_rightContainer->setVisible(!_imp->_minimized);
     std::vector<QWidget*> _panels;
     for (int i = 0; i < _imp->_container->count(); ++i) {
-        if ( QWidget * myItem = dynamic_cast <QWidget*>( _imp->_container->itemAt(i) ) ) {
+        if (QWidget* myItem = dynamic_cast<QWidget*>(_imp->_container->itemAt(i))) {
             _panels.push_back(myItem);
             _imp->_container->removeWidget(myItem);
         }
@@ -1212,7 +1212,7 @@ DockablePanel::minimizeOrMaximize(bool toggled)
 
                 gui->getNodesEntitledForOverlays(overlayNodes);
                 NodesList::iterator found = std::find(overlayNodes.begin(), overlayNodes.end(), node);
-                if ( found != overlayNodes.end() ) {
+                if (found != overlayNodes.end()) {
                     redraw = true;
                     // qDebug() << "redraw (maximized)";
                     // assert(!toggled);
@@ -1268,9 +1268,8 @@ DockablePanel::floatPanel()
 
         QSize curSize = sizeHint();
 
-
         _imp->_floatingWidget = new FloatingWidget(_imp->_gui, _imp->_gui);
-        QObject::connect( _imp->_floatingWidget, SIGNAL(closed()), this, SLOT(closePanel()) );
+        QObject::connect(_imp->_floatingWidget, SIGNAL(closed()), this, SLOT(closePanel()));
         _imp->_container->removeWidget(this);
         _imp->_floatingWidget->setWidget(this);
         _imp->_floatingWidget->resize(curSize);
@@ -1279,7 +1278,7 @@ DockablePanel::floatPanel()
         assert(_imp->_floatingWidget);
         _imp->_gui->unregisterFloatingWindow(_imp->_floatingWidget);
         _imp->_floatingWidget->removeEmbeddedWidget();
-        //setParent( _imp->_container->parentWidget() );
+        // setParent( _imp->_container->parentWidget() );
         //_imp->_container->insertWidget(0, this);
         _imp->_gui->addVisibleDockablePanel(this);
         _imp->_floatingWidget->deleteLater();
@@ -1293,7 +1292,7 @@ DockablePanel::floatPanel()
 }
 
 void
-DockablePanel::setName(const QString & str)
+DockablePanel::setName(const QString& str)
 {
     if (_imp->_nameLabel) {
         _imp->_nameLabel->setText(str);
@@ -1377,12 +1376,12 @@ DockablePanel::isHideUnmodified() const
 }
 
 void
-DockablePanel::onColorDialogColorChanged(const QColor & color)
+DockablePanel::onColorDialogColorChanged(const QColor& color)
 {
-    if ( (_imp->_mode != eHeaderModeReadOnlyName) && _imp->_colorButton ) {
+    if ((_imp->_mode != eHeaderModeReadOnlyName) && _imp->_colorButton) {
         QPixmap p(15, 15);
         p.fill(color);
-        _imp->_colorButton->setIcon( QIcon(p) );
+        _imp->_colorButton->setIcon(QIcon(p));
         if (_imp->_verticalColorBar) {
             _imp->_verticalColorBar->setColor(color);
         }
@@ -1402,8 +1401,7 @@ DockablePanel::onOverlayColorDialogColorChanged(const QColor& color)
         return;
     }
 
-
-    if ( (_imp->_mode  != eHeaderModeReadOnlyName) && _imp->_overlayButton ) {
+    if ((_imp->_mode != eHeaderModeReadOnlyName) && _imp->_overlayButton) {
 
         // Replace the circle portion from the icon with the color picked by the user
         int iconSize = TO_DPIX(NATRON_MEDIUM_BUTTON_ICON_SIZE);
@@ -1423,15 +1421,15 @@ DockablePanel::onOverlayColorDialogColorChanged(const QColor& color)
                     int g = int((float)color.green() * alpha * (1.f / 255));
                     int b = int((float)color.blue() * alpha * (1.f / 255));
 
-                    *pix = qRgba(r,g,b, alpha);
+                    *pix = qRgba(r, g, b, alpha);
                     ++pix;
                 }
             }
         }
-        //QPixmap p(15, 15);
-        //p.fill(color);
+        // QPixmap p(15, 15);
+        // p.fill(color);
         QPixmap p = QPixmap::fromImage(img);
-        _imp->_overlayButton->setIcon( QIcon(p) );
+        _imp->_overlayButton->setIcon(QIcon(p));
         {
             QMutexLocker k(&_imp->_currentColorMutex);
             _imp->_overlayColor = color;
@@ -1444,7 +1442,7 @@ DockablePanel::onOverlayColorDialogColorChanged(const QColor& color)
 
             gui->getNodesEntitledForOverlays(overlayNodes);
             NodesList::iterator found = std::find(overlayNodes.begin(), overlayNodes.end(), node);
-            if ( found != overlayNodes.end() ) {
+            if (found != overlayNodes.end()) {
                 gui->getApp()->redrawAllViewers();
             }
         }
@@ -1462,9 +1460,9 @@ DockablePanel::onColorButtonClicked()
         oldColor = getCurrentColor();
         dialog.setCurrentColor(oldColor);
     }
-    QObject::connect( &dialog, SIGNAL(currentColorChanged(QColor)), this, SLOT(onColorDialogColorChanged(QColor)) );
+    QObject::connect(&dialog, SIGNAL(currentColorChanged(QColor)), this, SLOT(onColorDialogColorChanged(QColor)));
 
-    if ( dialog.exec() ) {
+    if (dialog.exec()) {
         QColor c = dialog.currentColor();
         Q_EMIT colorChanged(c);
     } else {
@@ -1495,9 +1493,9 @@ DockablePanel::onOverlayButtonClicked()
         oldColor = _imp->_overlayColor;
         hadOverlayColor = _imp->_hasOverlayColor;
     }
-    QObject::connect( &dialog, SIGNAL(currentColorChanged(QColor)), this, SLOT(onOverlayColorDialogColorChanged(QColor)) );
+    QObject::connect(&dialog, SIGNAL(currentColorChanged(QColor)), this, SLOT(onOverlayColorDialogColorChanged(QColor)));
 
-    if ( dialog.exec() ) {
+    if (dialog.exec()) {
         QColor c = dialog.currentColor();
         {
             QMutexLocker locker(&_imp->_currentColorMutex);
@@ -1512,7 +1510,7 @@ DockablePanel::onOverlayButtonClicked()
             }
             QPixmap pixOverlay;
             appPTR->getIcon(NATRON_PIXMAP_OVERLAY, NATRON_MEDIUM_BUTTON_ICON_SIZE, &pixOverlay);
-            _imp->_overlayButton->setIcon( QIcon(pixOverlay) );
+            _imp->_overlayButton->setIcon(QIcon(pixOverlay));
         }
     }
     Gui* gui = getGui();
@@ -1521,7 +1519,7 @@ DockablePanel::onOverlayButtonClicked()
 
         gui->getNodesEntitledForOverlays(overlayNodes);
         NodesList::iterator found = std::find(overlayNodes.begin(), overlayNodes.end(), node);
-        if ( found != overlayNodes.end() ) {
+        if (found != overlayNodes.end()) {
             gui->getApp()->redrawAllViewers();
         }
     }
@@ -1544,7 +1542,7 @@ DockablePanel::hasOverlayColor() const
 }
 
 void
-DockablePanel::setCurrentColor(const QColor & c)
+DockablePanel::setCurrentColor(const QColor& c)
 {
     onColorDialogColorChanged(c);
 }
@@ -1567,7 +1565,7 @@ DockablePanel::resetHostOverlayColor()
     }
     QPixmap pixOverlay;
     appPTR->getIcon(NATRON_PIXMAP_OVERLAY, NATRON_MEDIUM_BUTTON_ICON_SIZE, &pixOverlay);
-    _imp->_overlayButton->setIcon( QIcon(pixOverlay) );
+    _imp->_overlayButton->setIcon(QIcon(pixOverlay));
 
     Gui* gui = getGui();
     if (gui) {
@@ -1575,7 +1573,7 @@ DockablePanel::resetHostOverlayColor()
 
         gui->getNodesEntitledForOverlays(overlayNodes);
         NodesList::iterator found = std::find(overlayNodes.begin(), overlayNodes.end(), node);
-        if ( found != overlayNodes.end() ) {
+        if (found != overlayNodes.end()) {
             gui->getApp()->redrawAllViewers();
         }
     }
@@ -1601,9 +1599,9 @@ DockablePanel::focusInEvent(QFocusEvent* e)
 }
 
 void
-DockablePanel::onRightClickMenuRequested(const QPoint & pos)
+DockablePanel::onRightClickMenuRequested(const QPoint& pos)
 {
-    QWidget* emitter = qobject_cast<QWidget*>( sender() );
+    QWidget* emitter = qobject_cast<QWidget*>(sender());
 
     assert(emitter);
 
@@ -1611,10 +1609,9 @@ DockablePanel::onRightClickMenuRequested(const QPoint & pos)
     if (isEffect) {
         NodePtr master = isEffect->getNode()->getMasterNode();
         Menu menu(this);
-        //menu.setFont( QFont(appFont,appFontSize) );
+        // menu.setFont( QFont(appFont,appFontSize) );
         QAction* userParams = new QAction(tr("Manage user parameters..."), &menu);
         menu.addAction(userParams);
-
 
         QAction* setKeys = new QAction(tr("Set key on all parameters"), &menu);
         menu.addAction(setKeys);
@@ -1622,12 +1619,12 @@ DockablePanel::onRightClickMenuRequested(const QPoint & pos)
         QAction* removeAnimation = new QAction(tr("Remove animation on all parameters"), &menu);
         menu.addAction(removeAnimation);
 
-        if ( master || !_imp->_holder || !_imp->_holder->getApp() || _imp->_holder->getApp()->isGuiFrozen() ) {
+        if (master || !_imp->_holder || !_imp->_holder->getApp() || _imp->_holder->getApp()->isGuiFrozen()) {
             setKeys->setEnabled(false);
             removeAnimation->setEnabled(false);
         }
 
-        QAction* ret = menu.exec( emitter->mapToGlobal(pos) );
+        QAction* ret = menu.exec(emitter->mapToGlobal(pos));
         if (ret == setKeys) {
             setKeyOnAllParameters();
         } else if (ret == removeAnimation) {
@@ -1657,17 +1654,17 @@ DockablePanel::onManageUserParametersActionTriggered()
     if (node->isPyPlug()) {
         StandardButtons rep = Dialogs::questionDialog(tr("PyPlug").toStdString(), tr("You are about to edit parameters of this node which will "
                                                                                      "automatically convert this node as a Group. Are you sure "
-                                                                                     "you want to edit it?").toStdString(), false);
+                                                                                     "you want to edit it?")
+                                                                                      .toStdString(),
+                                                      false);
         if (rep != eStandardButtonYes) {
             return;
         }
         node->setPyPlugEdited(true);
-
-
     }
     ManageUserParamsDialog dialog(this, this);
 
-    ignore_result( dialog.exec() );
+    ignore_result(dialog.exec());
 }
 
 void
@@ -1683,24 +1680,24 @@ DockablePanel::setKeyOnAllParameters()
 
     for (KnobsGuiMapping::const_iterator it = knobsMap.begin(); it != knobsMap.end(); ++it) {
         KnobIPtr knob = it->first.lock();
-        if ( knob->isAnimationEnabled() ) {
+        if (knob->isAnimationEnabled()) {
             for (int i = 0; i < knob->getDimension(); ++i) {
                 std::list<CurveGuiPtr> curves = gui->getCurveEditor()->findCurve(it->second, i);
                 for (std::list<CurveGuiPtr>::iterator it2 = curves.begin(); it2 != curves.end(); ++it2) {
                     AddKeysCommand::KeyToAdd k;
                     KeyFrame kf;
                     kf.setTime(time);
-                    KnobIntBase* isInt = dynamic_cast<KnobIntBase*>( knob.get() );
-                    KnobBoolBase* isBool = dynamic_cast<KnobBoolBase*>( knob.get() );
-                    AnimatingKnobStringHelper* isString = dynamic_cast<AnimatingKnobStringHelper*>( knob.get() );
-                    KnobDoubleBase* isDouble = dynamic_cast<KnobDoubleBase*>( knob.get() );
+                    KnobIntBase* isInt = dynamic_cast<KnobIntBase*>(knob.get());
+                    KnobBoolBase* isBool = dynamic_cast<KnobBoolBase*>(knob.get());
+                    AnimatingKnobStringHelper* isString = dynamic_cast<AnimatingKnobStringHelper*>(knob.get());
+                    KnobDoubleBase* isDouble = dynamic_cast<KnobDoubleBase*>(knob.get());
 
                     if (isInt) {
-                        kf.setValue( isInt->getValueAtTime(time, i) );
+                        kf.setValue(isInt->getValueAtTime(time, i));
                     } else if (isBool) {
-                        kf.setValue( isBool->getValueAtTime(time, i) );
+                        kf.setValue(isBool->getValueAtTime(time, i));
                     } else if (isDouble) {
-                        kf.setValue( isDouble->getValueAtTime(time, i) );
+                        kf.setValue(isDouble->getValueAtTime(time, i));
                     } else if (isString) {
                         std::string v = isString->getValueAtTime(time, i);
                         double dv;
@@ -1710,7 +1707,7 @@ DockablePanel::setKeyOnAllParameters()
 
                     k.keyframes.push_back(kf);
                     k.curveUI = *it2;
-                    KnobCurveGui* isKnobCurve = dynamic_cast<KnobCurveGui*>( it2->get() );
+                    KnobCurveGui* isKnobCurve = dynamic_cast<KnobCurveGui*>(it2->get());
                     if (isKnobCurve) {
                         k.knobUI = isKnobCurve->getKnobGui();
                         k.dimension = isKnobCurve->getDimension();
@@ -1722,7 +1719,7 @@ DockablePanel::setKeyOnAllParameters()
             }
         }
     }
-    pushUndoCommand( new AddKeysCommand(gui->getCurveEditor()->getCurveWidget(), keys) );
+    pushUndoCommand(new AddKeysCommand(gui->getCurveEditor()->getCurveWidget(), keys));
 }
 
 void
@@ -1732,27 +1729,27 @@ DockablePanel::removeAnimationOnAllParameters()
     if (!gui) {
         return;
     }
-    std::map<CurveGuiPtr, std::vector<KeyFrame> > keysToRemove;
+    std::map<CurveGuiPtr, std::vector<KeyFrame>> keysToRemove;
     const KnobsGuiMapping& knobsMap = getKnobsMapping();
 
     for (KnobsGuiMapping::const_iterator it = knobsMap.begin(); it != knobsMap.end(); ++it) {
         KnobIPtr knob = it->first.lock();
-        if ( knob->isAnimationEnabled() ) {
+        if (knob->isAnimationEnabled()) {
             for (int i = 0; i < knob->getDimension(); ++i) {
                 std::list<CurveGuiPtr> curves = gui->getCurveEditor()->findCurve(it->second, i);
 
                 for (std::list<CurveGuiPtr>::iterator it2 = curves.begin(); it2 != curves.end(); ++it2) {
                     KeyFrameSet keys = (*it2)->getInternalCurve()->getKeyFrames_mt_safe();
-                    std::vector<KeyFrame > vect;
+                    std::vector<KeyFrame> vect;
                     for (KeyFrameSet::const_iterator it3 = keys.begin(); it3 != keys.end(); ++it3) {
                         vect.push_back(*it3);
                     }
-                    keysToRemove.insert( std::make_pair(*it2, vect) );
+                    keysToRemove.insert(std::make_pair(*it2, vect));
                 }
             }
         }
     }
-    pushUndoCommand( new RemoveKeysCommand(gui->getCurveEditor()->getCurveWidget(), keysToRemove) );
+    pushUndoCommand(new RemoveKeysCommand(gui->getCurveEditor()->getCurveWidget(), keysToRemove));
 }
 
 void
@@ -1786,7 +1783,7 @@ DockablePanel::onEnterInGroupClicked()
     if (!effect) {
         throw std::logic_error("");
     }
-    NodeGroup* group = dynamic_cast<NodeGroup*>( effect.get() );
+    NodeGroup* group = dynamic_cast<NodeGroup*>(effect.get());
     assert(group);
     if (!group) {
         throw std::logic_error("");
@@ -1801,7 +1798,7 @@ DockablePanel::onEnterInGroupClicked()
     if (!graph) {
         throw std::logic_error("");
     }
-    TabWidget* isParentTab = dynamic_cast<TabWidget*>( graph->parentWidget() );
+    TabWidget* isParentTab = dynamic_cast<TabWidget*>(graph->parentWidget());
     if (isParentTab) {
         isParentTab->setCurrentWidget(graph);
     } else {
@@ -1811,7 +1808,7 @@ DockablePanel::onEnterInGroupClicked()
             assert(panes.size() >= 1);
             isParentTab = panes.front();
         } else {
-            isParentTab = dynamic_cast<TabWidget*>( lastSelectedGraph->parentWidget() );
+            isParentTab = dynamic_cast<TabWidget*>(lastSelectedGraph->parentWidget());
         }
 
         assert(isParentTab);
@@ -1820,7 +1817,7 @@ DockablePanel::onEnterInGroupClicked()
         }
         isParentTab->appendTab(graph, graph);
     }
-    QTimer::singleShot( 25, graph, SLOT(centerOnAllNodes()) );
+    QTimer::singleShot(25, graph, SLOT(centerOnAllNodes()));
 } // DockablePanel::onEnterInGroupClicked
 
 void
@@ -1832,16 +1829,16 @@ DockablePanel::onHideUnmodifiedButtonClicked(bool checked)
         KnobsGuiMapping groups;
         std::set<KnobGuiPtr> toHideGui;
         std::set<KnobIPtr> toHide;
-        //printf("hiding...\n");
+        // printf("hiding...\n");
         for (KnobsGuiMapping::const_iterator it = knobsMap.begin(); it != knobsMap.end(); ++it) {
             KnobIPtr knob = it->first.lock();
-            KnobGroup* isGroup = dynamic_cast<KnobGroup*>( knob.get() );
-            KnobParametric* isParametric = dynamic_cast<KnobParametric*>( knob.get() );
+            KnobGroup* isGroup = dynamic_cast<KnobGroup*>(knob.get());
+            KnobParametric* isParametric = dynamic_cast<KnobParametric*>(knob.get());
             if (isGroup) {
-                //printf("groups += %s\n",knob->getName().c_str());
+                // printf("groups += %s\n",knob->getName().c_str());
                 groups.push_back(std::make_pair(it->first, it->second));
             } else if (!isParametric && !knob->hasModifications() && knob->getName() != kNatronWriteParamStartRender) {
-                //printf("toHide += %s\n",knob->getName().c_str());
+                // printf("toHide += %s\n",knob->getName().c_str());
                 toHide.insert(knob);
                 toHideGui.insert(it->second);
             }
@@ -1849,15 +1846,15 @@ DockablePanel::onHideUnmodifiedButtonClicked(bool checked)
         // now check if each groups is empty, i.e. all its children are either not visible or going to be hidden
         for (KnobsGuiMapping::const_iterator it = groups.begin(); it != groups.end(); ++it) {
             KnobIPtr knob = it->first.lock();
-            KnobGroup* isGroup = dynamic_cast<KnobGroup*>( knob.get() );
+            KnobGroup* isGroup = dynamic_cast<KnobGroup*>(knob.get());
             assert(isGroup);
             std::vector<KnobIPtr> children = isGroup->getChildren();
             bool hideMe = true;
-            //printf("should we hide group %s?\n",knob->getName().c_str());
+            // printf("should we hide group %s?\n",knob->getName().c_str());
             for (std::vector<KnobIPtr>::const_iterator it2 = children.begin(); it2 != children.end(); ++it2) {
-                KnobGroup* isGroup2 = dynamic_cast<KnobGroup*>( (*it2).get() );
+                KnobGroup* isGroup2 = dynamic_cast<KnobGroup*>((*it2).get());
                 if (!isGroup2 && toHide.find(*it2) == toHide.end() && !(*it2)->getIsSecret()) {
-                    //printf("- child %s still visible: NO\n",(*it2)->getName().c_str());
+                    // printf("- child %s still visible: NO\n",(*it2)->getName().c_str());
                     hideMe = false;
                     break;
                 }
@@ -1867,7 +1864,7 @@ DockablePanel::onHideUnmodifiedButtonClicked(bool checked)
             }
         }
         for (std::set<KnobGuiPtr>::const_iterator it = toHideGui.begin(); it != toHideGui.end(); ++it) {
-            _imp->_knobsVisibilityBeforeHideModif.insert( std::make_pair( *it, (*it)->isSecretRecursive() ) );
+            _imp->_knobsVisibilityBeforeHideModif.insert(std::make_pair(*it, (*it)->isSecretRecursive()));
             (*it)->hide();
         }
     } else {
@@ -1883,14 +1880,12 @@ DockablePanel::onHideUnmodifiedButtonClicked(bool checked)
 
 NATRON_NAMESPACE_ANONYMOUS_ENTER
 
-struct TreeItem
-{
+struct TreeItem {
     QTreeWidgetItem* item;
     KnobIPtr knob;
 };
 
-struct ManageUserParamsDialogPrivate
-{
+struct ManageUserParamsDialogPrivate {
     DockablePanel* panel;
     QHBoxLayout* mainLayout;
     QTreeWidget* tree;
@@ -1904,7 +1899,6 @@ struct ManageUserParamsDialogPrivate
     Button* upButton;
     Button* downButton;
     Button* closeButton;
-
 
     ManageUserParamsDialogPrivate(DockablePanel* panel)
         : panel(panel)
@@ -1928,10 +1922,25 @@ struct ManageUserParamsDialogPrivate
     void rebuildUserPages();
 };
 
+void
+DockablePanel::addCustomTab(QWidget* widget, const QString& label)
+{
+    if (!_imp->_tabWidget || !widget) {
+        return;
+    }
+
+    DockablePanelPrivate::CustomTab tab;
+    tab.widget = widget;
+    tab.label = label;
+
+    _imp->_customTabs.push_back(tab);
+
+    _imp->_tabWidget->addTab(widget, label);
+}
+
 NATRON_NAMESPACE_ANONYMOUS_EXIT
 
-
-    NATRON_NAMESPACE_EXIT
+NATRON_NAMESPACE_EXIT
 
 NATRON_NAMESPACE_USING
 #include "moc_DockablePanel.cpp"

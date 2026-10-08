@@ -45,6 +45,12 @@ QString key(const char *k)
 {
   return QString::fromUtf8(k);
 }
+
+// Render records are stored per "<scene id>|<project path>".
+QString recordKey(const QString &sceneId, const QString &project)
+{
+  return sceneId + QLatin1Char('|') + project;
+}
 }
 
 SceneStore::SceneStore(QObject *parent)
@@ -102,6 +108,12 @@ bool SceneStore::loadAndAutoSave(const QString &path)
     {
       scene.projects << projects.at(j).toString();
     }
+    const QVariantMap keyMap = s.value(key("keyMap")).toMap();
+    for (QVariantMap::const_iterator k = keyMap.constBegin(); k != keyMap.constEnd(); ++k)
+    {
+      scene.keyMap.insert(k.key(), k.value().toString());
+    }
+    scene.outputDir = s.value(key("outputDir")).toString();
     if (!scene.id.isEmpty())
     {
       m_scenes << scene;
@@ -119,7 +131,11 @@ bool SceneStore::loadAndAutoSave(const QString &path)
     record.output = r.value(key("output")).toString();
     record.thumbnail = r.value(key("thumbnail")).toString();
     record.frameRange = r.value(key("frameRange")).toString();
-    m_records.insert(it.key(), record);
+    // Records from before renders were per scene have no scene id: drop them.
+    if (it.key().contains(QLatin1Char('|')))
+    {
+      m_records.insert(it.key(), record);
+    }
   }
 
   Q_EMIT scenesChanged();
@@ -147,6 +163,13 @@ bool SceneStore::saveNow()
       projects << m_scenes.at(i).projects.at(j);
     }
     s.insert(key("projects"), projects);
+    QVariantMap keyMap;
+    for (QHash<QString, QString>::const_iterator k = m_scenes.at(i).keyMap.constBegin(); k != m_scenes.at(i).keyMap.constEnd(); ++k)
+    {
+      keyMap.insert(k.key(), k.value());
+    }
+    s.insert(key("keyMap"), keyMap);
+    s.insert(key("outputDir"), m_scenes.at(i).outputDir);
     scenes << s;
   }
 
@@ -271,6 +294,20 @@ void SceneStore::removeScene(const QString &id)
   }
   m_scenes.removeAt(i);
 
+  const QString prefix = id + QLatin1Char('|');
+  QHash<QString, RenderRecord>::iterator it = m_records.begin();
+  while (it != m_records.end())
+  {
+    if (it.key().startsWith(prefix))
+    {
+      it = m_records.erase(it);
+    }
+    else
+    {
+      ++it;
+    }
+  }
+
   changed();
   Q_EMIT scenesChanged();
 }
@@ -322,15 +359,57 @@ void SceneStore::removeProjects(const QString &id, const QStringList &projects)
   }
 }
 
-RenderRecord SceneStore::renderRecord(const QString &project) const
+void SceneStore::setKeyMapping(const QString &id, const QString &key, const QString &usedKey)
 {
-  return m_records.value(project);
-}
+  const int i = indexOf(id);
+  if (i < 0 || key.isEmpty())
+  {
+    return;
+  }
 
-void SceneStore::setRenderRecord(const QString &project, const RenderRecord &record)
-{
-  m_records.insert(project, record);
+  const QString used = usedKey.trimmed();
+  if (used.isEmpty() || used == key)
+  {
+    if (m_scenes[i].keyMap.remove(key) == 0)
+    {
+      return;
+    }
+  }
+  else
+  {
+    if (m_scenes.at(i).keyMap.value(key) == used)
+    {
+      return;
+    }
+    m_scenes[i].keyMap.insert(key, used);
+  }
 
   changed();
-  Q_EMIT renderRecordChanged(project);
+  Q_EMIT scenesChanged();
+}
+
+void SceneStore::setOutputDir(const QString &id, const QString &dir)
+{
+  const int i = indexOf(id);
+  if (i < 0 || m_scenes.at(i).outputDir == dir)
+  {
+    return;
+  }
+  m_scenes[i].outputDir = dir;
+
+  changed();
+  Q_EMIT scenesChanged();
+}
+
+RenderRecord SceneStore::renderRecord(const QString &sceneId, const QString &project) const
+{
+  return m_records.value(recordKey(sceneId, project));
+}
+
+void SceneStore::setRenderRecord(const QString &sceneId, const QString &project, const RenderRecord &record)
+{
+  m_records.insert(recordKey(sceneId, project), record);
+
+  changed();
+  Q_EMIT renderRecordChanged(sceneId, project);
 }

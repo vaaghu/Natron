@@ -108,10 +108,16 @@ private Q_SLOTS:
     void onRowStopClicked();
 
     void onScenesChanged();
-    void onRenderRecordChanged(const QString& project);
+    void onRenderRecordChanged(const QString& sceneId, const QString& project);
     void onRendererStatusChanged();
-    void onRenderProgressChanged(const QString& project);
+    void onRenderProgressChanged(const QString& sceneId, const QString& project);
     void onStateChanged();
+
+    void onStateValueChanged();
+    void onKeyMappingEdited();
+    void applyKeyMapping(const QString& key, const QString& usedKey);
+    void onChooseOutputDirClicked();
+    void onClearOutputDirClicked();
 
 private:
 
@@ -155,6 +161,8 @@ private:
 
     QStackedWidget* _detailStack;
     QLabel* _sceneTitle;
+    QLabel* _outputDirLabel;
+    QPushButton* _clearOutputDirButton;
     QPushButton* _removeProjectsButton;
     QPushButton* _openInEditorButton;
     QPushButton* _renderAllButton;

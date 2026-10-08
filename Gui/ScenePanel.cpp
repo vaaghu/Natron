@@ -27,7 +27,9 @@
 
 CLANG_DIAG_OFF(deprecated)
 CLANG_DIAG_OFF(uninitialized)
+#include <QBrush>
 #include <QColor>
+#include <QComboBox>
 #include <QDesktopServices>
 #include <QDir>
 #include <QFileDialog>
@@ -131,6 +133,8 @@ ScenePanel::ScenePanel(::SceneStore* scenes,
     , _deleteSceneButton(0)
     , _detailStack(0)
     , _sceneTitle(0)
+    , _outputDirLabel(0)
+    , _clearOutputDirButton(0)
     , _removeProjectsButton(0)
     , _openInEditorButton(0)
     , _renderAllButton(0)
@@ -151,13 +155,13 @@ ScenePanel::ScenePanel(::SceneStore* scenes,
     layout->addWidget(splitter);
 
     QObject::connect( _scenes, SIGNAL(scenesChanged()), this, SLOT(onScenesChanged()) );
-    QObject::connect( _scenes, SIGNAL(renderRecordChanged(QString)), this, SLOT(onRenderRecordChanged(QString)) );
+    QObject::connect( _scenes, SIGNAL(renderRecordChanged(QString,QString)), this, SLOT(onRenderRecordChanged(QString,QString)) );
     if (_renderer) {
         QObject::connect( _renderer, SIGNAL(statusChanged()), this, SLOT(onRendererStatusChanged()) );
-        QObject::connect( _renderer, SIGNAL(progressChanged(QString)), this, SLOT(onRenderProgressChanged(QString)) );
+        QObject::connect( _renderer, SIGNAL(progressChanged(QString,QString)), this, SLOT(onRenderProgressChanged(QString,QString)) );
     }
     if (_state) {
-        QObject::connect( _state, SIGNAL(valueChanged(QString)), this, SLOT(onStateChanged()) );
+        QObject::connect( _state, SIGNAL(valueChanged(QString)), this, SLOT(onStateValueChanged()) );
         QObject::connect( _state, SIGNAL(keysChanged()), this, SLOT(onStateChanged()) );
     }
 
@@ -222,6 +226,23 @@ ScenePanel::createSceneDetail()
     _sceneTitle->setFont(titleFont);
     layout->addWidget(_sceneTitle);
 
+    QHBoxLayout* outputRow = new QHBoxLayout;
+    outputRow->addWidget( new QLabel(tr("Output folder:"), detail) );
+    _outputDirLabel = new QLabel(detail);
+    _outputDirLabel->setTextFormat(Qt::PlainText);
+    _outputDirLabel->setTextInteractionFlags(Qt::TextSelectableByMouse);
+    outputRow->addWidget(_outputDirLabel, 1);
+    QPushButton* browseOutput = new QPushButton(tr("Choose..."), detail);
+    browseOutput->setToolTip( tr("Write this scene's renders to a folder of their own (same file names as the projects' Write nodes), "
+                                 "so the same project rendered in another scene is not overwritten.") );
+    _clearOutputDirButton = new QPushButton(tr("Use project paths"), detail);
+    _clearOutputDirButton->setToolTip( tr("Write where each project's Write node says.") );
+    outputRow->addWidget(browseOutput);
+    outputRow->addWidget(_clearOutputDirButton);
+    layout->addLayout(outputRow);
+    QObject::connect( browseOutput, SIGNAL(clicked()), this, SLOT(onChooseOutputDirClicked()) );
+    QObject::connect( _clearOutputDirButton, SIGNAL(clicked()), this, SLOT(onClearOutputDirClicked()) );
+
     QHBoxLayout* buttons = new QHBoxLayout;
     QPushButton* addButton = new QPushButton(tr("Add Projects..."), detail);
     addButton->setToolTip( tr("Link project files to this scene. You can also select a recent project and use \"Add to Scene\".") );
@@ -268,17 +289,20 @@ ScenePanel::createSceneDetail()
     QVBoxLayout* kvLayout = new QVBoxLayout(kvBox);
     kvLayout->setContentsMargins(0, 4, 0, 0);
     kvLayout->addWidget( new QLabel(tr("KVs used in this scene"), kvBox) );
-    _kvTable = new QTableWidget(0, 3, kvBox);
+    _kvTable = new QTableWidget(0, 4, kvBox);
     QStringList kvHeaders;
-    kvHeaders << tr("Key") << tr("Value") << tr("Used by");
+    kvHeaders << tr("Key in projects") << tr("Uses key") << tr("Value") << tr("Used by");
     _kvTable->setHorizontalHeaderLabels(kvHeaders);
     _kvTable->verticalHeader()->setVisible(false);
     _kvTable->setEditTriggers(QAbstractItemView::NoEditTriggers);
     _kvTable->setSelectionBehavior(QAbstractItemView::SelectRows);
     _kvTable->horizontalHeader()->setStretchLastSection(true);
     _kvTable->setColumnWidth(0, 160);
-    _kvTable->setColumnWidth(1, 220);
-    _kvTable->setToolTip( tr("Edit the values in the Data panel; then re-render the scene.") );
+    _kvTable->setColumnWidth(1, 180);
+    _kvTable->setColumnWidth(2, 220);
+    _kvTable->setToolTip( tr("\"Uses key\": which store key this scene reads for each key bound in its projects "
+                             "(e.g. PlayerName1 -> PlayerName2). The project files are not changed. "
+                             "Edit the values in the Data panel; then re-render the scene.") );
     kvLayout->addWidget(_kvTable);
     split->addWidget(kvBox);
     split->setStretchFactor(0, 3);
@@ -500,6 +524,8 @@ ScenePanel::showScene()
 
     _detailStack->setCurrentIndex(1);
     _sceneTitle->setText( tr("%1 - %2 project(s)").arg(scene.name).arg( scene.projects.size() ) );
+    _outputDirLabel->setText( scene.outputDir.isEmpty() ? tr("(each project's own Write node path)") : QDir::toNativeSeparators(scene.outputDir) );
+    _clearOutputDirButton->setEnabled( !scene.outputDir.isEmpty() );
 
     const QStringList keepSelected = selectedProjects();
 
@@ -581,7 +607,7 @@ ScenePanel::refreshProjectRow(int row)
 
     const QString path = projectItem->data(Qt::UserRole).toString();
     const QFileInfo fi(path);
-    const ::RenderRecord record = _scenes->renderRecord(path);
+    const ::RenderRecord record = _scenes->renderRecord(_currentSceneId, path);
 
     // Project: name only (path in the tooltip)
     QString name = fi.fileName();
@@ -620,9 +646,9 @@ ScenePanel::refreshRowRenderState(const QString& project)
     }
 
     const RowWidgets& w = it.value();
-    const ::RenderRecord record = _scenes->renderRecord(project);
-    const ::RenderProgress progress = _renderer ? _renderer->progress(project) : ::RenderProgress();
-    const bool queued = _renderer && _renderer->isQueued(project);
+    const ::RenderRecord record = _scenes->renderRecord(_currentSceneId, project);
+    const ::RenderProgress progress = _renderer ? _renderer->progress(_currentSceneId, project) : ::RenderProgress();
+    const bool queued = _renderer && _renderer->isQueued(_currentSceneId, project);
     const QString timeFormat = QString::fromUtf8("yyyy-MM-dd hh:mm");
 
     QString status;
@@ -691,7 +717,7 @@ ScenePanel::onRowPauseToggled(bool paused)
 {
     const QString project = sender() ? sender()->property("project").toString() : QString();
 
-    if ( !_renderer || (project != _renderer->currentProject()) ) {
+    if ( !_renderer || !_renderer->isCurrent(_currentSceneId, project) ) {
         return;
     }
     if (paused) {
@@ -707,7 +733,7 @@ ScenePanel::onRowRenderClicked()
     const QString project = sender() ? sender()->property("project").toString() : QString();
 
     if ( _renderer && !project.isEmpty() ) {
-        _renderer->enqueue( QStringList(project) );
+        _renderer->enqueue( _currentSceneId, QStringList(project) );
     }
 }
 
@@ -717,23 +743,29 @@ ScenePanel::onRowStopClicked()
     const QString project = sender() ? sender()->property("project").toString() : QString();
 
     if ( _renderer && !project.isEmpty() ) {
-        _renderer->cancel(project);
+        _renderer->cancel(_currentSceneId, project);
     }
 }
 
 void
-ScenePanel::onRenderProgressChanged(const QString& project)
+ScenePanel::onRenderProgressChanged(const QString& sceneId,
+                                    const QString& project)
 {
-    refreshRowRenderState(project);
+    if (sceneId == _currentSceneId) {
+        refreshRowRenderState(project);
+    }
 }
 
 void
 ScenePanel::refreshKvTable()
 {
+    ::Scene scene;
+    _scenes->scene(_currentSceneId, &scene);
+
     // key -> projects using it, in order of first appearance
     QStringList keys;
     QHash<QString, QStringList> usedBy;
-    const QStringList projects = currentProjects();
+    const QStringList projects = scene.projects;
 
     for (int i = 0; i < projects.size(); ++i) {
         const ProjectInfo& info = projectInfo( projects.at(i) );
@@ -746,20 +778,114 @@ ScenePanel::refreshKvTable()
         }
     }
 
+    QStringList storeKeys = _state ? _state->keys() : QStringList();
+    storeKeys.sort();
+
     _kvTable->setRowCount(0);
     _kvTable->setRowCount( keys.size() );
     for (int row = 0; row < keys.size(); ++row) {
         const QString& key = keys.at(row);
-        const bool known = _state && _state->has(key);
+        const QString used = scene.mappedKey(key);
+        const bool known = _state && _state->has(used);
+
         _kvTable->setItem( row, 0, new QTableWidgetItem(key) );
-        QTableWidgetItem* valueItem = new QTableWidgetItem( known ? valueText(key) : tr("(missing: set it in the Data panel or via the API)") );
+
+        // Editable combo: which store key the scene uses for this key.
+        QComboBox* combo = new QComboBox;
+        combo->setEditable(true);
+        combo->setInsertPolicy(QComboBox::NoInsert);
+        combo->addItems(storeKeys);
+        combo->setEditText(used);
+        combo->setProperty("key", key);
+        combo->setToolTip( (used == key) ? tr("Uses %1 as bound in the projects. Pick or type another key to rename it for this scene.").arg(key)
+                                         : tr("This scene uses %1 instead of %2.").arg(used).arg(key) );
+        QObject::connect( combo->lineEdit(), SIGNAL(editingFinished()), this, SLOT(onKeyMappingEdited()) );
+        QObject::connect( combo, SIGNAL(activated(int)), this, SLOT(onKeyMappingEdited()) );
+        _kvTable->setCellWidget(row, 1, combo);
+
+        QTableWidgetItem* valueItem = new QTableWidgetItem( known ? valueText(used) : tr("(missing: set it in the Data panel or via the API)") );
         if (!known) {
             valueItem->setForeground( QColor(230, 90, 80) );
         }
         valueItem->setToolTip( valueItem->text() );
-        _kvTable->setItem(row, 1, valueItem);
-        _kvTable->setItem( row, 2, new QTableWidgetItem( usedBy.value(key).join( QString::fromUtf8(", ") ) ) );
+        _kvTable->setItem(row, 2, valueItem);
+        _kvTable->setItem( row, 3, new QTableWidgetItem( usedBy.value(key).join( QString::fromUtf8(", ") ) ) );
     }
+}
+
+void
+ScenePanel::onStateValueChanged()
+{
+    // Values only: keep the "Uses key" editors (the user may be typing).
+    ::Scene scene;
+
+    if ( !_scenes->scene(_currentSceneId, &scene) ) {
+        return;
+    }
+
+    for (int row = 0; row < _kvTable->rowCount(); ++row) {
+        QTableWidgetItem* keyItem = _kvTable->item(row, 0);
+        QTableWidgetItem* valueItem = _kvTable->item(row, 2);
+        if (!keyItem || !valueItem) {
+            continue;
+        }
+        const QString used = scene.mappedKey( keyItem->text() );
+        const bool known = _state && _state->has(used);
+        valueItem->setText( known ? valueText(used) : tr("(missing: set it in the Data panel or via the API)") );
+        valueItem->setForeground( known ? _kvTable->palette().text() : QBrush( QColor(230, 90, 80) ) );
+        valueItem->setToolTip( valueItem->text() );
+    }
+}
+
+void
+ScenePanel::onKeyMappingEdited()
+{
+    QObject* source = sender();
+    QComboBox* combo = qobject_cast<QComboBox*>(source);
+
+    if (!combo && source) {
+        combo = qobject_cast<QComboBox*>( source->parent() ); // the combo's line edit
+    }
+    if (!combo) {
+        return;
+    }
+
+    const QString key = combo->property("key").toString();
+    const QString used = combo->currentText().trimmed();
+
+    // Rebuilding the table (scenesChanged) deletes this combo: do it later.
+    QMetaObject::invokeMethod( this, "applyKeyMapping", Qt::QueuedConnection,
+                               Q_ARG(QString, key), Q_ARG(QString, used) );
+}
+
+void
+ScenePanel::applyKeyMapping(const QString& key,
+                            const QString& usedKey)
+{
+    if ( hasCurrentScene() ) {
+        _scenes->setKeyMapping(_currentSceneId, key, usedKey);
+    }
+}
+
+void
+ScenePanel::onChooseOutputDirClicked()
+{
+    ::Scene scene;
+
+    if ( !_scenes->scene(_currentSceneId, &scene) ) {
+        return;
+    }
+
+    const QString dir = QFileDialog::getExistingDirectory(this, tr("Output Folder for \"%1\"").arg(scene.name), scene.outputDir);
+    if ( !dir.isEmpty() ) {
+        _scenes->setOutputDir(_currentSceneId, dir);
+    }
+}
+
+void
+ScenePanel::onClearOutputDirClicked()
+{
+    _scenes->setOutputDir( _currentSceneId, QString() );
 }
 
 void
@@ -779,8 +905,11 @@ ScenePanel::refreshButtons()
     if (!_renderer) {
         _renderStatus->setText( tr("Rendering is not available.") );
     } else if (busy) {
-        _renderStatus->setText( tr("Rendering %1 (%2 more queued)...")
+        ::Scene renderingScene;
+        _scenes->scene(_renderer->currentSceneId(), &renderingScene);
+        _renderStatus->setText( tr("Rendering %1 of scene \"%2\" (%3 more queued)...")
                                 .arg( QFileInfo( _renderer->currentProject() ).fileName() )
+                                .arg(renderingScene.name)
                                 .arg( _renderer->queuedCount() ) );
     } else {
         _renderStatus->setText( tr("Renders use the KV values at the time of the render (renderer: %1).")
@@ -828,7 +957,7 @@ void
 ScenePanel::onRenderAllClicked()
 {
     if (_renderer) {
-        _renderer->enqueue( currentProjects() );
+        _renderer->enqueue( _currentSceneId, currentProjects() );
     }
 }
 
@@ -836,7 +965,7 @@ void
 ScenePanel::onRenderSelectedClicked()
 {
     if (_renderer) {
-        _renderer->enqueue( selectedProjects() );
+        _renderer->enqueue( _currentSceneId, selectedProjects() );
     }
 }
 
@@ -866,7 +995,7 @@ ScenePanel::onProjectCellDoubleClicked(int row,
     const QString path = projectItem->data(Qt::UserRole).toString();
 
     if (column == kSceneColumnPreview) {
-        const QString output = _scenes->renderRecord(path).output;
+        const QString output = _scenes->renderRecord(_currentSceneId, path).output;
         if ( !output.isEmpty() && QFileInfo(output).exists() ) {
             QDesktopServices::openUrl( QUrl::fromLocalFile(output) );
         }
@@ -878,8 +1007,13 @@ ScenePanel::onProjectCellDoubleClicked(int row,
 }
 
 void
-ScenePanel::onRenderRecordChanged(const QString& project)
+ScenePanel::onRenderRecordChanged(const QString& sceneId,
+                                  const QString& project)
 {
+    if (sceneId != _currentSceneId) {
+        return;
+    }
+
     const QStringList projects = currentProjects();
     const int row = projects.indexOf(project);
 
@@ -888,7 +1022,7 @@ ScenePanel::onRenderRecordChanged(const QString& project)
     }
 
     // A finished render may follow changes to the project file.
-    const ::RenderRecord record = _scenes->renderRecord(project);
+    const ::RenderRecord record = _scenes->renderRecord(sceneId, project);
     if (record.status == ::RenderRecord::eDone || record.status == ::RenderRecord::eFailed) {
         _infos.remove(project);
     }

@@ -14,6 +14,20 @@ struct Scene
   QString id;
   QString name;
   QStringList projects; // absolute .ntp paths
+
+  // Key renaming for this scene: key bound in the projects -> store key
+  // used instead when rendering (e.g. PlayerName1 -> PlayerName2).
+  QHash<QString, QString> keyMap;
+
+  // Folder where this scene's renders are written (same file names as the
+  // projects' Write nodes). Empty: use the projects' own output paths.
+  QString outputDir;
+
+  // Store key used for a key bound in the projects.
+  QString mappedKey(const QString &key) const
+  {
+    return keyMap.value(key, key);
+  }
 };
 
 // Result of the last render of a project.
@@ -64,12 +78,18 @@ public:
   void addProjects(const QString &id, const QStringList &projects);
   void removeProjects(const QString &id, const QStringList &projects);
 
-  RenderRecord renderRecord(const QString &project) const;
-  void setRenderRecord(const QString &project, const RenderRecord &record);
+  // usedKey empty or equal to key: no renaming.
+  void setKeyMapping(const QString &id, const QString &key, const QString &usedKey);
+  void setOutputDir(const QString &id, const QString &dir);
+
+  // Renders are per scene: the same project renders differently (other
+  // keys, other output folder) in another scene.
+  RenderRecord renderRecord(const QString &sceneId, const QString &project) const;
+  void setRenderRecord(const QString &sceneId, const QString &project, const RenderRecord &record);
 
 Q_SIGNALS:
   void scenesChanged();
-  void renderRecordChanged(const QString &project);
+  void renderRecordChanged(const QString &sceneId, const QString &project);
 
 private Q_SLOTS:
   void onSaveTimer();

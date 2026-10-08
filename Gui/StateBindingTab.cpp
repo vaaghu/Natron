@@ -48,8 +48,12 @@ CLANG_DIAG_ON(uninitialized)
 #include "Custom/state/StateStore.h"
 
 // Text node from openfx-arena, and the script name of its text parameter.
+// Bindable nodes and the parameter the bound value goes to:
+// Text (openfx-arena) -> its text, Read -> its image/video file path.
+// Keep in sync with the apply script in Custom/scene/SceneRenderer.cpp.
 #define kStateBindingTextPluginID "net.fxarena.openfx.Text"
 #define kStateBindingTextParamName "text"
+#define kStateBindingReadParamName "filename"
 
 // The bound key is saved in the project as a hidden user parameter on a
 // hidden page, so the binding survives reopening the project and can be read
@@ -61,14 +65,41 @@ NATRON_NAMESPACE_ENTER
 
 NATRON_NAMESPACE_ANONYMOUS_ENTER
 
-KnobStringPtr
-getTextKnob(const NodePtr& node)
+const char*
+targetParamName(const NodePtr& node)
 {
     if (!node) {
-        return KnobStringPtr();
+        return 0;
     }
 
-    return std::dynamic_pointer_cast<KnobString>( node->getKnobByName(kStateBindingTextParamName) );
+    const std::string pluginID = node->getPluginID();
+    if (pluginID == kStateBindingTextPluginID) {
+        return kStateBindingTextParamName;
+    }
+    if (pluginID == PLUGINID_NATRON_READ) {
+        return kStateBindingReadParamName;
+    }
+
+    return 0;
+}
+
+// The parameter receiving the bound value (a string or file parameter).
+KnobStringBasePtr
+getTargetKnob(const NodePtr& node)
+{
+    const char* name = targetParamName(node);
+
+    if (!name) {
+        return KnobStringBasePtr();
+    }
+
+    return std::dynamic_pointer_cast<KnobStringBase>( node->getKnobByName(name) );
+}
+
+bool
+isImageNode(const NodePtr& node)
+{
+    return node && node->getPluginID() == PLUGINID_NATRON_READ;
 }
 
 // The hidden parameter holding the bound key; created on demand.
@@ -131,11 +162,14 @@ StateBindingTab::StateBindingTab(const NodePtr& node,
     _keyCombo->setInsertPolicy(QComboBox::NoInsert);
     _keyCombo->setSizePolicy(QSizePolicy::Expanding, QSizePolicy::Fixed);
     _keyCombo->lineEdit()->setPlaceholderText( tr("Type or select a key") );
-    _keyCombo->setToolTip( tr("Key in the state store whose value replaces this node's text.") );
+    const bool image = isImageNode(node);
+    _keyCombo->setToolTip( image ? tr("Key in the state store whose value (an image or video file path) replaces this node's file.")
+                                 : tr("Key in the state store whose value replaces this node's text.") );
     keyLayout->addWidget(_keyCombo);
 
     _unbindButton = new QPushButton(tr("Unbind"), keyRow);
-    _unbindButton->setToolTip( tr("Stop updating the text from the state store. The current text is kept.") );
+    _unbindButton->setToolTip( image ? tr("Stop updating the file from the state store. The current file is kept.")
+                                     : tr("Stop updating the text from the state store. The current text is kept.") );
     keyLayout->addWidget(_unbindButton);
 
     form->addRow(tr("Key"), keyRow);
@@ -183,7 +217,7 @@ StateBindingTab::~StateBindingTab()
 bool
 StateBindingTab::isSupportedNode(const NodePtr& node)
 {
-    return node && node->getPluginID() == kStateBindingTextPluginID && getTextKnob(node);
+    return getTargetKnob(node).get() != 0;
 }
 
 void
@@ -273,7 +307,7 @@ StateBindingTab::refreshPreview()
     if ( _boundKey.isEmpty() ) {
         _valueLabel->setText( tr("Not bound") );
     } else if ( !_store || !_store->has(_boundKey) ) {
-        _valueLabel->setText( tr("Key not in store yet; text will update when it is set.") );
+        _valueLabel->setText( tr("Key not in store yet; the node will update when it is set.") );
     } else {
         _valueLabel->setText( ::StateStore::toText( _store->get(_boundKey) ) );
     }
@@ -286,7 +320,7 @@ StateBindingTab::applyValueToNode()
         return;
     }
 
-    KnobStringPtr knob = getTextKnob( _node.lock() );
+    KnobStringBasePtr knob = getTargetKnob( _node.lock() );
     if (!knob) {
         return;
     }

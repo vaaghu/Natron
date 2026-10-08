@@ -163,7 +163,7 @@ NodeSettingsPanel::initializeExtraGui(QVBoxLayout* layout)
         _multiPanel->createMultiInstanceGui(layout);
     }
 
-    // "State" tab: bind the text of Text nodes to a key of the state store.
+    // "State" tab: bind the text of Text nodes / the file of Read nodes to a key of the state store.
     NodeGuiPtr nodeGui = getNode();
     NodePtr node = nodeGui ? nodeGui->getNode() : NodePtr();
     if ( StateBindingTab::isSupportedNode(node) ) {

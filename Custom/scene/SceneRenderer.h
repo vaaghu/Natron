@@ -1,5 +1,6 @@
 #pragma once
 
+#include <QList>
 #include <QObject>
 #include <QProcess>
 #include <QString>
@@ -37,10 +38,15 @@ struct RenderProgress
   QString frameRange() const;
 };
 
-// Renders projects one after the other with NatronRenderer:
+// Renders scene projects one after the other with NatronRenderer:
 //   NatronRenderer -l <applyScript> <project.ntp>
-// with NATRON_STATE_JSON pointing at the saved state store, so the script
-// can write the current values into the bound Text nodes before rendering.
+// The apply script (see writeApplyScript) runs after the project is loaded
+// and, using the environment set here:
+//   NATRON_STATE_JSON    saved state store: values of the bound keys
+//   NATRON_STATE_KEYMAP  the scene's key renaming (JSON object)
+//   NATRON_OUTPUT_DIR    the scene's output folder (may be empty)
+// writes the store values into the bound Text (text) and Read (file) nodes
+// and redirects the Write nodes to the output folder.
 // Results (and a thumbnail of the output) go to the SceneStore.
 class SceneRenderer : public QObject
 {
@@ -56,15 +62,16 @@ public:
                 QObject *parent = nullptr);
   ~SceneRenderer();
 
-  // Adds projects to the queue (already queued/rendering ones are skipped).
-  void enqueue(const QStringList &projects);
+  // Adds projects of a scene to the queue (already queued/rendering ones
+  // are skipped).
+  void enqueue(const QString &sceneId, const QStringList &projects);
 
   // Kills the current render and clears the queue.
   void stop();
 
-  // Cancels one project: removes it from the queue, or kills it if it is
-  // the one rendering (the queue then continues).
-  void cancel(const QString &project);
+  // Cancels one job: removes it from the queue, or kills it if it is the
+  // one rendering (the queue then continues).
+  void cancel(const QString &sceneId, const QString &project);
 
   // Pausing suspends the renderer process (POSIX only, see canPause()).
   bool canPause() const;
@@ -73,24 +80,30 @@ public:
   bool isPaused() const;
 
   bool isBusy() const;
-  bool isQueued(const QString &project) const;
+  bool isQueued(const QString &sceneId, const QString &project) const;
+  bool isCurrent(const QString &sceneId, const QString &project) const;
+  QString currentSceneId() const;
   QString currentProject() const;
   int queuedCount() const;
 
-  // Live progress of project (inactive unless it is rendering).
-  RenderProgress progress(const QString &project) const;
+  // Live progress (inactive unless this job is rendering).
+  RenderProgress progress(const QString &sceneId, const QString &project) const;
 
   QString rendererPath() const;
+
+  // Output files a project of the scene renders to (the Write node paths,
+  // moved to the scene's output folder if it has one).
+  static QStringList sceneOutputs(const QString &outputDir, const QString &project);
 
   // Writes the Python script applied by NatronRenderer before rendering.
   static bool writeApplyScript(const QString &path);
 
 Q_SIGNALS:
-  // Queue, current project or pause state changed.
+  // Queue, current job or pause state changed.
   void statusChanged();
 
-  // New progress line for the project being rendered.
-  void progressChanged(const QString &project);
+  // New progress line for the job being rendered.
+  void progressChanged(const QString &sceneId, const QString &project);
 
 private Q_SLOTS:
   void onFinished(int exitCode, QProcess::ExitStatus exitStatus);
@@ -98,11 +111,23 @@ private Q_SLOTS:
   void onOutput();
 
 private:
+  struct Job
+  {
+    QString sceneId;
+    QString project;
+
+    bool operator==(const Job &other) const
+    {
+      return sceneId == other.sceneId && project == other.project;
+    }
+  };
+
   void startNext();
   void finishCurrent(bool ok, const QString &message);
-  QString makeThumbnail(const QString &project, const QString &output);
+  QString makeThumbnail(const Job &job, const QString &output);
   void parseOutputLine(const QString &line);
   bool signalProcess(int signal);
+  void setRecordStatus(const Job &job, int status, const QString &message);
 
   StateStore *m_state;
   SceneStore *m_scenes;
@@ -111,8 +136,8 @@ private:
   QString m_ffmpegPath;
   QString m_thumbnailDir;
 
-  QStringList m_queue;
-  QString m_current;
+  QList<Job> m_queue;
+  Job m_current;
   QProcess *m_process;
   QByteArray m_outputTail;
   QByteArray m_partialLine;

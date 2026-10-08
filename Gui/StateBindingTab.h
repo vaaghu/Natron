@@ -45,9 +45,9 @@ class StateStore; // Custom/state/StateStore.h
 NATRON_NAMESPACE_ENTER
 
 /**
- * @brief "State" tab shown in the properties panel of Text nodes.
- * Binds the node's text parameter to a key of the app's StateStore:
- * whenever the key's value changes, the text parameter is overwritten with it.
+ * @brief "State" tab shown in the properties panel of Text and Read nodes.
+ * Binds the node's text (Text) or file path (Read) to a key of the app's
+ * StateStore: whenever the key's value changes, the parameter is overwritten.
  **/
 class StateBindingTab
     : public QWidget

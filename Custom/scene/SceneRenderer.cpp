@@ -2,18 +2,20 @@
 
 #include "ProjectInfo.h"
 #include "SceneStore.h"
+#include "../state/Json.h"
 #include "../state/StateStore.h"
 
+#include <QColor>
 #include <QCryptographicHash>
 #include <QDateTime>
 #include <QDir>
 #include <QFile>
 #include <QFileInfo>
-#include <QColor>
 #include <QImage>
 #include <QPainter>
 #include <QProcessEnvironment>
 #include <QRegExp>
+#include <QVariantMap>
 
 #ifdef Q_OS_UNIX
 #include <signal.h>
@@ -43,6 +45,14 @@ QString lastLines(const QByteArray &output, int count)
     lines.removeFirst();
   }
   return lines.join(QString::fromUtf8("\n")).trimmed();
+}
+
+// File name of an output path written on any OS (C:\\a\\b.mov -> b.mov).
+QString outputFileName(const QString &path)
+{
+  QString p = path;
+  p.replace(QLatin1Char('\\'), QLatin1Char('/'));
+  return p.section(QLatin1Char('/'), -1);
 }
 }
 
@@ -101,9 +111,14 @@ bool SceneRenderer::isBusy() const
   return m_process != nullptr;
 }
 
+QString SceneRenderer::currentSceneId() const
+{
+  return m_process ? m_current.sceneId : QString();
+}
+
 QString SceneRenderer::currentProject() const
 {
-  return m_current;
+  return m_process ? m_current.project : QString();
 }
 
 int SceneRenderer::queuedCount() const
@@ -111,18 +126,91 @@ int SceneRenderer::queuedCount() const
   return m_queue.size();
 }
 
-bool SceneRenderer::isQueued(const QString &project) const
+bool SceneRenderer::isQueued(const QString &sceneId, const QString &project) const
 {
-  return m_queue.contains(project);
+  Job job;
+  job.sceneId = sceneId;
+  job.project = project;
+  return m_queue.contains(job);
 }
 
-RenderProgress SceneRenderer::progress(const QString &project) const
+bool SceneRenderer::isCurrent(const QString &sceneId, const QString &project) const
 {
-  if (m_process && project == m_current)
+  return m_process && m_current.sceneId == sceneId && m_current.project == project;
+}
+
+RenderProgress SceneRenderer::progress(const QString &sceneId, const QString &project) const
+{
+  return isCurrent(sceneId, project) ? m_progress : RenderProgress();
+}
+
+void SceneRenderer::setRecordStatus(const Job &job, int status, const QString &message)
+{
+  RenderRecord record = m_scenes->renderRecord(job.sceneId, job.project);
+  record.status = static_cast<RenderRecord::Status>(status);
+  record.message = message;
+  m_scenes->setRenderRecord(job.sceneId, job.project, record);
+}
+
+void SceneRenderer::enqueue(const QString &sceneId, const QStringList &projects)
+{
+  for (int i = 0; i < projects.size(); ++i)
   {
-    return m_progress;
+    Job job;
+    job.sceneId = sceneId;
+    job.project = projects.at(i);
+    if (isCurrent(job.sceneId, job.project) || m_queue.contains(job))
+    {
+      continue;
+    }
+    m_queue << job;
+    setRecordStatus(job, RenderRecord::eQueued, QString());
   }
-  return RenderProgress();
+
+  Q_EMIT statusChanged();
+
+  if (!m_process)
+  {
+    startNext();
+  }
+}
+
+void SceneRenderer::stop()
+{
+  const QList<Job> cancelled = m_queue;
+  m_queue.clear();
+
+  for (int i = 0; i < cancelled.size(); ++i)
+  {
+    setRecordStatus(cancelled.at(i), RenderRecord::eNone, tr("Cancelled"));
+  }
+
+  if (m_process)
+  {
+    m_stopping = true;
+    m_process->kill();
+  }
+
+  Q_EMIT statusChanged();
+}
+
+void SceneRenderer::cancel(const QString &sceneId, const QString &project)
+{
+  Job job;
+  job.sceneId = sceneId;
+  job.project = project;
+
+  if (m_queue.removeAll(job) > 0)
+  {
+    setRecordStatus(job, RenderRecord::eNone, tr("Cancelled"));
+    Q_EMIT statusChanged();
+  }
+
+  if (isCurrent(sceneId, project))
+  {
+    m_stopping = true;
+    m_process->kill(); // SIGKILL also ends a stopped (paused) process
+  }
 }
 
 bool SceneRenderer::canPause() const
@@ -164,7 +252,7 @@ void SceneRenderer::pause()
   if (m_process && !m_progress.paused && signalProcess(SIGSTOP))
   {
     m_progress.paused = true;
-    Q_EMIT progressChanged(m_current);
+    Q_EMIT progressChanged(m_current.sceneId, m_current.project);
     Q_EMIT statusChanged();
   }
 #endif
@@ -176,82 +264,34 @@ void SceneRenderer::resume()
   if (m_process && m_progress.paused && signalProcess(SIGCONT))
   {
     m_progress.paused = false;
-    Q_EMIT progressChanged(m_current);
+    Q_EMIT progressChanged(m_current.sceneId, m_current.project);
     Q_EMIT statusChanged();
   }
 #endif
 }
 
-void SceneRenderer::cancel(const QString &project)
+QStringList SceneRenderer::sceneOutputs(const QString &outputDir, const QString &project)
 {
-  if (m_queue.removeAll(project) > 0)
+  const QStringList outputs = readProjectInfo(project).outputs;
+
+  if (outputDir.isEmpty())
   {
-    RenderRecord record = m_scenes->renderRecord(project);
-    record.status = RenderRecord::eNone;
-    record.message = tr("Cancelled");
-    m_scenes->setRenderRecord(project, record);
-    Q_EMIT statusChanged();
+    return outputs;
   }
 
-  if (m_process && project == m_current)
+  QStringList moved;
+  for (int i = 0; i < outputs.size(); ++i)
   {
-    m_stopping = true;
-    m_process->kill(); // SIGKILL also ends a stopped (paused) process
+    moved << QDir(outputDir).absoluteFilePath(outputFileName(outputs.at(i)));
   }
-}
-
-void SceneRenderer::enqueue(const QStringList &projects)
-{
-  for (int i = 0; i < projects.size(); ++i)
-  {
-    const QString &project = projects.at(i);
-    if (project == m_current || m_queue.contains(project))
-    {
-      continue;
-    }
-    m_queue << project;
-
-    RenderRecord record = m_scenes->renderRecord(project);
-    record.status = RenderRecord::eQueued;
-    record.message.clear();
-    m_scenes->setRenderRecord(project, record);
-  }
-
-  Q_EMIT statusChanged();
-
-  if (!m_process)
-  {
-    startNext();
-  }
-}
-
-void SceneRenderer::stop()
-{
-  const QStringList cancelled = m_queue;
-  m_queue.clear();
-
-  for (int i = 0; i < cancelled.size(); ++i)
-  {
-    RenderRecord record = m_scenes->renderRecord(cancelled.at(i));
-    record.status = RenderRecord::eNone;
-    record.message = tr("Cancelled");
-    m_scenes->setRenderRecord(cancelled.at(i), record);
-  }
-
-  if (m_process)
-  {
-    m_stopping = true;
-    m_process->kill();
-  }
-
-  Q_EMIT statusChanged();
+  return moved;
 }
 
 void SceneRenderer::startNext()
 {
   if (m_queue.isEmpty())
   {
-    m_current.clear();
+    m_current = Job();
     Q_EMIT statusChanged();
     return;
   }
@@ -263,7 +303,13 @@ void SceneRenderer::startNext()
   m_progress.active = true;
   m_stopping = false;
 
-  if (!QFile::exists(m_current))
+  Scene scene;
+  if (!m_scenes->scene(m_current.sceneId, &scene))
+  {
+    finishCurrent(false, tr("Scene was deleted"));
+    return;
+  }
+  if (!QFile::exists(m_current.project))
   {
     finishCurrent(false, tr("Project file not found"));
     return;
@@ -273,6 +319,11 @@ void SceneRenderer::startNext()
     finishCurrent(false, tr("NatronRenderer not found at %1").arg(m_rendererPath));
     return;
   }
+  if (!scene.outputDir.isEmpty() && !QDir().mkpath(scene.outputDir))
+  {
+    finishCurrent(false, tr("Cannot create the output folder %1").arg(scene.outputDir));
+    return;
+  }
 
   // The renderer reads the values from the saved store.
   if (m_state)
@@ -280,20 +331,28 @@ void SceneRenderer::startNext()
     m_state->saveNow();
   }
 
-  RenderRecord record = m_scenes->renderRecord(m_current);
+  RenderRecord record = m_scenes->renderRecord(m_current.sceneId, m_current.project);
   record.status = RenderRecord::eRendering;
   record.message.clear();
-  m_scenes->setRenderRecord(m_current, record);
+  m_scenes->setRenderRecord(m_current.sceneId, m_current.project, record);
 
   m_process = new QProcess(this);
   m_process->setProcessChannelMode(QProcess::MergedChannels);
-  m_process->setWorkingDirectory(QFileInfo(m_current).absolutePath());
+  m_process->setWorkingDirectory(QFileInfo(m_current.project).absolutePath());
+
+  QVariantMap keyMap;
+  for (QHash<QString, QString>::const_iterator it = scene.keyMap.constBegin(); it != scene.keyMap.constEnd(); ++it)
+  {
+    keyMap.insert(it.key(), it.value());
+  }
 
   QProcessEnvironment env = QProcessEnvironment::systemEnvironment();
   if (m_state)
   {
     env.insert(QString::fromUtf8("NATRON_STATE_JSON"), m_state->filePath());
   }
+  env.insert(QString::fromUtf8("NATRON_STATE_KEYMAP"), QString::fromUtf8(Json::serialize(keyMap)));
+  env.insert(QString::fromUtf8("NATRON_OUTPUT_DIR"), scene.outputDir);
   m_process->setProcessEnvironment(env);
 
   connect(m_process, SIGNAL(finished(int,QProcess::ExitStatus)), this, SLOT(onFinished(int,QProcess::ExitStatus)));
@@ -305,7 +364,7 @@ void SceneRenderer::startNext()
   {
     args << QString::fromUtf8("-l") << m_applyScriptPath;
   }
-  args << m_current;
+  args << m_current.project;
 
   Q_EMIT statusChanged();
   m_process->start(m_rendererPath, args);
@@ -317,6 +376,7 @@ void SceneRenderer::onOutput()
   {
     return;
   }
+
   const QByteArray data = m_process->readAll();
 
   m_outputTail.append(data);
@@ -356,7 +416,7 @@ void SceneRenderer::parseOutputLine(const QString &line)
     m_progress.firstFrame = (m_progress.firstFrame < 0) ? f : qMin(m_progress.firstFrame, f);
     m_progress.lastFrame = (m_progress.lastFrame < 0) ? f : qMax(m_progress.lastFrame, f);
     ++m_progress.framesDone;
-    Q_EMIT progressChanged(m_current);
+    Q_EMIT progressChanged(m_current.sceneId, m_current.project);
   }
   else if (state.exactMatch(line))
   {
@@ -371,7 +431,7 @@ void SceneRenderer::parseOutputLine(const QString &line)
       m_progress.percent = 100;
       m_progress.timeRemaining = tr("Done");
     }
-    Q_EMIT progressChanged(m_current);
+    Q_EMIT progressChanged(m_current.sceneId, m_current.project);
   }
 }
 
@@ -423,9 +483,9 @@ void SceneRenderer::onFinished(int exitCode, QProcess::ExitStatus exitStatus)
 
 void SceneRenderer::finishCurrent(bool ok, const QString &message)
 {
-  const QString project = m_current;
+  const Job job = m_current;
 
-  RenderRecord record = m_scenes->renderRecord(project);
+  RenderRecord record = m_scenes->renderRecord(job.sceneId, job.project);
   record.time = QDateTime::currentDateTime();
   record.message = message;
   if (!m_progress.frameRange().isEmpty())
@@ -440,19 +500,21 @@ void SceneRenderer::finishCurrent(bool ok, const QString &message)
     record.output.clear();
     record.thumbnail.clear();
 
-    const ProjectInfo info = readProjectInfo(project);
-    for (int i = 0; i < info.outputs.size() && record.output.isEmpty(); ++i)
+    Scene scene;
+    m_scenes->scene(job.sceneId, &scene);
+    const QStringList outputs = sceneOutputs(scene.outputDir, job.project);
+    for (int i = 0; i < outputs.size() && record.output.isEmpty(); ++i)
     {
-      record.output = findExistingOutputFile(info.outputs.at(i));
+      record.output = findExistingOutputFile(outputs.at(i));
     }
     if (record.output.isEmpty())
     {
-      record.message = info.outputs.isEmpty() ? tr("Rendered, but the project has no Write node output.")
-                                              : tr("Rendered, but no output file was found at %1").arg(info.outputs.first());
+      record.message = outputs.isEmpty() ? tr("Rendered, but the project has no Write node output.")
+                                         : tr("Rendered, but no output file was found at %1").arg(outputs.first());
     }
     else
     {
-      record.thumbnail = makeThumbnail(project, record.output);
+      record.thumbnail = makeThumbnail(job, record.output);
     }
   }
   else
@@ -460,13 +522,13 @@ void SceneRenderer::finishCurrent(bool ok, const QString &message)
     record.status = m_stopping ? RenderRecord::eNone : RenderRecord::eFailed;
   }
 
-  m_scenes->setRenderRecord(project, record);
-  m_current.clear();
+  m_scenes->setRenderRecord(job.sceneId, job.project, record);
+  m_current = Job();
 
   startNext();
 }
 
-QString SceneRenderer::makeThumbnail(const QString &project, const QString &output)
+QString SceneRenderer::makeThumbnail(const Job &job, const QString &output)
 {
   if (m_thumbnailDir.isEmpty())
   {
@@ -474,7 +536,8 @@ QString SceneRenderer::makeThumbnail(const QString &project, const QString &outp
   }
 
   QDir().mkpath(m_thumbnailDir);
-  const QString hash = QString::fromLatin1(QCryptographicHash::hash(project.toUtf8(), QCryptographicHash::Md5).toHex());
+  const QByteArray id = (job.sceneId + QLatin1Char('|') + job.project).toUtf8();
+  const QString hash = QString::fromLatin1(QCryptographicHash::hash(id, QCryptographicHash::Md5).toHex());
   const QString thumbPath = QDir(m_thumbnailDir).absoluteFilePath(hash + QString::fromUtf8(".png"));
   QFile::remove(thumbPath);
 
@@ -522,15 +585,21 @@ QString SceneRenderer::makeThumbnail(const QString &project, const QString &outp
 
 bool SceneRenderer::writeApplyScript(const QString &path)
 {
-  // Runs inside NatronRenderer (Python 2 or 3) after the project is loaded:
-  // for every node with a natronStateKey parameter, put the store value of
-  // that key into its "text" parameter.
+  // Runs inside NatronRenderer (Python 2 or 3) after the project is loaded.
   static const char script[] =
-      "# Generated by Natron (dashboard). Applies the state store values to\n"
-      "# the Text nodes bound to a key before NatronRenderer renders.\n"
+      "# Generated by Natron (dashboard scenes). Before NatronRenderer renders:\n"
+      "# - writes the state store values into the nodes bound to a key\n"
+      "#   (Text -> text, Read -> file), using the scene's key renaming;\n"
+      "# - moves the Write node outputs to the scene's output folder.\n"
       "import io\n"
       "import json\n"
       "import os\n"
+      "\n"
+      "_NATRON_STATE_TARGETS = {\n"
+      "    'net.fxarena.openfx.Text': 'text',\n"
+      "    'fr.inria.built-in.Read': 'filename',\n"
+      "}\n"
+      "_NATRON_STATE_WRITE = 'fr.inria.built-in.Write'\n"
       "\n"
       "\n"
       "def _natron_state_text(value):\n"
@@ -543,28 +612,41 @@ bool SceneRenderer::writeApplyScript(const QString &path)
       "    return u'%s' % (value,)\n"
       "\n"
       "\n"
-      "def _natron_state_apply(group, values):\n"
+      "def _natron_state_apply(group, values, key_map, output_dir):\n"
       "    for node in group.getChildren():\n"
+      "        plugin = node.getPluginID()\n"
+      "        target_name = _NATRON_STATE_TARGETS.get(plugin)\n"
       "        key_param = node.getParam('" kProjectInfoStateKeyParam "')\n"
-      "        text_param = node.getParam('text')\n"
-      "        if key_param is not None and text_param is not None:\n"
-      "            key = key_param.getValue()\n"
-      "            if key and key in values:\n"
-      "                text_param.setValue(_natron_state_text(values[key]))\n"
-      "                print('natron-state: %s.text <- %s' % (node.getScriptName(), key))\n"
-      "            elif key:\n"
-      "                print('natron-state: %s: key %s not in store, text unchanged' % (node.getScriptName(), key))\n"
-      "        _natron_state_apply(node, values)\n"
+      "        if key_param is not None and target_name:\n"
+      "            bound = key_param.getValue()\n"
+      "            key = key_map.get(bound, bound)\n"
+      "            target = node.getParam(target_name)\n"
+      "            if bound and target is not None:\n"
+      "                if key in values:\n"
+      "                    target.setValue(_natron_state_text(values[key]))\n"
+      "                    print('natron-state: %s.%s <- %s' % (node.getScriptName(), target_name, key))\n"
+      "                else:\n"
+      "                    print('natron-state: %s: key %s not in store, unchanged' % (node.getScriptName(), key))\n"
+      "        if output_dir and plugin == _NATRON_STATE_WRITE:\n"
+      "            out = node.getParam('filename')\n"
+      "            if out is not None and out.getValue():\n"
+      "                name = out.getValue().replace('\\\\', '/').split('/')[-1]\n"
+      "                out.setValue(os.path.join(output_dir, name))\n"
+      "                print('natron-state: %s output -> %s' % (node.getScriptName(), out.getValue()))\n"
+      "        _natron_state_apply(node, values, key_map, output_dir)\n"
       "\n"
       "\n"
       "def _natron_state_main():\n"
+      "    values = {}\n"
       "    path = os.environ.get('NATRON_STATE_JSON')\n"
-      "    if not path or not os.path.exists(path):\n"
-      "        print('natron-state: no state file, nothing applied')\n"
-      "        return\n"
-      "    with io.open(path, encoding='utf-8') as f:\n"
-      "        values = json.load(f)\n"
-      "    _natron_state_apply(app, values)\n"
+      "    if path and os.path.exists(path):\n"
+      "        with io.open(path, encoding='utf-8') as f:\n"
+      "            values = json.load(f)\n"
+      "    else:\n"
+      "        print('natron-state: no state file')\n"
+      "    key_map = json.loads(os.environ.get('NATRON_STATE_KEYMAP') or '{}')\n"
+      "    output_dir = os.environ.get('NATRON_OUTPUT_DIR') or ''\n"
+      "    _natron_state_apply(app, values, key_map, output_dir)\n"
       "\n"
       "\n"
       "_natron_state_main()\n";

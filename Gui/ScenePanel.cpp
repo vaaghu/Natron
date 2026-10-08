@@ -40,7 +40,9 @@ CLANG_DIAG_OFF(uninitialized)
 #include <QLineEdit>
 #include <QListWidget>
 #include <QMessageBox>
+#include <QIcon>
 #include <QPixmap>
+#include <QProgressBar>
 #include <QPushButton>
 #include <QSplitter>
 #include <QStackedWidget>
@@ -58,13 +60,60 @@ CLANG_DIAG_ON(uninitialized)
 
 #define kSceneColumnPreview 0
 #define kSceneColumnProject 1
-#define kSceneColumnKeys 2
+#define kSceneColumnProgress 2
 #define kSceneColumnStatus 3
+#define kSceneColumnControls 4
+#define kSceneColumnRemaining 5
+#define kSceneColumnFrames 6
+#define kSceneColumnCount 7
+
+#define kSceneControlButtonSize 22
+#define kSceneControlIconSize 20
 
 #define kSceneThumbnailWidth 128
 #define kSceneThumbnailHeight 72
 
 NATRON_NAMESPACE_ENTER
+
+NATRON_NAMESPACE_ANONYMOUS_ENTER
+
+// Same player icons as the render progress panel of the editor.
+QIcon
+playerIcon(NATRON_ENUM::PixmapEnum normal,
+           NATRON_ENUM::PixmapEnum checked)
+{
+    QPixmap normalPix, checkedPix;
+    const int size = appPTR->adjustSizeToDPIX(kSceneControlIconSize);
+
+    appPTR->getIcon(normal, size, &normalPix);
+    QIcon icon;
+    icon.addPixmap(normalPix, QIcon::Normal, QIcon::Off);
+    if (checked != normal) {
+        appPTR->getIcon(checked, size, &checkedPix);
+        icon.addPixmap(checkedPix, QIcon::Normal, QIcon::On);
+    }
+
+    return icon;
+}
+
+QPushButton*
+makeControlButton(const QIcon& icon,
+                  const QString& tooltip,
+                  QWidget* parent)
+{
+    QPushButton* button = new QPushButton(icon, QString(), parent);
+    const int buttonSize = appPTR->adjustSizeToDPIX(kSceneControlButtonSize);
+    const int iconSize = appPTR->adjustSizeToDPIX(kSceneControlIconSize);
+
+    button->setFixedSize(buttonSize, buttonSize);
+    button->setIconSize( QSize(iconSize, iconSize) );
+    button->setFocusPolicy(Qt::NoFocus);
+    button->setToolTip(tooltip);
+
+    return button;
+}
+
+NATRON_NAMESPACE_ANONYMOUS_EXIT
 
 ScenePanel::ScenePanel(::SceneStore* scenes,
                        ::SceneRenderer* renderer,
@@ -76,6 +125,7 @@ ScenePanel::ScenePanel(::SceneStore* scenes,
     , _state(state)
     , _currentSceneId()
     , _infos()
+    , _rows()
     , _sceneList(0)
     , _renameSceneButton(0)
     , _deleteSceneButton(0)
@@ -104,6 +154,7 @@ ScenePanel::ScenePanel(::SceneStore* scenes,
     QObject::connect( _scenes, SIGNAL(renderRecordChanged(QString)), this, SLOT(onRenderRecordChanged(QString)) );
     if (_renderer) {
         QObject::connect( _renderer, SIGNAL(statusChanged()), this, SLOT(onRendererStatusChanged()) );
+        QObject::connect( _renderer, SIGNAL(progressChanged(QString)), this, SLOT(onRenderProgressChanged(QString)) );
     }
     if (_state) {
         QObject::connect( _state, SIGNAL(valueChanged(QString)), this, SLOT(onStateChanged()) );
@@ -180,7 +231,7 @@ ScenePanel::createSceneDetail()
     _renderAllButton = new QPushButton(tr("Render All"), detail);
     _renderAllButton->setToolTip( tr("Render every project of the scene with the current KV values, one after the other.") );
     _renderSelectedButton = new QPushButton(tr("Render Selected"), detail);
-    _stopButton = new QPushButton(tr("Stop"), detail);
+    _stopButton = new QPushButton(tr("Stop All"), detail);
     _stopButton->setToolTip( tr("Stop the current render and clear the queue.") );
     buttons->addWidget(addButton);
     buttons->addWidget(_removeProjectsButton);
@@ -193,9 +244,9 @@ ScenePanel::createSceneDetail()
 
     QSplitter* split = new QSplitter(Qt::Vertical, detail);
 
-    _projectTable = new QTableWidget(0, 4, split);
+    _projectTable = new QTableWidget(0, kSceneColumnCount, split);
     QStringList headers;
-    headers << tr("Preview") << tr("Project") << tr("KVs used") << tr("Last render");
+    headers << tr("Preview") << tr("Project") << tr("Progress") << tr("Status") << tr("Controls") << tr("Time remaining") << tr("Frame range");
     _projectTable->setHorizontalHeaderLabels(headers);
     _projectTable->verticalHeader()->setVisible(false);
     _projectTable->verticalHeader()->setDefaultSectionSize(kSceneThumbnailHeight + 8);
@@ -205,8 +256,11 @@ ScenePanel::createSceneDetail()
     _projectTable->setWordWrap(true);
     _projectTable->horizontalHeader()->setStretchLastSection(true);
     _projectTable->setColumnWidth(kSceneColumnPreview, kSceneThumbnailWidth + 12);
-    _projectTable->setColumnWidth(kSceneColumnProject, 220);
-    _projectTable->setColumnWidth(kSceneColumnKeys, 220);
+    _projectTable->setColumnWidth(kSceneColumnProject, 160);
+    _projectTable->setColumnWidth(kSceneColumnProgress, 110);
+    _projectTable->setColumnWidth(kSceneColumnStatus, 190);
+    _projectTable->setColumnWidth(kSceneColumnControls, 100);
+    _projectTable->setColumnWidth(kSceneColumnRemaining, 120);
     _projectTable->setToolTip( tr("Double-click a preview to open the rendered output, or a project to open it in the editor.") );
     split->addWidget(_projectTable);
 
@@ -449,20 +503,71 @@ ScenePanel::showScene()
 
     const QStringList keepSelected = selectedProjects();
 
+    _rows.clear();
     _projectTable->setRowCount(0);
     _projectTable->setRowCount( scene.projects.size() );
     for (int row = 0; row < scene.projects.size(); ++row) {
+        const QString& path = scene.projects.at(row);
         QTableWidgetItem* projectItem = new QTableWidgetItem;
-        projectItem->setData( Qt::UserRole, scene.projects.at(row) );
+        projectItem->setData(Qt::UserRole, path);
         _projectTable->setItem(row, kSceneColumnProject, projectItem);
+
+        RowWidgets widgets;
+        widgets.row = row;
+        widgets.progress = new QProgressBar;
+        widgets.progress->setRange(0, 100);
+        widgets.progress->setAlignment(Qt::AlignCenter);
+        _projectTable->setCellWidget(row, kSceneColumnProgress, widgets.progress);
+        QWidget* controls = createRowControls(path);
+        _projectTable->setCellWidget(row, kSceneColumnControls, controls);
+        widgets.pause = controls->findChild<QPushButton*>( QString::fromUtf8("pause") );
+        widgets.render = controls->findChild<QPushButton*>( QString::fromUtf8("render") );
+        widgets.stop = controls->findChild<QPushButton*>( QString::fromUtf8("stop") );
+        _rows.insert(path, widgets);
+
         refreshProjectRow(row);
-        if ( keepSelected.contains( scene.projects.at(row) ) ) {
+        if ( keepSelected.contains(path) ) {
             _projectTable->selectRow(row);
         }
     }
 
     refreshKvTable();
     refreshButtons();
+}
+
+QWidget*
+ScenePanel::createRowControls(const QString& project)
+{
+    QWidget* w = new QWidget;
+    QHBoxLayout* layout = new QHBoxLayout(w);
+    layout->setContentsMargins(2, 0, 2, 0);
+    layout->setSpacing(2);
+
+    QPushButton* pause = makeControlButton( playerIcon(NATRON_ENUM::NATRON_PIXMAP_PLAYER_PAUSE_DISABLED, NATRON_ENUM::NATRON_PIXMAP_PLAYER_PAUSE_ENABLED),
+                                            tr("Pause / resume the render."), w );
+    pause->setObjectName( QString::fromUtf8("pause") );
+    pause->setCheckable(true);
+    QPushButton* render = makeControlButton( playerIcon(NATRON_ENUM::NATRON_PIXMAP_PLAYER_PLAY_DISABLED, NATRON_ENUM::NATRON_PIXMAP_PLAYER_PLAY_DISABLED),
+                                             tr("Render this project (again) with the current KV values."), w );
+    render->setObjectName( QString::fromUtf8("render") );
+    QPushButton* stop = makeControlButton( playerIcon(NATRON_ENUM::NATRON_PIXMAP_PLAYER_STOP_DISABLED, NATRON_ENUM::NATRON_PIXMAP_PLAYER_STOP_DISABLED),
+                                           tr("Stop this render, or remove it from the queue."), w );
+    stop->setObjectName( QString::fromUtf8("stop") );
+
+    pause->setProperty("project", project);
+    render->setProperty("project", project);
+    stop->setProperty("project", project);
+
+    layout->addWidget(pause);
+    layout->addWidget(render);
+    layout->addWidget(stop);
+    layout->addStretch();
+
+    QObject::connect( pause, SIGNAL(toggled(bool)), this, SLOT(onRowPauseToggled(bool)) );
+    QObject::connect( render, SIGNAL(clicked()), this, SLOT(onRowRenderClicked()) );
+    QObject::connect( stop, SIGNAL(clicked()), this, SLOT(onRowStopClicked()) );
+
+    return w;
 }
 
 void
@@ -476,13 +581,19 @@ ScenePanel::refreshProjectRow(int row)
 
     const QString path = projectItem->data(Qt::UserRole).toString();
     const QFileInfo fi(path);
-    const bool exists = fi.exists();
-    const ProjectInfo& info = projectInfo(path);
     const ::RenderRecord record = _scenes->renderRecord(path);
 
-    // Project
-    projectItem->setText( tr("%1\n%2").arg( fi.fileName() ).arg( QDir::toNativeSeparators( fi.absolutePath() ) ) );
+    // Project: name only (path in the tooltip)
+    QString name = fi.fileName();
+    const QString ext = QString::fromUtf8("." NATRON_PROJECT_FILE_EXT);
+    if ( name.endsWith(ext) ) {
+        name.chop( ext.size() );
+    }
+    projectItem->setText( fi.exists() ? name : tr("%1 (missing)").arg(name) );
     projectItem->setToolTip( QDir::toNativeSeparators(path) );
+    if ( !fi.exists() ) {
+        projectItem->setForeground( QColor(230, 90, 80) );
+    }
 
     // Preview: thumbnail of the last rendered output
     QTableWidgetItem* previewItem = new QTableWidgetItem;
@@ -496,53 +607,124 @@ ScenePanel::refreshProjectRow(int row)
                                                      : tr("Output: %1\nDouble-click to open it.").arg( QDir::toNativeSeparators(record.output) ) );
     _projectTable->setItem(row, kSceneColumnPreview, previewItem);
 
-    // KVs
-    QStringList kvLines;
-    if (!exists) {
-        kvLines << tr("(file not found)");
-    } else if (!info.ok) {
-        kvLines << tr("(cannot read project: %1)").arg(info.error);
-    } else if ( info.stateKeys.isEmpty() ) {
-        kvLines << tr("(no bound KVs)");
+    refreshRowRenderState(path);
+}
+
+void
+ScenePanel::refreshRowRenderState(const QString& project)
+{
+    QHash<QString, RowWidgets>::const_iterator it = _rows.find(project);
+
+    if ( it == _rows.end() ) {
+        return;
+    }
+
+    const RowWidgets& w = it.value();
+    const ::RenderRecord record = _scenes->renderRecord(project);
+    const ::RenderProgress progress = _renderer ? _renderer->progress(project) : ::RenderProgress();
+    const bool queued = _renderer && _renderer->isQueued(project);
+    const QString timeFormat = QString::fromUtf8("yyyy-MM-dd hh:mm");
+
+    QString status;
+    QString remaining = tr("N/A");
+    QString frames = record.frameRange.isEmpty() ? tr("N/A") : record.frameRange;
+    int percent = 0;
+
+    if (progress.active) {
+        percent = int(progress.percent + 0.5);
+        if (progress.paused) {
+            status = tr("Paused");
+            remaining = tr("Paused");
+        } else if ( progress.node.isEmpty() ) {
+            status = tr("Starting...");
+        } else {
+            status = (progress.fps > 0) ? tr("Rendering %1 (%2 fps)").arg(progress.node).arg(progress.fps, 0, 'f', 1)
+                                        : tr("Rendering %1").arg(progress.node);
+            remaining = progress.timeRemaining.isEmpty() ? tr("...") : progress.timeRemaining;
+        }
+        if ( !progress.frameRange().isEmpty() ) {
+            frames = progress.frameRange();
+        }
+    } else if (queued) {
+        status = tr("Queued");
     } else {
-        for (int i = 0; i < info.stateKeys.size(); ++i) {
-            const QString key = info.stateKeys.at(i);
-            const bool known = _state && _state->has(key);
-            kvLines << ( known ? tr("%1 = %2").arg(key).arg( valueText(key) ) : tr("%1 = (missing)").arg(key) );
+        switch (record.status) {
+        case ::RenderRecord::eDone:
+            status = tr("Finished %1").arg( record.time.toString(timeFormat) );
+            percent = 100;
+            break;
+        case ::RenderRecord::eFailed:
+            status = tr("Failed %1").arg( record.time.toString(timeFormat) );
+            break;
+        default:
+            status = record.message.isEmpty() ? tr("Not rendered") : record.message;
+            break;
+        }
+        if ( !record.message.isEmpty() && (record.status == ::RenderRecord::eDone || record.status == ::RenderRecord::eFailed) ) {
+            status += QString::fromUtf8("\n") + record.message.section(QLatin1Char('\n'), 0, 0);
         }
     }
-    QTableWidgetItem* keysItem = new QTableWidgetItem( kvLines.join( QString::fromUtf8("\n") ) );
-    keysItem->setToolTip( keysItem->text() );
-    _projectTable->setItem(row, kSceneColumnKeys, keysItem);
 
-    // Last render
-    QString status;
-    switch (record.status) {
-    case ::RenderRecord::eQueued:
-        status = tr("Queued");
-        break;
-    case ::RenderRecord::eRendering:
-        status = tr("Rendering...");
-        break;
-    case ::RenderRecord::eDone:
-        status = tr("Done %1").arg( record.time.toString( QString::fromUtf8("yyyy-MM-dd hh:mm") ) );
-        break;
-    case ::RenderRecord::eFailed:
-        status = tr("Failed %1").arg( record.time.toString( QString::fromUtf8("yyyy-MM-dd hh:mm") ) );
-        break;
-    case ::RenderRecord::eNone:
-        status = record.message.isEmpty() ? tr("Not rendered") : record.message;
-        break;
-    }
-    if ( !record.message.isEmpty() && (record.status == ::RenderRecord::eDone || record.status == ::RenderRecord::eFailed) ) {
-        status += QString::fromUtf8("\n") + record.message.section(QLatin1Char('\n'), 0, 0);
-    }
     QTableWidgetItem* statusItem = new QTableWidgetItem(status);
-    statusItem->setToolTip( record.message.isEmpty() ? status : record.message );
-    if (record.status == ::RenderRecord::eFailed) {
+    statusItem->setToolTip( record.message.isEmpty() || progress.active ? status : record.message );
+    if ( !progress.active && !queued && (record.status == ::RenderRecord::eFailed) ) {
         statusItem->setForeground( QColor(230, 90, 80) );
     }
-    _projectTable->setItem(row, kSceneColumnStatus, statusItem);
+    _projectTable->setItem(w.row, kSceneColumnStatus, statusItem);
+    _projectTable->setItem( w.row, kSceneColumnRemaining, new QTableWidgetItem(remaining) );
+    _projectTable->setItem( w.row, kSceneColumnFrames, new QTableWidgetItem(frames) );
+
+    w.progress->setValue(percent);
+    w.progress->setFormat( progress.active && !progress.node.isEmpty() ? tr("%1: %p%").arg(progress.node) : tr("%p%") );
+
+    const bool rendering = progress.active;
+    const bool wasBlocked = w.pause->blockSignals(true);
+    w.pause->setChecked(rendering && progress.paused);
+    w.pause->blockSignals(wasBlocked);
+    w.pause->setEnabled( rendering && _renderer->canPause() );
+    w.render->setEnabled( _renderer && !rendering && !queued && QFileInfo(project).exists() );
+    w.stop->setEnabled(rendering || queued);
+}
+
+void
+ScenePanel::onRowPauseToggled(bool paused)
+{
+    const QString project = sender() ? sender()->property("project").toString() : QString();
+
+    if ( !_renderer || (project != _renderer->currentProject()) ) {
+        return;
+    }
+    if (paused) {
+        _renderer->pause();
+    } else {
+        _renderer->resume();
+    }
+}
+
+void
+ScenePanel::onRowRenderClicked()
+{
+    const QString project = sender() ? sender()->property("project").toString() : QString();
+
+    if ( _renderer && !project.isEmpty() ) {
+        _renderer->enqueue( QStringList(project) );
+    }
+}
+
+void
+ScenePanel::onRowStopClicked()
+{
+    const QString project = sender() ? sender()->property("project").toString() : QString();
+
+    if ( _renderer && !project.isEmpty() ) {
+        _renderer->cancel(project);
+    }
+}
+
+void
+ScenePanel::onRenderProgressChanged(const QString& project)
+{
+    refreshRowRenderState(project);
 }
 
 void
@@ -720,6 +902,10 @@ ScenePanel::onRenderRecordChanged(const QString& project)
 void
 ScenePanel::onRendererStatusChanged()
 {
+    // Queue / pause changes affect every row's controls.
+    for (QHash<QString, RowWidgets>::const_iterator it = _rows.constBegin(); it != _rows.constEnd(); ++it) {
+        refreshRowRenderState( it.key() );
+    }
     refreshButtons();
 }
 
@@ -730,9 +916,6 @@ ScenePanel::onStateChanged()
         return;
     }
 
-    for (int row = 0; row < _projectTable->rowCount(); ++row) {
-        refreshProjectRow(row);
-    }
     refreshKvTable();
 }
 

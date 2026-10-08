@@ -33,6 +33,7 @@ struct RenderRecord
   QString message;    // error / summary
   QString output;     // existing output file found after the render
   QString thumbnail;  // png made from the output
+  QString frameRange; // frames rendered, e.g. "1-250"
 
   RenderRecord()
       : status(eNone)

@@ -41,6 +41,7 @@ CLANG_DIAG_ON(uninitialized)
 
 class QLabel;
 class QListWidget;
+class QProgressBar;
 class QPushButton;
 class QStackedWidget;
 class QTableWidget;
@@ -101,9 +102,15 @@ private Q_SLOTS:
     void onProjectSelectionChanged();
     void onProjectCellDoubleClicked(int row, int column);
 
+    // Per-row render controls (the project path is the sender's "project" property).
+    void onRowPauseToggled(bool paused);
+    void onRowRenderClicked();
+    void onRowStopClicked();
+
     void onScenesChanged();
     void onRenderRecordChanged(const QString& project);
     void onRendererStatusChanged();
+    void onRenderProgressChanged(const QString& project);
     void onStateChanged();
 
 private:
@@ -114,6 +121,8 @@ private:
     void refreshSceneList();
     void showScene();
     void refreshProjectRow(int row);
+    void refreshRowRenderState(const QString& project);
+    QWidget* createRowControls(const QString& project);
     void refreshKvTable();
     void refreshButtons();
 
@@ -128,6 +137,17 @@ private:
 
     QString _currentSceneId;
     QHash<QString, ProjectInfo> _infos; // per project, read from the .ntp
+
+    // Widgets of a project row (created once per showScene()).
+    struct RowWidgets
+    {
+        int row;
+        QProgressBar* progress;
+        QPushButton* pause;
+        QPushButton* render;
+        QPushButton* stop;
+    };
+    QHash<QString, RowWidgets> _rows;
 
     QListWidget* _sceneList;
     QPushButton* _renameSceneButton;

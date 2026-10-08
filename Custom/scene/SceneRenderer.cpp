@@ -13,6 +13,12 @@
 #include <QImage>
 #include <QPainter>
 #include <QProcessEnvironment>
+#include <QRegExp>
+
+#ifdef Q_OS_UNIX
+#include <signal.h>
+#include <sys/types.h>
+#endif
 
 namespace
 {
@@ -38,6 +44,19 @@ QString lastLines(const QByteArray &output, int count)
   }
   return lines.join(QString::fromUtf8("\n")).trimmed();
 }
+}
+
+QString RenderProgress::frameRange() const
+{
+  if (firstFrame < 0)
+  {
+    return QString();
+  }
+  if (firstFrame == lastFrame)
+  {
+    return QString::number(firstFrame);
+  }
+  return QString::fromUtf8("%1-%2").arg(firstFrame).arg(lastFrame);
 }
 
 SceneRenderer::SceneRenderer(StateStore *state,
@@ -90,6 +109,95 @@ QString SceneRenderer::currentProject() const
 int SceneRenderer::queuedCount() const
 {
   return m_queue.size();
+}
+
+bool SceneRenderer::isQueued(const QString &project) const
+{
+  return m_queue.contains(project);
+}
+
+RenderProgress SceneRenderer::progress(const QString &project) const
+{
+  if (m_process && project == m_current)
+  {
+    return m_progress;
+  }
+  return RenderProgress();
+}
+
+bool SceneRenderer::canPause() const
+{
+#ifdef Q_OS_UNIX
+  return true;
+#else
+  return false;
+#endif
+}
+
+bool SceneRenderer::isPaused() const
+{
+  return m_process && m_progress.paused;
+}
+
+bool SceneRenderer::signalProcess(int sig)
+{
+#ifdef Q_OS_UNIX
+  if (!m_process)
+  {
+    return false;
+  }
+#if QT_VERSION >= QT_VERSION_CHECK(5, 3, 0)
+  const qint64 pid = m_process->processId();
+#else
+  const qint64 pid = m_process->pid();
+#endif
+  return pid > 0 && ::kill(static_cast<pid_t>(pid), sig) == 0;
+#else
+  Q_UNUSED(sig);
+  return false;
+#endif
+}
+
+void SceneRenderer::pause()
+{
+#ifdef Q_OS_UNIX
+  if (m_process && !m_progress.paused && signalProcess(SIGSTOP))
+  {
+    m_progress.paused = true;
+    Q_EMIT progressChanged(m_current);
+    Q_EMIT statusChanged();
+  }
+#endif
+}
+
+void SceneRenderer::resume()
+{
+#ifdef Q_OS_UNIX
+  if (m_process && m_progress.paused && signalProcess(SIGCONT))
+  {
+    m_progress.paused = false;
+    Q_EMIT progressChanged(m_current);
+    Q_EMIT statusChanged();
+  }
+#endif
+}
+
+void SceneRenderer::cancel(const QString &project)
+{
+  if (m_queue.removeAll(project) > 0)
+  {
+    RenderRecord record = m_scenes->renderRecord(project);
+    record.status = RenderRecord::eNone;
+    record.message = tr("Cancelled");
+    m_scenes->setRenderRecord(project, record);
+    Q_EMIT statusChanged();
+  }
+
+  if (m_process && project == m_current)
+  {
+    m_stopping = true;
+    m_process->kill(); // SIGKILL also ends a stopped (paused) process
+  }
 }
 
 void SceneRenderer::enqueue(const QStringList &projects)
@@ -150,6 +258,9 @@ void SceneRenderer::startNext()
 
   m_current = m_queue.takeFirst();
   m_outputTail.clear();
+  m_partialLine.clear();
+  m_progress = RenderProgress();
+  m_progress.active = true;
   m_stopping = false;
 
   if (!QFile::exists(m_current))
@@ -206,10 +317,61 @@ void SceneRenderer::onOutput()
   {
     return;
   }
-  m_outputTail.append(m_process->readAll());
+  const QByteArray data = m_process->readAll();
+
+  m_outputTail.append(data);
   if (m_outputTail.size() > kOutputTailBytes)
   {
     m_outputTail = m_outputTail.right(kOutputTailBytes);
+  }
+
+  // Progress is reported line by line; keep an incomplete last line.
+  m_partialLine.append(data);
+  int newline;
+  while ((newline = m_partialLine.indexOf('\n')) >= 0)
+  {
+    parseOutputLine(QString::fromUtf8(m_partialLine.left(newline)).trimmed());
+    m_partialLine.remove(0, newline + 1);
+  }
+}
+
+void SceneRenderer::parseOutputLine(const QString &line)
+{
+  // "Write1 ==> Frame: 12, Progress: 60.0%, 14.2 Fps, Time Remaining: 3 seconds"
+  static const QRegExp frameLine(QString::fromUtf8(
+      "^(\\S+) ==> Frame: (-?\\d+), Progress: ([0-9.]+)%, ([0-9.]+) Fps, Time Remaining: (.*)$"));
+  // "Write1 ==> Rendering started" / "Write1 ==> Rendering finished"
+  static const QRegExp stateLine(QString::fromUtf8("^(\\S+) ==> Rendering (started|finished)$"));
+
+  QRegExp frame(frameLine);
+  QRegExp state(stateLine);
+
+  if (frame.exactMatch(line))
+  {
+    const int f = frame.cap(2).toInt();
+    m_progress.node = frame.cap(1);
+    m_progress.percent = frame.cap(3).toDouble();
+    m_progress.fps = frame.cap(4).toDouble();
+    m_progress.timeRemaining = frame.cap(5).trimmed();
+    m_progress.firstFrame = (m_progress.firstFrame < 0) ? f : qMin(m_progress.firstFrame, f);
+    m_progress.lastFrame = (m_progress.lastFrame < 0) ? f : qMax(m_progress.lastFrame, f);
+    ++m_progress.framesDone;
+    Q_EMIT progressChanged(m_current);
+  }
+  else if (state.exactMatch(line))
+  {
+    m_progress.node = state.cap(1);
+    if (state.cap(2) == QString::fromUtf8("started"))
+    {
+      m_progress.percent = 0;
+      m_progress.timeRemaining.clear();
+    }
+    else
+    {
+      m_progress.percent = 100;
+      m_progress.timeRemaining = tr("Done");
+    }
+    Q_EMIT progressChanged(m_current);
   }
 }
 
@@ -233,6 +395,11 @@ void SceneRenderer::onFinished(int exitCode, QProcess::ExitStatus exitStatus)
   }
 
   onOutput();
+  if (!m_partialLine.isEmpty())
+  {
+    parseOutputLine(QString::fromUtf8(m_partialLine).trimmed());
+    m_partialLine.clear();
+  }
   m_process->deleteLater();
   m_process = nullptr;
 
@@ -261,6 +428,11 @@ void SceneRenderer::finishCurrent(bool ok, const QString &message)
   RenderRecord record = m_scenes->renderRecord(project);
   record.time = QDateTime::currentDateTime();
   record.message = message;
+  if (!m_progress.frameRange().isEmpty())
+  {
+    record.frameRange = m_progress.frameRange();
+  }
+  m_progress = RenderProgress();
 
   if (ok)
   {

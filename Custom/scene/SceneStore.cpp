@@ -118,6 +118,7 @@ bool SceneStore::loadAndAutoSave(const QString &path)
     record.message = r.value(key("message")).toString();
     record.output = r.value(key("output")).toString();
     record.thumbnail = r.value(key("thumbnail")).toString();
+    record.frameRange = r.value(key("frameRange")).toString();
     m_records.insert(it.key(), record);
   }
 
@@ -163,6 +164,7 @@ bool SceneStore::saveNow()
     r.insert(key("message"), record.message);
     r.insert(key("output"), record.output);
     r.insert(key("thumbnail"), record.thumbnail);
+    r.insert(key("frameRange"), record.frameRange);
     renders.insert(it.key(), r);
   }
 

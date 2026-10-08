@@ -68,6 +68,8 @@ GuiApplicationManagerPrivate::GuiApplicationManagerPrivate(GuiApplicationManager
     , dpiY(96)
     , stateStore()
     , httpServer()
+    , sceneStore()
+    , sceneRenderer()
     , dashboard()
     , quitRequested(false)
 {

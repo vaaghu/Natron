@@ -28,6 +28,8 @@
 CLANG_DIAG_OFF(deprecated)
 CLANG_DIAG_OFF(uninitialized)
 #include <QCloseEvent>
+#include <QEvent>
+#include <QShowEvent>
 #include <QDir>
 #include <QFileDialog>
 #include <QFileInfo>
@@ -48,6 +50,7 @@ CLANG_DIAG_ON(uninitialized)
 
 #include "Gui/GuiApplicationManager.h" // appPTR
 #include "Gui/GuiDefines.h" // NATRON_MAX_RECENT_FILES
+#include "Gui/ScenePanel.h"
 
 #include "Custom/server/HttpServer.h"
 #include "Custom/state/Json.h"
@@ -60,12 +63,20 @@ NATRON_NAMESPACE_ENTER
 
 DashboardWindow::DashboardWindow(::StateStore* store,
                                  ::HttpServer* server,
+                                 ::SceneStore* scenes,
+                                 ::SceneRenderer* renderer,
                                  QWidget* parent)
     : QWidget(parent)
     , _store(store)
     , _server(server)
+    , _sceneStore(scenes)
+    , _sceneRenderer(renderer)
     , _recentList(0)
     , _openRecentButton(0)
+    , _addToSceneButton(0)
+    , _scenePanel(0)
+    , _mainSplitter(0)
+    , _initialSplitDone(false)
     , _serverStatusLabel(0)
     , _table(0)
     , _newKeyEdit(0)
@@ -75,17 +86,18 @@ DashboardWindow::DashboardWindow(::StateStore* store,
     , _updatingTable(false)
 {
     setWindowTitle( tr("%1 - Dashboard").arg( QString::fromUtf8(NATRON_APPLICATION_NAME) ) );
-    resize(1000, 600);
+    resize(1400, 800);
 
     QHBoxLayout* mainLayout = new QHBoxLayout(this);
     mainLayout->setContentsMargins(8, 8, 8, 8);
 
-    QSplitter* splitter = new QSplitter(Qt::Horizontal, this);
-    splitter->addWidget( createProjectsPanel() );
-    splitter->addWidget( createDataPanel() );
-    splitter->setStretchFactor(0, 1);
-    splitter->setStretchFactor(1, 2);
-    mainLayout->addWidget(splitter);
+    // Projects 75%, Data 25% (also when the window is resized).
+    _mainSplitter = new QSplitter(Qt::Horizontal, this);
+    _mainSplitter->addWidget( createProjectsPanel() );
+    _mainSplitter->addWidget( createDataPanel() );
+    _mainSplitter->setStretchFactor(0, 3);
+    _mainSplitter->setStretchFactor(1, 1);
+    mainLayout->addWidget(_mainSplitter);
 
     if (_store) {
         QObject::connect( _store, SIGNAL(valueChanged(QString)), this, SLOT(onStoreValueChanged(QString)) );
@@ -111,32 +123,52 @@ DashboardWindow::createProjectsPanel()
     QGroupBox* box = new QGroupBox(tr("Projects"), this);
     QVBoxLayout* layout = new QVBoxLayout(box);
 
+    QSplitter* split = new QSplitter(Qt::Vertical, box);
+
+    // Recent projects
+    QWidget* recent = new QWidget(split);
+    QVBoxLayout* recentLayout = new QVBoxLayout(recent);
+    recentLayout->setContentsMargins(0, 0, 0, 0);
+
     QHBoxLayout* buttons = new QHBoxLayout;
-    QPushButton* newButton = new QPushButton(tr("New Project"), box);
+    QPushButton* newButton = new QPushButton(tr("New Project"), recent);
     newButton->setToolTip( tr("Open a new, empty project in a new window.") );
-    QPushButton* openButton = new QPushButton(tr("Open Project..."), box);
+    QPushButton* openButton = new QPushButton(tr("Open Project..."), recent);
     openButton->setToolTip( tr("Choose a project file and open it in a new window.") );
+    _openRecentButton = new QPushButton(tr("Open"), recent);
+    _openRecentButton->setEnabled(false);
+    _openRecentButton->setToolTip( tr("Open the selected recent projects.") );
+    _addToSceneButton = new QPushButton(tr("Add to Scene"), recent);
+    _addToSceneButton->setEnabled(false);
+    _addToSceneButton->setToolTip( tr("Link the selected recent projects to the opened scene.") );
     buttons->addWidget(newButton);
     buttons->addWidget(openButton);
     buttons->addStretch();
-    layout->addLayout(buttons);
+    buttons->addWidget(_openRecentButton);
+    buttons->addWidget(_addToSceneButton);
+    recentLayout->addLayout(buttons);
 
-    layout->addWidget( new QLabel(tr("Recent projects"), box) );
+    recentLayout->addWidget( new QLabel(tr("Recent projects"), recent) );
 
-    _recentList = new QListWidget(box);
-    _recentList->setSelectionMode(QAbstractItemView::SingleSelection);
-    layout->addWidget(_recentList);
+    _recentList = new QListWidget(recent);
+    _recentList->setSelectionMode(QAbstractItemView::ExtendedSelection);
+    recentLayout->addWidget(_recentList);
+    split->addWidget(recent);
 
-    _openRecentButton = new QPushButton(tr("Open"), box);
-    _openRecentButton->setEnabled(false);
-    QHBoxLayout* openRow = new QHBoxLayout;
-    openRow->addStretch();
-    openRow->addWidget(_openRecentButton);
-    layout->addLayout(openRow);
+    // Scenes
+    if (_sceneStore) {
+        _scenePanel = new ScenePanel(_sceneStore, _sceneRenderer, _store, split);
+        split->addWidget(_scenePanel);
+        QObject::connect( _scenePanel, SIGNAL(currentSceneChanged()), this, SLOT(onRecentSelectionChanged()) );
+    }
+    split->setStretchFactor(0, 1);
+    split->setStretchFactor(1, 3);
+    layout->addWidget(split);
 
     QObject::connect( newButton, SIGNAL(clicked()), this, SLOT(onNewProjectClicked()) );
     QObject::connect( openButton, SIGNAL(clicked()), this, SLOT(onOpenProjectClicked()) );
     QObject::connect( _openRecentButton, SIGNAL(clicked()), this, SLOT(onOpenRecentClicked()) );
+    QObject::connect( _addToSceneButton, SIGNAL(clicked()), this, SLOT(onAddToSceneClicked()) );
     QObject::connect( _recentList, SIGNAL(itemActivated(QListWidgetItem*)), this, SLOT(onRecentItemActivated(QListWidgetItem*)) );
     QObject::connect( _recentList, SIGNAL(itemSelectionChanged()), this, SLOT(onRecentSelectionChanged()) );
 
@@ -181,9 +213,12 @@ DashboardWindow::createDataPanel()
     _removeButton->setToolTip( tr("Remove the selected keys.") );
     addRow->addWidget(_newKeyEdit, 1);
     addRow->addWidget(_newValueEdit, 2);
-    addRow->addWidget(_addButton);
-    addRow->addWidget(_removeButton);
     layout->addLayout(addRow);
+    QHBoxLayout* buttonRow = new QHBoxLayout;
+    buttonRow->addStretch();
+    buttonRow->addWidget(_addButton);
+    buttonRow->addWidget(_removeButton);
+    layout->addLayout(buttonRow);
 
     QObject::connect( _table, SIGNAL(itemChanged(QTableWidgetItem*)), this, SLOT(onTableItemChanged(QTableWidgetItem*)) );
     QObject::connect( _table, SIGNAL(itemSelectionChanged()), this, SLOT(onTableSelectionChanged()) );
@@ -250,13 +285,37 @@ DashboardWindow::onOpenProjectClicked()
     }
 }
 
+QStringList
+DashboardWindow::selectedRecentProjects() const
+{
+    QStringList files;
+    QList<QListWidgetItem*> selected = _recentList->selectedItems();
+
+    for (int i = 0; i < selected.size(); ++i) {
+        const QString file = selected.at(i)->data(Qt::UserRole).toString();
+        if ( !file.isEmpty() ) {
+            files << file;
+        }
+    }
+
+    return files;
+}
+
 void
 DashboardWindow::onOpenRecentClicked()
 {
-    QList<QListWidgetItem*> selected = _recentList->selectedItems();
+    const QStringList files = selectedRecentProjects();
 
-    if ( !selected.isEmpty() ) {
-        onRecentItemActivated( selected.front() );
+    for (int i = 0; i < files.size(); ++i) {
+        appPTR->openProjectWindow( files.at(i) );
+    }
+}
+
+void
+DashboardWindow::onAddToSceneClicked()
+{
+    if (_scenePanel) {
+        _scenePanel->addProjectsToCurrentScene( selectedRecentProjects() );
     }
 }
 
@@ -276,9 +335,10 @@ DashboardWindow::onRecentItemActivated(QListWidgetItem* item)
 void
 DashboardWindow::onRecentSelectionChanged()
 {
-    QList<QListWidgetItem*> selected = _recentList->selectedItems();
+    const bool hasSelection = !selectedRecentProjects().isEmpty();
 
-    _openRecentButton->setEnabled( !selected.isEmpty() && !selected.front()->data(Qt::UserRole).toString().isEmpty() );
+    _openRecentButton->setEnabled(hasSelection);
+    _addToSceneButton->setEnabled( hasSelection && _scenePanel && _scenePanel->hasCurrentScene() );
 }
 
 // ----- Data -----
@@ -480,6 +540,32 @@ DashboardWindow::onServerStatusChanged()
 }
 
 // ----- Window -----
+
+void
+DashboardWindow::showEvent(QShowEvent* e)
+{
+    QWidget::showEvent(e);
+
+    // Initial 75% / 25% split, from the real width (setSizes before the
+    // window is shown gets skewed by the panels' minimum sizes).
+    if (!_initialSplitDone) {
+        _initialSplitDone = true;
+        const int total = _mainSplitter->width() - _mainSplitter->handleWidth();
+        _mainSplitter->setSizes( QList<int>() << (total * 3) / 4 << total - (total * 3) / 4 );
+    }
+}
+
+void
+DashboardWindow::changeEvent(QEvent* e)
+{
+    QWidget::changeEvent(e);
+
+    // Coming back from an editor: projects may have been saved with new
+    // bindings or renamed outputs.
+    if ( (e->type() == QEvent::ActivationChange) && isActiveWindow() && _scenePanel ) {
+        _scenePanel->refresh();
+    }
+}
 
 void
 DashboardWindow::closeEvent(QCloseEvent* e)

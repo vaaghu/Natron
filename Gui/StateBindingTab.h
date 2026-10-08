@@ -83,11 +83,13 @@ private Q_SLOTS:
     void onStoreValueChanged(const QString& key);
     void onStoreKeysChanged();
 
+    void applyValueToNode();
+
 private:
 
     void refreshKeyList();
     void refreshPreview();
-    void applyValueToNode();
+    void saveBindingToNode();
 
     NodeWPtr _node;
     ::StateStore* _store;

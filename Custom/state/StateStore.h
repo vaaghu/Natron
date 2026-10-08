@@ -4,6 +4,7 @@
 #include <QObject>
 #include <QVariant>
 #include <QStringList>
+#include <QTimer>
 
 class StateStore : public QObject
 {
@@ -11,7 +12,7 @@ class StateStore : public QObject
 
 public:
   explicit StateStore(QObject *parent = nullptr);
-  ~StateStore() = default;
+  ~StateStore();
 
   // Set or overwrite a value.
   void set(const QString &key, const QVariant &value);
@@ -41,6 +42,16 @@ public:
   // lists/maps as compact JSON.
   static QString toText(const QVariant &value);
 
+  // Persistence: loads the JSON object in path (replacing the current
+  // content), then saves every later change back to it (batched).
+  // Returns false if the file exists but cannot be read/parsed.
+  bool loadAndAutoSave(const QString &path);
+
+  // Writes pending changes now. Returns false on write error.
+  bool saveNow();
+
+  QString filePath() const;
+
 Q_SIGNALS:
   // A key was set (added or overwritten) or removed.
   void valueChanged(const QString &key);
@@ -48,6 +59,14 @@ Q_SIGNALS:
   // The set of keys changed (a key was added or removed).
   void keysChanged();
 
+private Q_SLOTS:
+  void onSaveTimer();
+
 private:
+  void scheduleSave();
+
   QHash<QString, QVariant> m_store;
+  QString m_path;
+  QTimer m_saveTimer;
+  bool m_dirty;
 };

@@ -32,10 +32,14 @@ CLANG_DIAG_OFF(deprecated)
 CLANG_DIAG_OFF(uninitialized)
 #include <QWidget>
 #include <QString>
+#include <QStringList>
 CLANG_DIAG_ON(deprecated)
 CLANG_DIAG_ON(uninitialized)
 
 class QCloseEvent;
+class QEvent;
+class QShowEvent;
+class QSplitter;
 class QLabel;
 class QLineEdit;
 class QListWidget;
@@ -45,8 +49,12 @@ class QTableWidget;
 class QTableWidgetItem;
 class StateStore; // Custom/state/StateStore.h
 class HttpServer; // Custom/server/HttpServer.h
+class SceneRenderer; // Custom/scene/SceneRenderer.h
+class SceneStore; // Custom/scene/SceneStore.h
 
 NATRON_NAMESPACE_ENTER
+
+class ScenePanel;
 
 /**
  * @brief Start window shown instead of an empty project window.
@@ -65,6 +73,8 @@ public:
 
     DashboardWindow(::StateStore* store,
                     ::HttpServer* server,
+                    ::SceneStore* scenes,
+                    ::SceneRenderer* renderer,
                     QWidget* parent = 0);
 
     virtual ~DashboardWindow();
@@ -79,6 +89,7 @@ private Q_SLOTS:
     void onNewProjectClicked();
     void onOpenProjectClicked();
     void onOpenRecentClicked();
+    void onAddToSceneClicked();
     void onRecentItemActivated(QListWidgetItem* item);
     void onRecentSelectionChanged();
 
@@ -94,11 +105,15 @@ private Q_SLOTS:
 protected:
 
     virtual void closeEvent(QCloseEvent* e) OVERRIDE;
+    virtual void changeEvent(QEvent* e) OVERRIDE;
+    virtual void showEvent(QShowEvent* e) OVERRIDE;
 
 private:
 
     QWidget* createProjectsPanel();
     QWidget* createDataPanel();
+
+    QStringList selectedRecentProjects() const;
 
     void rebuildTable();
     int findRow(const QString& key) const;
@@ -110,9 +125,15 @@ private:
 
     ::StateStore* _store;
     ::HttpServer* _server;
+    ::SceneStore* _sceneStore;
+    ::SceneRenderer* _sceneRenderer;
 
     QListWidget* _recentList;
     QPushButton* _openRecentButton;
+    QPushButton* _addToSceneButton;
+    ScenePanel* _scenePanel;
+    QSplitter* _mainSplitter;
+    bool _initialSplitDone;
 
     QLabel* _serverStatusLabel;
     QTableWidget* _table;

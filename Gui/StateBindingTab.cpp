@@ -35,18 +35,27 @@ CLANG_DIAG_OFF(uninitialized)
 #include <QLabel>
 #include <QLineEdit>
 #include <QPushButton>
+#include <QTimer>
 #include <QVBoxLayout>
 CLANG_DIAG_ON(deprecated)
 CLANG_DIAG_ON(uninitialized)
 
+#include "Engine/EffectInstance.h"
 #include "Engine/KnobTypes.h"
 #include "Engine/Node.h"
 
+#include "Custom/scene/ProjectInfo.h" // kProjectInfoStateKeyParam
 #include "Custom/state/StateStore.h"
 
 // Text node from openfx-arena, and the script name of its text parameter.
 #define kStateBindingTextPluginID "net.fxarena.openfx.Text"
 #define kStateBindingTextParamName "text"
+
+// The bound key is saved in the project as a hidden user parameter on a
+// hidden page, so the binding survives reopening the project and can be read
+// by the dashboard and by NatronRenderer (see Custom/scene).
+#define kStateBindingPageName "natronStatePage"
+#define kStateBindingKeyParamName kProjectInfoStateKeyParam
 
 NATRON_NAMESPACE_ENTER
 
@@ -60,6 +69,38 @@ getTextKnob(const NodePtr& node)
     }
 
     return std::dynamic_pointer_cast<KnobString>( node->getKnobByName(kStateBindingTextParamName) );
+}
+
+// The hidden parameter holding the bound key; created on demand.
+KnobStringPtr
+getKeyKnob(const NodePtr& node,
+           bool create)
+{
+    if (!node) {
+        return KnobStringPtr();
+    }
+
+    KnobStringPtr knob = std::dynamic_pointer_cast<KnobString>( node->getKnobByName(kStateBindingKeyParamName) );
+    if (knob || !create) {
+        return knob;
+    }
+
+    EffectInstancePtr effect = node->getEffectInstance();
+    if (!effect) {
+        return KnobStringPtr();
+    }
+
+    KnobPagePtr page = effect->createPageKnob(kStateBindingPageName, "State binding", true);
+    knob = effect->createStringKnob(kStateBindingKeyParamName, "State key", true);
+    if (!page || !knob) {
+        return KnobStringPtr();
+    }
+    page->setSecret(true);
+    knob->setSecret(true);
+    knob->setHintToolTip( std::string("State store key whose value replaces the text (set from the State tab).") );
+    page->addKnob(knob);
+
+    return knob;
 }
 
 NATRON_NAMESPACE_ANONYMOUS_EXIT
@@ -117,6 +158,21 @@ StateBindingTab::StateBindingTab(const NodePtr& node,
     }
 
     refreshKeyList();
+
+    // Restore the binding saved in the project.
+    KnobStringPtr keyKnob = getKeyKnob(node, false);
+    if (keyKnob) {
+        const QString savedKey = QString::fromUtf8( keyKnob->getValue().c_str() ).trimmed();
+        if ( !savedKey.isEmpty() ) {
+            const bool wasBlocked = _keyCombo->blockSignals(true);
+            _keyCombo->setEditText(savedKey);
+            _keyCombo->blockSignals(wasBlocked);
+            _boundKey = savedKey;
+            // After the project has finished loading.
+            QTimer::singleShot( 0, this, SLOT(applyValueToNode()) );
+        }
+    }
+
     refreshPreview();
 }
 
@@ -146,8 +202,19 @@ StateBindingTab::setBoundKey(const QString& key)
     }
 
     _boundKey = trimmed;
+    saveBindingToNode();
     refreshPreview();
     applyValueToNode();
+}
+
+void
+StateBindingTab::saveBindingToNode()
+{
+    KnobStringPtr keyKnob = getKeyKnob( _node.lock(), !_boundKey.isEmpty() );
+
+    if ( keyKnob && ( keyKnob->getValue() != _boundKey.toStdString() ) ) {
+        keyKnob->setValue( _boundKey.toStdString() );
+    }
 }
 
 void

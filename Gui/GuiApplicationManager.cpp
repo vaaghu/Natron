@@ -34,6 +34,8 @@ CLANG_DIAG_OFF(uninitialized)
 #include <QtCore/QDebug>
 #include <QtCore/QSettings>
 #include <QtCore/QFileInfo>
+#include <QtCore/QDir>
+#include <QtCore/QCoreApplication>
 #include <QPixmapCache>
 #include <QApplication>
 #include <QFontDatabase>
@@ -49,6 +51,7 @@ CLANG_DIAG_ON(uninitialized)
 #include "Engine/EffectInstance.h" // PLUGINID_OFX_*
 #include "Engine/PluginActionShortcut.h"
 #include "Engine/Project.h"
+#include "Engine/StandardPaths.h"
 #include "Gui/QtEnumConvert.h"
 #include "Gui/GuiAppInstance.h"
 #include "Gui/Gui.h"
@@ -966,6 +969,33 @@ GuiApplicationManager::initGui(const CLArgs& args)
     _imp->documentation.reset(new DocumentationManager);
     _imp->documentation->startServer();
 
+    // Dashboard data (KV store, scenes, render thumbnails), kept across runs.
+    {
+        const QString dataDir = StandardPaths::writableLocation(StandardPaths::eStandardLocationData) + QString::fromUtf8("/dashboard");
+        QDir().mkpath(dataDir);
+        const QDir dir(dataDir);
+        const QDir binDir( QCoreApplication::applicationDirPath() );
+#ifdef Q_OS_WIN
+        const QString exe = QString::fromUtf8(".exe");
+#else
+        const QString exe;
+#endif
+
+        _imp->stateStore.loadAndAutoSave( dir.absoluteFilePath( QString::fromUtf8("state.json") ) );
+
+        _imp->sceneStore.reset(new SceneStore);
+        _imp->sceneStore->loadAndAutoSave( dir.absoluteFilePath( QString::fromUtf8("scenes.json") ) );
+
+        const QString applyScript = dir.absoluteFilePath( QString::fromUtf8("apply_state_store.py") );
+        SceneRenderer::writeApplyScript(applyScript);
+        _imp->sceneRenderer.reset( new SceneRenderer( &_imp->stateStore,
+                                                      _imp->sceneStore.get(),
+                                                      binDir.absoluteFilePath(QString::fromUtf8("NatronRenderer") + exe),
+                                                      applyScript,
+                                                      binDir.absoluteFilePath(QString::fromUtf8("ffmpeg") + exe),
+                                                      dir.absoluteFilePath( QString::fromUtf8("thumbnails") ) ) );
+    }
+
     // Local control HTTP server (see Custom/server).
     // Port 3000, or NATRON_HTTP_PORT if set.
     int httpPort = 3000;
@@ -1156,7 +1186,7 @@ bool
 GuiApplicationManager::showStartWindow()
 {
     if (!_imp->dashboard) {
-        _imp->dashboard.reset( new DashboardWindow( &_imp->stateStore, _imp->httpServer.get() ) );
+        _imp->dashboard.reset( new DashboardWindow( &_imp->stateStore, _imp->httpServer.get(), _imp->sceneStore.get(), _imp->sceneRenderer.get() ) );
     }
     _imp->dashboard->show();
     _imp->dashboard->raise();

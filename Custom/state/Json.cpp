@@ -574,7 +574,17 @@ void writeValue(QByteArray &out, const QVariant &value)
     }
     else
     {
-      out.append(QByteArray::number(d, 'g', 17));
+      // Shortest form that reads back to the same double (0.1, not 0.10000000000000001).
+      QByteArray text;
+      for (int precision = 15; precision <= 17; ++precision)
+      {
+        text = QByteArray::number(d, 'g', precision);
+        if (text.toDouble() == d)
+        {
+          break;
+        }
+      }
+      out.append(text);
     }
     break;
   }

@@ -209,9 +209,13 @@ SOURCES += \
     SplashScreen.cpp \
     StateBindingTab.cpp \
     DashboardWindow.cpp \
+    ScenePanel.cpp \
     ../Custom/server/HttpServer.cpp \
     ../Custom/state/StateStore.cpp \
     ../Custom/state/Json.cpp \
+    ../Custom/scene/ProjectInfo.cpp \
+    ../Custom/scene/SceneStore.cpp \
+    ../Custom/scene/SceneRenderer.cpp \
     Splitter.cpp \
     TabGroup.cpp \
     TabWidget.cpp \
@@ -352,9 +356,13 @@ HEADERS += \
     SplashScreen.h \
     StateBindingTab.h \
     DashboardWindow.h \
+    ScenePanel.h \
     ../Custom/server/HttpServer.h \
     ../Custom/state/StateStore.h \
     ../Custom/state/Json.h \
+    ../Custom/scene/ProjectInfo.h \
+    ../Custom/scene/SceneStore.h \
+    ../Custom/scene/SceneRenderer.h \
     Splitter.h \
     TabGroup.h \
     TabWidget.h \

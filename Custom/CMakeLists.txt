@@ -5,10 +5,17 @@ add_library(NatronCustom STATIC
     state/StateStore.cpp
     state/Json.h
     state/Json.cpp
+    scene/ProjectInfo.h
+    scene/ProjectInfo.cpp
+    scene/SceneStore.h
+    scene/SceneStore.cpp
+    scene/SceneRenderer.h
+    scene/SceneRenderer.cpp
 )
 target_link_libraries(NatronCustom
     PUBLIC
         Qt5::Core
+        Qt5::Gui
         Qt5::Network
 )
 target_include_directories(NatronCustom

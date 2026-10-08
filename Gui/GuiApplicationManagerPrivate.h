@@ -53,6 +53,8 @@ CLANG_DIAG_ON(uninitialized)
 
 #include "Custom/server/HttpServer.h"
 #include "Custom/state/StateStore.h"
+#include "Custom/scene/SceneStore.h"
+#include "Custom/scene/SceneRenderer.h"
 
 NATRON_NAMESPACE_ENTER
 
@@ -92,7 +94,9 @@ struct GuiApplicationManagerPrivate
     std::unique_ptr<DocumentationManager> documentation;
     StateStore stateStore;
     std::unique_ptr<HttpServer> httpServer;
-    // Declared after stateStore: destroyed first, as it uses the store.
+    std::unique_ptr<SceneStore> sceneStore;
+    std::unique_ptr<SceneRenderer> sceneRenderer;
+    // Declared after the stores and renderer: destroyed first, as it uses them.
     std::unique_ptr<DashboardWindow> dashboard;
     // Set once the user asked to quit; the last closed project window then
     // quits the application even though the dashboard exists.

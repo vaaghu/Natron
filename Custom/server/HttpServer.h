@@ -3,8 +3,10 @@
 #include <QByteArray>
 #include <QHash>
 #include <QObject>
+#include <QString>
 #include <QTcpServer>
 #include <QTcpSocket>
+#include <QTimer>
 
 class StateStore;
 
@@ -19,9 +21,22 @@ public:
       QObject *parent = nullptr);
   ~HttpServer();
 
+  // Starts listening on localhost. If the port is busy (e.g. another Natron
+  // is running), keeps retrying every few seconds until it is free.
   void start();
 
+  bool isListening() const;
+  unsigned short port() const;
+
+  // Why the last attempt to listen failed (empty when listening).
+  QString lastError() const;
+
+Q_SIGNALS:
+  // Listening state or lastError() changed.
+  void statusChanged();
+
 private Q_SLOTS:
+  void tryListen();
   void onNewConnection();
   void onReadyRead();
   void onDisconnected();
@@ -51,6 +66,8 @@ private:
       const QByteArray &body);
 
   QTcpServer m_server;
+  QTimer m_retryTimer;
+  QString m_lastError;
   unsigned short m_port;
   StateStore &m_store;
   QHash<QTcpSocket *, QByteArray> m_buffers;

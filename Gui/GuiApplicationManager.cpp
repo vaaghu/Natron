@@ -966,8 +966,17 @@ GuiApplicationManager::initGui(const CLArgs& args)
     _imp->documentation.reset(new DocumentationManager);
     _imp->documentation->startServer();
 
-    // Local control HTTP server (see Custom/server)
-    _imp->httpServer.reset(new HttpServer(3000, _imp->stateStore));
+    // Local control HTTP server (see Custom/server).
+    // Port 3000, or NATRON_HTTP_PORT if set.
+    int httpPort = 3000;
+    {
+        bool ok = false;
+        const int envPort = qgetenv("NATRON_HTTP_PORT").toInt(&ok);
+        if ( ok && (envPort > 0) && (envPort < 65536) ) {
+            httpPort = envPort;
+        }
+    }
+    _imp->httpServer.reset( new HttpServer(static_cast<unsigned short>(httpPort), _imp->stateStore) );
     _imp->httpServer->start();
 
     return exec();
@@ -1147,7 +1156,7 @@ bool
 GuiApplicationManager::showStartWindow()
 {
     if (!_imp->dashboard) {
-        _imp->dashboard.reset( new DashboardWindow(&_imp->stateStore) );
+        _imp->dashboard.reset( new DashboardWindow( &_imp->stateStore, _imp->httpServer.get() ) );
     }
     _imp->dashboard->show();
     _imp->dashboard->raise();

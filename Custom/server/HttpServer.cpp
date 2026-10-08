@@ -11,6 +11,9 @@ namespace
 {
 // Upper bound on headers + body for a single request.
 const int kMaxRequestSize = 1024 * 1024;
+
+// Delay between attempts to listen while the port is busy.
+const int kRetryIntervalMs = 3000;
 }
 
 HttpServer::HttpServer(
@@ -26,6 +29,13 @@ HttpServer::HttpServer(
       SIGNAL(newConnection()),
       this,
       SLOT(onNewConnection()));
+
+  m_retryTimer.setInterval(kRetryIntervalMs);
+  connect(
+      &m_retryTimer,
+      SIGNAL(timeout()),
+      this,
+      SLOT(tryListen()));
 }
 
 HttpServer::~HttpServer()
@@ -38,20 +48,67 @@ HttpServer::~HttpServer()
 
 void HttpServer::start()
 {
-  if (!m_server.listen(QHostAddress::LocalHost, m_port))
-  {
-    qCritical()
-        << "Failed to start HTTP server on port"
-        << m_port
-        << ":"
-        << m_server.errorString();
+  tryListen();
+}
 
+bool HttpServer::isListening() const
+{
+  return m_server.isListening();
+}
+
+unsigned short HttpServer::port() const
+{
+  return m_port;
+}
+
+QString HttpServer::lastError() const
+{
+  return m_lastError;
+}
+
+void HttpServer::tryListen()
+{
+  if (m_server.isListening())
+  {
+    m_retryTimer.stop();
     return;
   }
 
-  qDebug()
-      << "HTTP server listening on"
-      << "http://localhost:" << m_port;
+  // qWarning rather than qDebug: release builds compile qDebug out.
+  if (m_server.listen(QHostAddress::LocalHost, m_port))
+  {
+    m_retryTimer.stop();
+    m_lastError.clear();
+
+    qWarning()
+        << "HTTP server listening on"
+        << "http://localhost:" << m_port;
+
+    Q_EMIT statusChanged();
+    return;
+  }
+
+  const QString error = m_server.errorString();
+
+  // Log each distinct failure once, not on every retry.
+  if (error != m_lastError)
+  {
+    m_lastError = error;
+
+    qWarning()
+        << "Failed to start HTTP server on port"
+        << m_port
+        << ":"
+        << error
+        << "- retrying every" << kRetryIntervalMs / 1000 << "s";
+
+    Q_EMIT statusChanged();
+  }
+
+  if (!m_retryTimer.isActive())
+  {
+    m_retryTimer.start();
+  }
 }
 
 void HttpServer::onNewConnection()

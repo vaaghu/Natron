@@ -49,6 +49,7 @@ CLANG_DIAG_ON(uninitialized)
 #include "Gui/GuiApplicationManager.h" // appPTR
 #include "Gui/GuiDefines.h" // NATRON_MAX_RECENT_FILES
 
+#include "Custom/server/HttpServer.h"
 #include "Custom/state/Json.h"
 #include "Custom/state/StateStore.h"
 
@@ -58,11 +59,14 @@ CLANG_DIAG_ON(uninitialized)
 NATRON_NAMESPACE_ENTER
 
 DashboardWindow::DashboardWindow(::StateStore* store,
+                                 ::HttpServer* server,
                                  QWidget* parent)
     : QWidget(parent)
     , _store(store)
+    , _server(server)
     , _recentList(0)
     , _openRecentButton(0)
+    , _serverStatusLabel(0)
     , _table(0)
     , _newKeyEdit(0)
     , _newValueEdit(0)
@@ -88,8 +92,13 @@ DashboardWindow::DashboardWindow(::StateStore* store,
         QObject::connect( _store, SIGNAL(keysChanged()), this, SLOT(onStoreKeysChanged()) );
     }
 
+    if (_server) {
+        QObject::connect( _server, SIGNAL(statusChanged()), this, SLOT(onServerStatusChanged()) );
+    }
+
     refreshRecentProjects();
     rebuildTable();
+    onServerStatusChanged();
 }
 
 DashboardWindow::~DashboardWindow()
@@ -139,6 +148,12 @@ DashboardWindow::createDataPanel()
 {
     QGroupBox* box = new QGroupBox(tr("Data"), this);
     QVBoxLayout* layout = new QVBoxLayout(box);
+
+    _serverStatusLabel = new QLabel(box);
+    _serverStatusLabel->setTextFormat(Qt::PlainText);
+    _serverStatusLabel->setWordWrap(true);
+    _serverStatusLabel->setTextInteractionFlags(Qt::TextSelectableByMouse);
+    layout->addWidget(_serverStatusLabel);
 
     _table = new QTableWidget(0, 2, box);
     QStringList headers;
@@ -439,6 +454,28 @@ DashboardWindow::onRemoveClicked()
 
     for (int i = 0; i < keys.size(); ++i) {
         _store->remove( keys.at(i) );
+    }
+}
+
+void
+DashboardWindow::onServerStatusChanged()
+{
+    if (!_server) {
+        _serverStatusLabel->setText( tr("HTTP server: not created.") );
+
+        return;
+    }
+
+    const QString url = QString::fromUtf8("http://localhost:%1").arg( _server->port() );
+
+    if ( _server->isListening() ) {
+        _serverStatusLabel->setText( tr("HTTP server: listening on %1  (POST %1/state)").arg(url) );
+    } else if ( !_server->lastError().isEmpty() ) {
+        _serverStatusLabel->setText( tr("HTTP server: NOT running on %1: %2. Retrying every few seconds; "
+                                        "close whatever uses the port, or start Natron with NATRON_HTTP_PORT=<port>.")
+                                     .arg(url).arg( _server->lastError() ) );
+    } else {
+        _serverStatusLabel->setText( tr("HTTP server: starting on %1...").arg(url) );
     }
 }
 

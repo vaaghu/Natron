@@ -36,6 +36,7 @@ CLANG_DIAG_ON(deprecated)
 CLANG_DIAG_ON(uninitialized)
 
 class QCloseEvent;
+class QLabel;
 class QLineEdit;
 class QListWidget;
 class QListWidgetItem;
@@ -43,6 +44,7 @@ class QPushButton;
 class QTableWidget;
 class QTableWidgetItem;
 class StateStore; // Custom/state/StateStore.h
+class HttpServer; // Custom/server/HttpServer.h
 
 NATRON_NAMESPACE_ENTER
 
@@ -61,8 +63,9 @@ GCC_DIAG_SUGGEST_OVERRIDE_ON
 
 public:
 
-    explicit DashboardWindow(::StateStore* store,
-                             QWidget* parent = 0);
+    DashboardWindow(::StateStore* store,
+                    ::HttpServer* server,
+                    QWidget* parent = 0);
 
     virtual ~DashboardWindow();
 
@@ -86,6 +89,7 @@ private Q_SLOTS:
     void onNewKeyTextChanged(const QString& text);
     void onAddClicked();
     void onRemoveClicked();
+    void onServerStatusChanged();
 
 protected:
 
@@ -105,10 +109,12 @@ private:
     static QVariant parseUserValue(const QString& text);
 
     ::StateStore* _store;
+    ::HttpServer* _server;
 
     QListWidget* _recentList;
     QPushButton* _openRecentButton;
 
+    QLabel* _serverStatusLabel;
     QTableWidget* _table;
     QLineEdit* _newKeyEdit;
     QLineEdit* _newValueEdit;

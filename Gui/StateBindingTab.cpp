@@ -30,6 +30,7 @@
 CLANG_DIAG_OFF(deprecated)
 CLANG_DIAG_OFF(uninitialized)
 #include <QComboBox>
+#include <QEvent>
 #include <QFormLayout>
 #include <QHBoxLayout>
 #include <QLabel>
@@ -45,7 +46,9 @@ CLANG_DIAG_ON(uninitialized)
 #include "Engine/Node.h"
 
 #include "Custom/scene/ProjectInfo.h" // kProjectInfoStateKeyParam
+#include "Custom/state/KvValue.h"
 #include "Custom/state/StateStore.h"
+#include "Gui/KvGuiUtils.h"
 
 // Text node from openfx-arena, and the script name of its text parameter.
 // Bindable nodes and the parameter the bound value goes to:
@@ -146,6 +149,7 @@ StateBindingTab::StateBindingTab(const NodePtr& node,
     , _keyCombo(0)
     , _valueLabel(0)
     , _unbindButton(0)
+    , _imageNode(false)
 {
     QVBoxLayout* mainLayout = new QVBoxLayout(this);
     mainLayout->setContentsMargins(4, 4, 4, 4);
@@ -163,6 +167,7 @@ StateBindingTab::StateBindingTab(const NodePtr& node,
     _keyCombo->setSizePolicy(QSizePolicy::Expanding, QSizePolicy::Fixed);
     _keyCombo->lineEdit()->setPlaceholderText( tr("Type or select a key") );
     const bool image = isImageNode(node);
+    _imageNode = image;
     _keyCombo->setToolTip( image ? tr("Key in the state store whose value (an image or video file path) replaces this node's file.")
                                  : tr("Key in the state store whose value replaces this node's text.") );
     keyLayout->addWidget(_keyCombo);
@@ -178,6 +183,7 @@ StateBindingTab::StateBindingTab(const NodePtr& node,
     _valueLabel->setTextFormat(Qt::PlainText);
     _valueLabel->setWordWrap(true);
     _valueLabel->setTextInteractionFlags(Qt::TextSelectableByMouse);
+    _valueLabel->installEventFilter(this); // double-click opens an image
     form->addRow(tr("Value"), _valueLabel);
 
     mainLayout->addLayout(form);
@@ -280,6 +286,12 @@ StateBindingTab::onStoreKeysChanged()
     refreshKeyList();
 }
 
+bool
+StateBindingTab::valueFitsNode(const QVariant& value) const
+{
+    return Kv::typeOf(value) == (_imageNode ? Kv::eTypeImage : Kv::eTypeText);
+}
+
 void
 StateBindingTab::refreshKeyList()
 {
@@ -287,7 +299,14 @@ StateBindingTab::refreshKeyList()
         return;
     }
 
-    QStringList keys = _store->keys();
+    // Only keys of the type this node takes (text for Text, image for Read).
+    QStringList keys;
+    const QStringList all = _store->keys();
+    for (int i = 0; i < all.size(); ++i) {
+        if ( valueFitsNode( _store->get( all.at(i) ) ) ) {
+            keys << all.at(i);
+        }
+    }
     keys.sort();
 
     // Rebuilding the list must not change the key being typed/bound.
@@ -303,13 +322,21 @@ void
 StateBindingTab::refreshPreview()
 {
     _unbindButton->setEnabled( !_boundKey.isEmpty() );
+    _valueLabel->setToolTip( QString() );
 
     if ( _boundKey.isEmpty() ) {
         _valueLabel->setText( tr("Not bound") );
     } else if ( !_store || !_store->has(_boundKey) ) {
         _valueLabel->setText( tr("Key not in store yet; the node will update when it is set.") );
     } else {
-        _valueLabel->setText( ::StateStore::toText( _store->get(_boundKey) ) );
+        const QVariant value = _store->get(_boundKey);
+        if ( !valueFitsNode(value) ) {
+            _valueLabel->setText( _imageNode ? tr("%1 is text, not an image: the file is left unchanged.").arg(_boundKey)
+                                             : tr("%1 is an image, not text: the text is left unchanged.").arg(_boundKey) );
+        } else {
+            _valueLabel->setText( Kv::displayText(value) );
+            _valueLabel->setToolTip( KvGui::tooltip(value) );
+        }
     }
 }
 
@@ -320,17 +347,37 @@ StateBindingTab::applyValueToNode()
         return;
     }
 
+    const QVariant value = _store->get(_boundKey);
+    if ( !valueFitsNode(value) ) {
+        return;
+    }
+
     KnobStringBasePtr knob = getTargetKnob( _node.lock() );
     if (!knob) {
         return;
     }
 
-    const std::string text = ::StateStore::toText( _store->get(_boundKey) ).toStdString();
+    // Text nodes get the text, Read nodes the image path.
+    const std::string text = ( _imageNode ? Kv::imagePath(value) : Kv::textValue(value) ).toStdString();
     if (knob->getValue() == text) {
         return;
     }
 
     knob->setValue(text);
+}
+
+bool
+StateBindingTab::eventFilter(QObject* watched,
+                             QEvent* e)
+{
+    if ( (watched == _valueLabel) && (e->type() == QEvent::MouseButtonDblClick) &&
+         _store && _store->has(_boundKey) ) {
+        KvGui::openImage( _store->get(_boundKey) );
+
+        return true;
+    }
+
+    return QWidget::eventFilter(watched, e);
 }
 
 NATRON_NAMESPACE_EXIT

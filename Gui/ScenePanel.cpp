@@ -29,6 +29,7 @@ CLANG_DIAG_OFF(deprecated)
 CLANG_DIAG_OFF(uninitialized)
 #include <QBrush>
 #include <QColor>
+#include <QStyle>
 #include <QComboBox>
 #include <QDesktopServices>
 #include <QDir>
@@ -58,7 +59,9 @@ CLANG_DIAG_ON(uninitialized)
 
 #include "Custom/scene/SceneRenderer.h"
 #include "Custom/scene/SceneStore.h"
+#include "Custom/state/KvValue.h"
 #include "Custom/state/StateStore.h"
+#include "Gui/KvGuiUtils.h"
 
 #define kSceneColumnPreview 0
 #define kSceneColumnProject 1
@@ -113,6 +116,23 @@ makeControlButton(const QIcon& icon,
     button->setToolTip(tooltip);
 
     return button;
+}
+
+// Value types a project binds key for ("text", "image").
+QStringList
+boundTypes(const ProjectInfo& info,
+           const QString& key)
+{
+    QStringList types;
+    const QStringList parts = info.keyTypes.value(key).split( QLatin1Char(',') );
+
+    for (int i = 0; i < parts.size(); ++i) {
+        if ( !parts.at(i).isEmpty() ) {
+            types << parts.at(i);
+        }
+    }
+
+    return types;
 }
 
 NATRON_NAMESPACE_ANONYMOUS_EXIT
@@ -289,20 +309,22 @@ ScenePanel::createSceneDetail()
     QVBoxLayout* kvLayout = new QVBoxLayout(kvBox);
     kvLayout->setContentsMargins(0, 4, 0, 0);
     kvLayout->addWidget( new QLabel(tr("KVs used in this scene"), kvBox) );
-    _kvTable = new QTableWidget(0, 4, kvBox);
+    _kvTable = new QTableWidget(0, 5, kvBox);
     QStringList kvHeaders;
-    kvHeaders << tr("Key in projects") << tr("Uses key") << tr("Value") << tr("Used by");
+    kvHeaders << tr("Key in projects") << tr("Uses key") << tr("Type") << tr("Value") << tr("Used by");
     _kvTable->setHorizontalHeaderLabels(kvHeaders);
     _kvTable->verticalHeader()->setVisible(false);
     _kvTable->setEditTriggers(QAbstractItemView::NoEditTriggers);
     _kvTable->setSelectionBehavior(QAbstractItemView::SelectRows);
     _kvTable->horizontalHeader()->setStretchLastSection(true);
-    _kvTable->setColumnWidth(0, 160);
-    _kvTable->setColumnWidth(1, 180);
-    _kvTable->setColumnWidth(2, 220);
+    _kvTable->setColumnWidth(0, 150);
+    _kvTable->setColumnWidth(1, 170);
+    _kvTable->setColumnWidth(2, 70);
+    _kvTable->setColumnWidth(3, 240);
     _kvTable->setToolTip( tr("\"Uses key\": which store key this scene reads for each key bound in its projects "
                              "(e.g. PlayerName1 -> PlayerName2). The project files are not changed. "
-                             "Edit the values in the Data panel; then re-render the scene.") );
+                             "Double-click an image to open it. Edit values in the Data panel, then re-render.") );
+    QObject::connect( _kvTable, SIGNAL(cellDoubleClicked(int,int)), this, SLOT(onKvCellDoubleClicked(int,int)) );
     kvLayout->addWidget(_kvTable);
     split->addWidget(kvBox);
     split->setStretchFactor(0, 3);
@@ -732,7 +754,7 @@ ScenePanel::onRowRenderClicked()
 {
     const QString project = sender() ? sender()->property("project").toString() : QString();
 
-    if ( _renderer && !project.isEmpty() ) {
+    if ( _renderer && !project.isEmpty() && confirmRender() ) {
         _renderer->enqueue( _currentSceneId, QStringList(project) );
     }
 }
@@ -786,7 +808,6 @@ ScenePanel::refreshKvTable()
     for (int row = 0; row < keys.size(); ++row) {
         const QString& key = keys.at(row);
         const QString used = scene.mappedKey(key);
-        const bool known = _state && _state->has(used);
 
         _kvTable->setItem( row, 0, new QTableWidgetItem(key) );
 
@@ -797,19 +818,162 @@ ScenePanel::refreshKvTable()
         combo->addItems(storeKeys);
         combo->setEditText(used);
         combo->setProperty("key", key);
+        combo->setProperty("applied", used); // ignore repeated signals for the same edit
         combo->setToolTip( (used == key) ? tr("Uses %1 as bound in the projects. Pick or type another key to rename it for this scene.").arg(key)
                                          : tr("This scene uses %1 instead of %2.").arg(used).arg(key) );
         QObject::connect( combo->lineEdit(), SIGNAL(editingFinished()), this, SLOT(onKeyMappingEdited()) );
         QObject::connect( combo, SIGNAL(activated(int)), this, SLOT(onKeyMappingEdited()) );
         _kvTable->setCellWidget(row, 1, combo);
 
-        QTableWidgetItem* valueItem = new QTableWidgetItem( known ? valueText(used) : tr("(missing: set it in the Data panel or via the API)") );
-        if (!known) {
-            valueItem->setForeground( QColor(230, 90, 80) );
+        _kvTable->setItem( row, 4, new QTableWidgetItem( usedBy.value(key).join( QString::fromUtf8(", ") ) ) );
+        refreshKvRow(row, scene);
+    }
+}
+
+void
+ScenePanel::refreshKvRow(int row,
+                         const ::Scene& scene)
+{
+    QTableWidgetItem* keyItem = _kvTable->item(row, 0);
+
+    if (!keyItem) {
+        return;
+    }
+
+    const QString key = keyItem->text();
+    const QString used = scene.mappedKey(key);
+    const bool known = _state && _state->has(used);
+    const QVariant value = known ? _state->get(used) : QVariant();
+
+    QTableWidgetItem* typeItem = new QTableWidgetItem( known ? KvGui::typeIcon(value) : QIcon(),
+                                                       known ? KvGui::typeLabel(value) : QString() );
+    _kvTable->setItem(row, 2, typeItem);
+
+    QTableWidgetItem* valueItem = new QTableWidgetItem( known ? Kv::displayText(value) : tr("(missing: set it in the Data panel or via the API)") );
+    QString tip = known ? KvGui::tooltip(value) : valueItem->text();
+
+    const QStringList issues = kvIssues(key, scene);
+    if ( !issues.isEmpty() ) {
+        valueItem->setIcon( style()->standardIcon(QStyle::SP_MessageBoxWarning) );
+        valueItem->setForeground( QColor(230, 150, 60) );
+        tip = tr("<b>May change the render:</b><br/>%1<br/><br/>%2").arg( issues.join( QString::fromUtf8("<br/>") ) ).arg(tip);
+    } else if (!known) {
+        valueItem->setForeground( QColor(230, 90, 80) );
+    }
+    valueItem->setToolTip(tip);
+    _kvTable->setItem(row, 3, valueItem);
+}
+
+QStringList
+ScenePanel::kvIssues(const QString& key,
+                     const ::Scene& scene)
+{
+    QStringList issues;
+
+    if (!_state) {
+        return issues;
+    }
+
+    const QString used = scene.mappedKey(key);
+    if ( !_state->has(used) ) {
+        return issues; // shown as missing
+    }
+    const QVariant value = _state->get(used);
+
+    // Type the projects bind this key for (Text node: text, Read node: image).
+    QStringList expected;
+    const QStringList projects = scene.projects;
+    for (int i = 0; i < projects.size(); ++i) {
+        const QStringList types = boundTypes( projectInfo( projects.at(i) ), key );
+        for (int t = 0; t < types.size(); ++t) {
+            if ( !expected.contains( types.at(t) ) ) {
+                expected << types.at(t);
+            }
         }
-        valueItem->setToolTip( valueItem->text() );
-        _kvTable->setItem(row, 2, valueItem);
-        _kvTable->setItem( row, 3, new QTableWidgetItem( usedBy.value(key).join( QString::fromUtf8(", ") ) ) );
+    }
+    const QString actual = Kv::typeName( Kv::typeOf(value) );
+    for (int t = 0; t < expected.size(); ++t) {
+        if ( expected.at(t) != actual ) {
+            issues << tr("%1 is bound to a %2 node but %3 is %4: that node is left unchanged.")
+                      .arg(key)
+                      .arg( expected.at(t) == QString::fromUtf8("image") ? tr("Read (image)") : tr("Text") )
+                      .arg(used)
+                      .arg( (actual == QString::fromUtf8("image")) ? tr("an image") : tr("text") );
+        }
+    }
+
+    if ( Kv::typeOf(value) == Kv::eTypeImage ) {
+        if ( !Kv::imageInfo(value).exists ) {
+            issues << tr("%1: image file not found (%2)").arg(used).arg( Kv::imagePath(value) );
+        } else if ( (used != key) && _state->has(key) && (Kv::typeOf( _state->get(key) ) == Kv::eTypeImage) ) {
+            const QStringList differences = Kv::imageDifferences(_state->get(key), value);
+            for (int d = 0; d < differences.size(); ++d) {
+                issues << tr("%1 -> %2: %3").arg(key).arg(used).arg( differences.at(d) );
+            }
+        }
+    }
+
+    return issues;
+}
+
+QStringList
+ScenePanel::sceneIssues()
+{
+    ::Scene scene;
+    QStringList issues;
+
+    if ( !_scenes->scene(_currentSceneId, &scene) ) {
+        return issues;
+    }
+
+    QStringList keys;
+    for (int i = 0; i < scene.projects.size(); ++i) {
+        const QStringList projectKeys = projectInfo( scene.projects.at(i) ).stateKeys;
+        for (int k = 0; k < projectKeys.size(); ++k) {
+            if ( !keys.contains( projectKeys.at(k) ) ) {
+                keys << projectKeys.at(k);
+            }
+        }
+    }
+    for (int k = 0; k < keys.size(); ++k) {
+        issues << kvIssues(keys.at(k), scene);
+    }
+
+    return issues;
+}
+
+bool
+ScenePanel::confirmRender()
+{
+    const QStringList issues = sceneIssues();
+
+    if ( issues.isEmpty() ) {
+        return true;
+    }
+
+    QMessageBox box(QMessageBox::Warning, tr("Render Scene"),
+                    tr("Some values of this scene may change the rendered result:"),
+                    QMessageBox::Yes | QMessageBox::No, this);
+    box.setInformativeText( QString::fromUtf8("- ") + issues.join( QString::fromUtf8("\n- ") ) + tr("\n\nRender anyway?") );
+    box.setDefaultButton(QMessageBox::No);
+
+    return box.exec() == QMessageBox::Yes;
+}
+
+void
+ScenePanel::onKvCellDoubleClicked(int row,
+                                  int /*column*/)
+{
+    ::Scene scene;
+    QTableWidgetItem* keyItem = _kvTable->item(row, 0);
+
+    if ( !keyItem || !_state || !_scenes->scene(_currentSceneId, &scene) ) {
+        return;
+    }
+
+    const QString used = scene.mappedKey( keyItem->text() );
+    if ( _state->has(used) ) {
+        KvGui::openImage( _state->get(used) );
     }
 }
 
@@ -824,16 +988,7 @@ ScenePanel::onStateValueChanged()
     }
 
     for (int row = 0; row < _kvTable->rowCount(); ++row) {
-        QTableWidgetItem* keyItem = _kvTable->item(row, 0);
-        QTableWidgetItem* valueItem = _kvTable->item(row, 2);
-        if (!keyItem || !valueItem) {
-            continue;
-        }
-        const QString used = scene.mappedKey( keyItem->text() );
-        const bool known = _state && _state->has(used);
-        valueItem->setText( known ? valueText(used) : tr("(missing: set it in the Data panel or via the API)") );
-        valueItem->setForeground( known ? _kvTable->palette().text() : QBrush( QColor(230, 90, 80) ) );
-        valueItem->setToolTip( valueItem->text() );
+        refreshKvRow(row, scene);
     }
 }
 
@@ -853,6 +1008,13 @@ ScenePanel::onKeyMappingEdited()
     const QString key = combo->property("key").toString();
     const QString used = combo->currentText().trimmed();
 
+    // editingFinished and activated both fire for one edit, and focus moving
+    // to a warning dialog fires editingFinished again: apply each value once.
+    if ( used == combo->property("applied").toString() ) {
+        return;
+    }
+    combo->setProperty("applied", used);
+
     // Rebuilding the table (scenesChanged) deletes this combo: do it later.
     QMetaObject::invokeMethod( this, "applyKeyMapping", Qt::QueuedConnection,
                                Q_ARG(QString, key), Q_ARG(QString, used) );
@@ -862,9 +1024,35 @@ void
 ScenePanel::applyKeyMapping(const QString& key,
                             const QString& usedKey)
 {
-    if ( hasCurrentScene() ) {
-        _scenes->setKeyMapping(_currentSceneId, key, usedKey);
+    ::Scene scene;
+
+    if ( !_scenes->scene(_currentSceneId, &scene) ) {
+        return;
     }
+
+    // Refuse a key of another type (text for an image binding, or the reverse).
+    const QString used = usedKey.trimmed();
+    if ( _state && !used.isEmpty() && (used != key) && _state->has(used) ) {
+        ::Scene test = scene;
+        test.keyMap.insert(key, used);
+        const QString actual = Kv::typeName( Kv::typeOf( _state->get(used) ) );
+        for (int i = 0; i < scene.projects.size(); ++i) {
+            const QStringList types = boundTypes( projectInfo( scene.projects.at(i) ), key );
+            if ( !types.isEmpty() && !types.contains(actual) ) {
+                QMessageBox::warning( this, tr("Uses key"),
+                                      tr("%1 is bound to %2 in the projects, but %3 is %4.\nPick a key of the same type.")
+                                      .arg(key)
+                                      .arg( types.contains( QString::fromUtf8("image") ) ? tr("an image (Read node)") : tr("text (Text node)") )
+                                      .arg(used)
+                                      .arg( (actual == QString::fromUtf8("image")) ? tr("an image") : tr("text") ) );
+                refreshKvTable(); // back to the previous key
+
+                return;
+            }
+        }
+    }
+
+    _scenes->setKeyMapping(_currentSceneId, key, used);
 }
 
 void
@@ -956,7 +1144,7 @@ ScenePanel::onOpenInEditorClicked()
 void
 ScenePanel::onRenderAllClicked()
 {
-    if (_renderer) {
+    if ( _renderer && confirmRender() ) {
         _renderer->enqueue( _currentSceneId, currentProjects() );
     }
 }
@@ -964,7 +1152,7 @@ ScenePanel::onRenderAllClicked()
 void
 ScenePanel::onRenderSelectedClicked()
 {
-    if (_renderer) {
+    if ( _renderer && confirmRender() ) {
         _renderer->enqueue( _currentSceneId, selectedProjects() );
     }
 }

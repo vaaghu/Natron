@@ -1,6 +1,7 @@
 
 #include "HttpServer.h"
 #include "../state/Json.h"
+#include "../state/KvValue.h"
 #include "../state/StateStore.h"
 
 #include <QDebug>
@@ -256,6 +257,10 @@ void HttpServer::handleRequest(
     {
       handleSetState(socket, body);
     }
+    else if (method == "GET")
+    {
+      handleGetState(socket);
+    }
     else
     {
       sendResponse(socket, 405, "Method Not Allowed", "text/plain", "Method Not Allowed");
@@ -268,7 +273,9 @@ void HttpServer::handleRequest(
 }
 
 // POST /state
-// Body: a JSON object; every key/value pair is written into the store.
+// Body: a JSON object of key -> value. A value is
+//   "text" or 42 (shorthand for text), {"type":"text","value":"..."},
+//   or {"type":"image","path":"/abs/file.png"} (details are read from the file).
 void HttpServer::handleSetState(QTcpSocket *socket, const QByteArray &body)
 {
   bool ok = false;
@@ -288,7 +295,33 @@ void HttpServer::handleSetState(QTcpSocket *socket, const QByteArray &body)
 
   const QVariantMap object = doc.toMap();
 
+  // Validate everything first: a bad value rejects the whole request.
+  QVariantMap typed;
+  QVariantMap errors;
   for (QVariantMap::const_iterator it = object.constBegin(); it != object.constEnd(); ++it)
+  {
+    QString error;
+    const QVariant value = Kv::normalize(it.value(), true, &error);
+    if (!value.isValid())
+    {
+      errors.insert(it.key(), error);
+    }
+    else
+    {
+      typed.insert(it.key(), value);
+    }
+  }
+
+  if (!errors.isEmpty())
+  {
+    QVariantMap result;
+    result.insert(QString::fromUtf8("error"), QString::fromUtf8("invalid values, nothing saved"));
+    result.insert(QString::fromUtf8("keys"), errors);
+    sendResponse(socket, 400, "Bad Request", "application/json", Json::serialize(result));
+    return;
+  }
+
+  for (QVariantMap::const_iterator it = typed.constBegin(); it != typed.constEnd(); ++it)
   {
     m_store.set(it.key(), it.value());
   }
@@ -299,6 +332,21 @@ void HttpServer::handleSetState(QTcpSocket *socket, const QByteArray &body)
       "OK",
       "application/json",
       "{\"saved\":" + QByteArray::number(object.size()) + "}");
+}
+
+// GET /state
+// All keys with their typed values (images include the details read from
+// the file: name, width, height, format, exists).
+void HttpServer::handleGetState(QTcpSocket *socket)
+{
+  QVariantMap all;
+  const QStringList keys = m_store.keys();
+  for (int i = 0; i < keys.size(); ++i)
+  {
+    all.insert(keys.at(i), m_store.get(keys.at(i)));
+  }
+
+  sendResponse(socket, 200, "OK", "application/json", Json::serialize(all));
 }
 
 void HttpServer::sendResponse(

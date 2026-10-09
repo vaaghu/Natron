@@ -1,6 +1,7 @@
 #include "StateStore.h"
 
 #include "Json.h"
+#include "KvValue.h"
 
 #include <QDebug>
 #include <QDir>
@@ -21,6 +22,7 @@ StateStore::StateStore(QObject *parent)
   m_saveTimer.setSingleShot(true);
   m_saveTimer.setInterval(kSaveDelayMs);
   connect(&m_saveTimer, SIGNAL(timeout()), this, SLOT(onSaveTimer()));
+  connect(&m_watcher, SIGNAL(fileChanged(QString)), this, SLOT(onImageFileChanged(QString)));
 }
 
 StateStore::~StateStore()
@@ -37,7 +39,10 @@ void StateStore::set(
 {
   const bool isNewKey = !m_store.contains(key);
 
-  m_store.insert(key, value);
+  // Always store typed values (plain values become text; images get their
+  // file details).
+  m_store.insert(key, Kv::normalize(value, false, nullptr));
+  updateWatchedFiles();
   scheduleSave();
 
   Q_EMIT valueChanged(key);
@@ -72,6 +77,7 @@ bool StateStore::remove(const QString &key)
     return false;
   }
 
+  updateWatchedFiles();
   scheduleSave();
 
   Q_EMIT valueChanged(key);
@@ -109,14 +115,61 @@ int StateStore::size() const
 
 QString StateStore::toText(const QVariant &value)
 {
-  const QVariant::Type type = value.type();
+  return Kv::displayText(value);
+}
 
-  if (type == QVariant::List || type == QVariant::Map)
+void StateStore::updateWatchedFiles()
+{
+  QStringList paths;
+  for (QHash<QString, QVariant>::const_iterator it = m_store.constBegin(); it != m_store.constEnd(); ++it)
   {
-    return QString::fromUtf8(Json::serialize(value));
+    const QString path = Kv::imagePath(it.value());
+    if (!path.isEmpty() && QFileInfo(path).exists() && !paths.contains(path))
+    {
+      paths << path;
+    }
   }
 
-  return value.toString();
+  const QStringList watched = m_watcher.files();
+  for (int i = 0; i < watched.size(); ++i)
+  {
+    if (!paths.contains(watched.at(i)))
+    {
+      m_watcher.removePath(watched.at(i));
+    }
+  }
+  for (int i = 0; i < paths.size(); ++i)
+  {
+    if (!watched.contains(paths.at(i)))
+    {
+      m_watcher.addPath(paths.at(i));
+    }
+  }
+}
+
+void StateStore::onImageFileChanged(const QString &path)
+{
+  // The image was replaced/edited: refresh the details of every key using it.
+  QStringList changed;
+  for (QHash<QString, QVariant>::iterator it = m_store.begin(); it != m_store.end(); ++it)
+  {
+    if (Kv::imagePath(it.value()) == path && Kv::refreshImage(&it.value()))
+    {
+      changed << it.key();
+    }
+  }
+
+  // Editors often save by replacing the file, which drops the watch.
+  updateWatchedFiles();
+
+  if (!changed.isEmpty())
+  {
+    scheduleSave();
+    for (int i = 0; i < changed.size(); ++i)
+    {
+      Q_EMIT valueChanged(changed.at(i));
+    }
+  }
 }
 
 QString StateStore::filePath() const
@@ -153,9 +206,12 @@ bool StateStore::loadAndAutoSave(const QString &path)
   const QVariantMap map = doc.toMap();
   for (QVariantMap::const_iterator it = map.constBegin(); it != map.constEnd(); ++it)
   {
-    m_store.insert(it.key(), it.value());
+    // Older files hold plain values: convert them; images are re-read.
+    m_store.insert(it.key(), Kv::normalize(it.value(), false, nullptr));
     Q_EMIT valueChanged(it.key());
   }
+
+  updateWatchedFiles();
 
   if (!map.isEmpty())
   {

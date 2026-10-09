@@ -52,6 +52,7 @@ CLANG_DIAG_ON(uninitialized)
 #include "Engine/PluginActionShortcut.h"
 #include "Engine/Project.h"
 #include "Engine/StandardPaths.h"
+#include "Custom/state/KvValue.h"
 #include "Gui/QtEnumConvert.h"
 #include "Gui/GuiAppInstance.h"
 #include "Gui/Gui.h"
@@ -981,6 +982,8 @@ GuiApplicationManager::initGui(const CLArgs& args)
         const QString exe;
 #endif
 
+        // Image details (size, format) of formats Qt cannot read come from ffprobe.
+        Kv::setFfprobePath( binDir.absoluteFilePath(QString::fromUtf8("ffprobe") + exe) );
         _imp->stateStore.loadAndAutoSave( dir.absoluteFilePath( QString::fromUtf8("state.json") ) );
 
         _imp->sceneStore.reset(new SceneStore);

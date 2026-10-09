@@ -57,6 +57,7 @@ private:
       const QByteArray &body);
 
   void handleSetState(QTcpSocket *socket, const QByteArray &body);
+  void handleGetState(QTcpSocket *socket);
 
   static void sendResponse(
       QTcpSocket *socket,

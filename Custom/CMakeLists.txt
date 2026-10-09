@@ -5,6 +5,8 @@ add_library(NatronCustom STATIC
     state/StateStore.cpp
     state/Json.h
     state/Json.cpp
+    state/KvValue.h
+    state/KvValue.cpp
     scene/ProjectInfo.h
     scene/ProjectInfo.cpp
     scene/SceneStore.h

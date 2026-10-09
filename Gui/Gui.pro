@@ -210,9 +210,12 @@ SOURCES += \
     StateBindingTab.cpp \
     DashboardWindow.cpp \
     ScenePanel.cpp \
+    HoverWidgets.cpp \
+    KvGuiUtils.cpp \
     ../Custom/server/HttpServer.cpp \
     ../Custom/state/StateStore.cpp \
     ../Custom/state/Json.cpp \
+    ../Custom/state/KvValue.cpp \
     ../Custom/scene/ProjectInfo.cpp \
     ../Custom/scene/SceneStore.cpp \
     ../Custom/scene/SceneRenderer.cpp \
@@ -357,9 +360,12 @@ HEADERS += \
     StateBindingTab.h \
     DashboardWindow.h \
     ScenePanel.h \
+    HoverWidgets.h \
+    KvGuiUtils.h \
     ../Custom/server/HttpServer.h \
     ../Custom/state/StateStore.h \
     ../Custom/state/Json.h \
+    ../Custom/state/KvValue.h \
     ../Custom/scene/ProjectInfo.h \
     ../Custom/scene/SceneStore.h \
     ../Custom/scene/SceneRenderer.h \

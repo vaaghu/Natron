@@ -38,6 +38,7 @@ CLANG_DIAG_ON(deprecated)
 CLANG_DIAG_ON(uninitialized)
 
 #include "Custom/scene/ProjectInfo.h"
+#include "Custom/scene/SceneStore.h"
 
 class QLabel;
 class QListWidget;
@@ -115,6 +116,7 @@ private Q_SLOTS:
 
     void onStateValueChanged();
     void onKeyMappingEdited();
+    void onKvCellDoubleClicked(int row, int column);
     void applyKeyMapping(const QString& key, const QString& usedKey);
     void onChooseOutputDirClicked();
     void onClearOutputDirClicked();
@@ -130,6 +132,14 @@ private:
     void refreshRowRenderState(const QString& project);
     QWidget* createRowControls(const QString& project);
     void refreshKvTable();
+    void refreshKvRow(int row, const ::Scene& scene);
+
+    // Problems of a key in the scene: type mismatch, missing image file,
+    // image size/aspect/format changed by the key renaming.
+    QStringList kvIssues(const QString& key, const ::Scene& scene);
+    QStringList sceneIssues();
+    // Asks before rendering a scene with issues. True to go ahead.
+    bool confirmRender();
     void refreshButtons();
 
     QStringList currentProjects() const;

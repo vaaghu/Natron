@@ -4,6 +4,7 @@
 #include <QObject>
 #include <QVariant>
 #include <QStringList>
+#include <QFileSystemWatcher>
 #include <QTimer>
 
 class StateStore : public QObject
@@ -14,7 +15,8 @@ public:
   explicit StateStore(QObject *parent = nullptr);
   ~StateStore();
 
-  // Set or overwrite a value.
+  // Set or overwrite a value. Values are stored typed (see KvValue.h):
+  // plain values become text, images get their file details.
   void set(const QString &key, const QVariant &value);
 
   // Get a value.
@@ -38,8 +40,7 @@ public:
   // Number of keys currently stored.
   int size() const;
 
-  // Value as display text: scalars via QVariant::toString(),
-  // lists/maps as compact JSON.
+  // Value as shown in lists: the text, or the image's file name.
   static QString toText(const QVariant &value);
 
   // Persistence: loads the JSON object in path (replacing the current
@@ -61,12 +62,15 @@ Q_SIGNALS:
 
 private Q_SLOTS:
   void onSaveTimer();
+  void onImageFileChanged(const QString &path);
 
 private:
   void scheduleSave();
+  void updateWatchedFiles();
 
   QHash<QString, QVariant> m_store;
   QString m_path;
   QTimer m_saveTimer;
+  QFileSystemWatcher m_watcher; // image files of image values
   bool m_dirty;
 };

@@ -37,6 +37,8 @@ CLANG_DIAG_ON(deprecated)
 CLANG_DIAG_ON(uninitialized)
 
 class QCloseEvent;
+class QComboBox;
+class QModelIndex;
 class QEvent;
 class QShowEvent;
 class QSplitter;
@@ -55,6 +57,7 @@ class SceneStore; // Custom/scene/SceneStore.h
 NATRON_NAMESPACE_ENTER
 
 class ScenePanel;
+class HoverLineEdit;
 
 /**
  * @brief Start window shown instead of an empty project window.
@@ -96,6 +99,10 @@ private Q_SLOTS:
     void onStoreValueChanged(const QString& key);
     void onStoreKeysChanged();
     void onTableItemChanged(QTableWidgetItem* item);
+    void onTableItemDoubleClicked(QTableWidgetItem* item);
+    void onValueIconClicked(const QModelIndex& index);
+    void onNewTypeChanged(int index);
+    void onNewValueChooseImage();
     void onTableSelectionChanged();
     void onNewKeyTextChanged(const QString& text);
     void onAddClicked();
@@ -119,9 +126,6 @@ private:
     int findRow(const QString& key) const;
     void setRowValue(int row, const QVariant& value);
 
-    // Value typed by the user: JSON if it parses (42, true, [1,2], "text"),
-    // otherwise the raw text as a string.
-    static QVariant parseUserValue(const QString& text);
 
     ::StateStore* _store;
     ::HttpServer* _server;
@@ -137,8 +141,9 @@ private:
 
     QLabel* _serverStatusLabel;
     QTableWidget* _table;
+    QComboBox* _newTypeCombo;
     QLineEdit* _newKeyEdit;
-    QLineEdit* _newValueEdit;
+    HoverLineEdit* _newValueEdit;
     QPushButton* _addButton;
     QPushButton* _removeButton;
 

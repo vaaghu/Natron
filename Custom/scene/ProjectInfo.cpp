@@ -157,14 +157,26 @@ ProjectInfo readProjectInfo(const QString &projectFilePath)
     const int next = text.indexOf(pluginTag, idEnd);
     const QString node = text.mid(idEnd, next < 0 ? -1 : next - idEnd);
 
+    // Text nodes bind text, Read nodes bind an image file.
+    const QString boundType = (pluginId == QString::fromUtf8("fr.inria.built-in.Read")) ? QString::fromUtf8("image")
+                                                                                       : QString::fromUtf8("text");
     int from = 0;
     QString value;
     while (nextKnobValue(node, QString::fromUtf8(kProjectInfoStateKeyParam), &from, &value))
     {
       value = value.trimmed();
-      if (!value.isEmpty() && !info.stateKeys.contains(value))
+      if (value.isEmpty())
+      {
+        continue;
+      }
+      if (!info.stateKeys.contains(value))
       {
         info.stateKeys << value;
+        info.keyTypes.insert(value, boundType);
+      }
+      else if (!info.keyTypes.value(value).split(QLatin1Char(',')).contains(boundType))
+      {
+        info.keyTypes[value] += QLatin1Char(',') + boundType;
       }
     }
 

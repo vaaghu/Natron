@@ -32,12 +32,14 @@ CLANG_DIAG_OFF(deprecated)
 CLANG_DIAG_OFF(uninitialized)
 #include <QWidget>
 #include <QString>
+#include <QVariant>
 CLANG_DIAG_ON(deprecated)
 CLANG_DIAG_ON(uninitialized)
 
 #include "Engine/EngineFwd.h"
 
 class QComboBox;
+class QEvent;
 class QLabel;
 class QPushButton;
 class StateStore; // Custom/state/StateStore.h
@@ -85,8 +87,13 @@ private Q_SLOTS:
 
     void applyValueToNode();
 
+protected:
+
+    virtual bool eventFilter(QObject* watched, QEvent* e) OVERRIDE;
+
 private:
 
+    bool valueFitsNode(const QVariant& value) const;
     void refreshKeyList();
     void refreshPreview();
     void saveBindingToNode();
@@ -97,6 +104,7 @@ private:
     QComboBox* _keyCombo;
     QLabel* _valueLabel;
     QPushButton* _unbindButton;
+    bool _imageNode; // Read node: binds image values
 };
 
 NATRON_NAMESPACE_EXIT

@@ -1,5 +1,6 @@
 #pragma once
 
+#include <QHash>
 #include <QString>
 #include <QStringList>
 
@@ -13,6 +14,10 @@ struct ProjectInfo
   // State store keys bound to nodes of the project (see StateBindingTab),
   // in order of appearance, without duplicates.
   QStringList stateKeys;
+
+  // Value type each key is bound for: "text" (Text node) or "image"
+  // (Read node). A key bound on both kinds of node is "text,image".
+  QHash<QString, QString> keyTypes;
 
   // Output file paths of the Write nodes, as entered ([Project] resolved).
   // May contain frame patterns such as ### or %04d.

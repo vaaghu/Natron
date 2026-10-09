@@ -28,6 +28,8 @@
 CLANG_DIAG_OFF(deprecated)
 CLANG_DIAG_OFF(uninitialized)
 #include <QCloseEvent>
+#include <QColor>
+#include <QComboBox>
 #include <QEvent>
 #include <QShowEvent>
 #include <QDir>
@@ -50,14 +52,18 @@ CLANG_DIAG_ON(uninitialized)
 
 #include "Gui/GuiApplicationManager.h" // appPTR
 #include "Gui/GuiDefines.h" // NATRON_MAX_RECENT_FILES
+#include "Gui/HoverWidgets.h"
+#include "Gui/KvGuiUtils.h"
 #include "Gui/ScenePanel.h"
 
 #include "Custom/server/HttpServer.h"
 #include "Custom/state/Json.h"
+#include "Custom/state/KvValue.h"
 #include "Custom/state/StateStore.h"
 
 #define kDashboardColumnKey 0
-#define kDashboardColumnValue 1
+#define kDashboardColumnType 1
+#define kDashboardColumnValue 2
 
 NATRON_NAMESPACE_ENTER
 
@@ -79,6 +85,7 @@ DashboardWindow::DashboardWindow(::StateStore* store,
     , _initialSplitDone(false)
     , _serverStatusLabel(0)
     , _table(0)
+    , _newTypeCombo(0)
     , _newKeyEdit(0)
     , _newValueEdit(0)
     , _addButton(0)
@@ -187,33 +194,42 @@ DashboardWindow::createDataPanel()
     _serverStatusLabel->setTextInteractionFlags(Qt::TextSelectableByMouse);
     layout->addWidget(_serverStatusLabel);
 
-    _table = new QTableWidget(0, 2, box);
+    _table = new QTableWidget(0, 3, box);
     QStringList headers;
-    headers << tr("Key") << tr("Value");
+    headers << tr("Key") << tr("Type") << tr("Value");
     _table->setHorizontalHeaderLabels(headers);
     _table->horizontalHeader()->setStretchLastSection(true);
     _table->verticalHeader()->setVisible(false);
+    _table->setColumnWidth(kDashboardColumnKey, 110);
+    _table->setColumnWidth(kDashboardColumnType, 70);
     _table->setSelectionBehavior(QAbstractItemView::SelectRows);
-    _table->setEditTriggers(QAbstractItemView::DoubleClicked | QAbstractItemView::EditKeyPressed | QAbstractItemView::AnyKeyPressed);
-    _table->setToolTip( tr("Double-click a value to edit it. Values that are valid JSON "
-                           "(numbers, true/false, lists, quoted strings) keep their type; "
-                           "anything else is stored as text.") );
+    // Double-click is handled here: edit text, open images.
+    _table->setEditTriggers(QAbstractItemView::EditKeyPressed);
+    _table->setToolTip( tr("Double-click a text value to edit it, an image to open it. "
+                           "Hover a value for its edit / choose-image icon.") );
+    HoverIconDelegate* valueDelegate = HoverIconDelegate::install(_table, kDashboardColumnValue);
     layout->addWidget(_table);
 
     QHBoxLayout* addRow = new QHBoxLayout;
+    _newTypeCombo = new QComboBox(box);
+    _newTypeCombo->addItem( tr("Text") );
+    _newTypeCombo->addItem( KvGui::typeIcon( Kv::makeImage( QString::fromUtf8("x.png") ) ), tr("Image") );
+    _newTypeCombo->setToolTip( tr("Type of the new value: text, or an image file.") );
     _newKeyEdit = new QLineEdit(box);
     _newKeyEdit->setPlaceholderText( tr("New key") );
-    _newValueEdit = new QLineEdit(box);
+    _newValueEdit = new HoverLineEdit(box);
     _newValueEdit->setPlaceholderText( tr("Value") );
+    _newValueEdit->setActionIcon( KvGui::chooseImageIcon(), tr("Choose an image (makes this an image value)") );
     _addButton = new QPushButton(tr("Add"), box);
     _addButton->setEnabled(false);
     _addButton->setToolTip( tr("Add the key, or overwrite it if it already exists.") );
     _removeButton = new QPushButton(tr("Remove"), box);
     _removeButton->setEnabled(false);
     _removeButton->setToolTip( tr("Remove the selected keys.") );
+    addRow->addWidget(_newTypeCombo);
     addRow->addWidget(_newKeyEdit, 1);
-    addRow->addWidget(_newValueEdit, 2);
     layout->addLayout(addRow);
+    layout->addWidget(_newValueEdit);
     QHBoxLayout* buttonRow = new QHBoxLayout;
     buttonRow->addStretch();
     buttonRow->addWidget(_addButton);
@@ -221,10 +237,14 @@ DashboardWindow::createDataPanel()
     layout->addLayout(buttonRow);
 
     QObject::connect( _table, SIGNAL(itemChanged(QTableWidgetItem*)), this, SLOT(onTableItemChanged(QTableWidgetItem*)) );
+    QObject::connect( _table, SIGNAL(itemDoubleClicked(QTableWidgetItem*)), this, SLOT(onTableItemDoubleClicked(QTableWidgetItem*)) );
     QObject::connect( _table, SIGNAL(itemSelectionChanged()), this, SLOT(onTableSelectionChanged()) );
+    QObject::connect( valueDelegate, SIGNAL(iconClicked(QModelIndex)), this, SLOT(onValueIconClicked(QModelIndex)) );
+    QObject::connect( _newTypeCombo, SIGNAL(currentIndexChanged(int)), this, SLOT(onNewTypeChanged(int)) );
     QObject::connect( _newKeyEdit, SIGNAL(textChanged(QString)), this, SLOT(onNewKeyTextChanged(QString)) );
     QObject::connect( _newKeyEdit, SIGNAL(returnPressed()), this, SLOT(onAddClicked()) );
     QObject::connect( _newValueEdit, SIGNAL(returnPressed()), this, SLOT(onAddClicked()) );
+    QObject::connect( _newValueEdit, SIGNAL(actionClicked()), this, SLOT(onNewValueChooseImage()) );
     QObject::connect( _addButton, SIGNAL(clicked()), this, SLOT(onAddClicked()) );
     QObject::connect( _removeButton, SIGNAL(clicked()), this, SLOT(onRemoveClicked()) );
 
@@ -343,19 +363,6 @@ DashboardWindow::onRecentSelectionChanged()
 
 // ----- Data -----
 
-QVariant
-DashboardWindow::parseUserValue(const QString& text)
-{
-    bool ok = false;
-    const QVariant parsed = Json::parse(text.trimmed().toUtf8(), &ok);
-
-    if (ok) {
-        return parsed;
-    }
-
-    return text;
-}
-
 int
 DashboardWindow::findRow(const QString& key) const
 {
@@ -373,16 +380,28 @@ void
 DashboardWindow::setRowValue(int row,
                              const QVariant& value)
 {
-    QTableWidgetItem* item = _table->item(row, kDashboardColumnValue);
+    const bool image = Kv::typeOf(value) == Kv::eTypeImage;
 
+    QTableWidgetItem* typeItem = new QTableWidgetItem( KvGui::typeIcon(value), KvGui::typeLabel(value) );
+    typeItem->setFlags(typeItem->flags() & ~Qt::ItemIsEditable);
+    _table->setItem(row, kDashboardColumnType, typeItem);
+
+    QTableWidgetItem* item = _table->item(row, kDashboardColumnValue);
     if (!item) {
         item = new QTableWidgetItem;
         _table->setItem(row, kDashboardColumnValue, item);
     }
 
-    const QString text = ::StateStore::toText(value);
-    item->setText(text);
-    item->setToolTip(text);
+    // Images show their file name; text is edited in place.
+    item->setText( Kv::displayText(value) );
+    item->setToolTip( KvGui::tooltip(value) );
+    item->setData( HoverIconDelegate::kHoverIconRole, image ? KvGui::chooseImageIcon() : KvGui::editIcon() );
+    item->setFlags( image ? (item->flags() & ~Qt::ItemIsEditable) : (item->flags() | Qt::ItemIsEditable) );
+    if (image && !Kv::imageInfo(value).exists) {
+        item->setForeground( QColor(230, 90, 80) );
+    } else {
+        item->setForeground( _table->palette().text() );
+    }
 }
 
 void
@@ -454,15 +473,74 @@ DashboardWindow::onTableItemChanged(QTableWidgetItem* item)
         return;
     }
 
-    const QVariant value = parseUserValue( item->text() );
+    // Only text values are edited in place.
+    const QVariant current = _store->get( keyItem->text() );
+    if ( Kv::typeOf(current) == Kv::eTypeImage ) {
+        return;
+    }
+    if ( Kv::textValue(current) != item->text() ) {
+        _store->set( keyItem->text(), Kv::makeText( item->text() ) );
+    }
+}
 
-    // Only write real edits, not a re-display of the same value.
-    if ( ::StateStore::toText(value) == ::StateStore::toText( _store->get( keyItem->text() ) ) &&
-         ( value.type() == _store->get( keyItem->text() ).type() ) ) {
+void
+DashboardWindow::onTableItemDoubleClicked(QTableWidgetItem* item)
+{
+    if (!item) {
         return;
     }
 
-    _store->set(keyItem->text(), value);
+    QTableWidgetItem* keyItem = _table->item(item->row(), kDashboardColumnKey);
+    if (!keyItem) {
+        return;
+    }
+
+    const QVariant value = _store->get( keyItem->text() );
+    if ( Kv::typeOf(value) == Kv::eTypeImage ) {
+        KvGui::openImage(value);
+    } else if ( QTableWidgetItem* valueItem = _table->item(item->row(), kDashboardColumnValue) ) {
+        _table->editItem(valueItem);
+    }
+}
+
+void
+DashboardWindow::onValueIconClicked(const QModelIndex& index)
+{
+    QTableWidgetItem* keyItem = _table->item(index.row(), kDashboardColumnKey);
+    QTableWidgetItem* valueItem = _table->item(index.row(), kDashboardColumnValue);
+
+    if (!keyItem || !valueItem) {
+        return;
+    }
+
+    const QString key = keyItem->text();
+    const QVariant value = _store->get(key);
+
+    if ( Kv::typeOf(value) == Kv::eTypeImage ) {
+        const QString file = KvGui::chooseImageFile( this, Kv::imagePath(value) );
+        if ( !file.isEmpty() ) {
+            _store->set( key, Kv::makeImage(file) );
+        }
+    } else {
+        _table->editItem(valueItem);
+    }
+}
+
+void
+DashboardWindow::onNewTypeChanged(int index)
+{
+    _newValueEdit->setPlaceholderText( (index == 1) ? tr("Image file path") : tr("Value") );
+}
+
+void
+DashboardWindow::onNewValueChooseImage()
+{
+    const QString file = KvGui::chooseImageFile( this, _newValueEdit->text() );
+
+    if ( !file.isEmpty() ) {
+        _newTypeCombo->setCurrentIndex(1);
+        _newValueEdit->setText( QDir::toNativeSeparators(file) );
+    }
 }
 
 void
@@ -486,7 +564,17 @@ DashboardWindow::onAddClicked()
         return;
     }
 
-    _store->set( key, parseUserValue( _newValueEdit->text() ) );
+    if (_newTypeCombo->currentIndex() == 1) {
+        const QString path = QDir::fromNativeSeparators( _newValueEdit->text().trimmed() );
+        if ( path.isEmpty() ) {
+            _newValueEdit->setFocus();
+
+            return;
+        }
+        _store->set( key, Kv::makeImage(path) );
+    } else {
+        _store->set( key, Kv::makeText( _newValueEdit->text() ) );
+    }
 
     _newKeyEdit->clear();
     _newValueEdit->clear();

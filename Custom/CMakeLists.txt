@@ -13,6 +13,8 @@ add_library(NatronCustom STATIC
     scene/SceneStore.cpp
     scene/SceneRenderer.h
     scene/SceneRenderer.cpp
+    util/BundledTool.h
+    util/BundledTool.cpp
     ndi/FrameSink.h
     ndi/NdiOutput.h
     ndi/NdiOutput.cpp

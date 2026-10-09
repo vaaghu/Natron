@@ -4,6 +4,7 @@
 #include "SceneStore.h"
 #include "../state/Json.h"
 #include "../state/StateStore.h"
+#include "../util/BundledTool.h"
 
 #include <QColor>
 #include <QCryptographicHash>
@@ -573,6 +574,7 @@ QString SceneRenderer::makeThumbnail(const Job &job, const QString &output)
        << thumbPath;
 
   QProcess ffmpeg;
+  prepareBundledTool(&ffmpeg, m_ffmpegPath);
   ffmpeg.start(m_ffmpegPath, args);
   if (!ffmpeg.waitForFinished(kFfmpegTimeoutMs))
   {

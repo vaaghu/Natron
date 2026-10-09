@@ -219,6 +219,7 @@ SOURCES += \
     ../Custom/scene/ProjectInfo.cpp \
     ../Custom/scene/SceneStore.cpp \
     ../Custom/scene/SceneRenderer.cpp \
+    ../Custom/util/BundledTool.cpp \
     ../Custom/ndi/NdiOutput.cpp \
     ../Custom/ndi/MediaProbe.cpp \
     ../Custom/ndi/PlayoutChannel.cpp \
@@ -373,6 +374,7 @@ HEADERS += \
     ../Custom/scene/ProjectInfo.h \
     ../Custom/scene/SceneStore.h \
     ../Custom/scene/SceneRenderer.h \
+    ../Custom/util/BundledTool.h \
     ../Custom/ndi/FrameSink.h \
     ../Custom/ndi/NdiOutput.h \
     ../Custom/ndi/MediaProbe.h \

@@ -119,6 +119,7 @@ private:
   double m_liveFps;
   int m_connections;
   QString m_message;
+  QString m_outputError; // the output (NDI) could not be opened: stays in eError
 
   // channel thread
   FrameSink *m_sink;

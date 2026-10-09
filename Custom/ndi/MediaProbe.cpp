@@ -1,6 +1,7 @@
 #include "MediaProbe.h"
 
 #include "../scene/ProjectInfo.h"
+#include "../util/BundledTool.h"
 
 #include <QFileInfo>
 #include <QImageReader>
@@ -28,6 +29,7 @@ QStringList ffprobe(const QString &ffprobePath, const QStringList &extraArgs, co
        << s("-of") << s("default=nw=1") << input;
 
   QProcess process;
+  prepareBundledTool(&process, ffprobePath);
   process.start(ffprobePath, args);
   if (!process.waitForFinished(10000))
   {

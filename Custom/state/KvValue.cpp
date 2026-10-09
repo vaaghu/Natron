@@ -1,6 +1,7 @@
 #include "KvValue.h"
 
 #include "Json.h"
+#include "../util/BundledTool.h"
 
 #include <QFileInfo>
 #include <QImageReader>
@@ -44,6 +45,7 @@ bool probeImage(const QString &path, int *width, int *height, QString *format)
        << s("-of") << s("csv=p=0") << path;
 
   QProcess ffprobe;
+  prepareBundledTool(&ffprobe, g_ffprobePath);
   ffprobe.start(g_ffprobePath, args);
   if (!ffprobe.waitForFinished(5000))
   {

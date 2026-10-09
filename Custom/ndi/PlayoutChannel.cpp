@@ -1,5 +1,7 @@
 #include "PlayoutChannel.h"
 
+#include "../util/BundledTool.h"
+
 #include <QElapsedTimer>
 #include <QMutexLocker>
 #include <QProcess>
@@ -110,7 +112,12 @@ void PlayoutChannel::setMedia(const MediaInfo &media)
     QMutexLocker locker(&m_mutex);
     m_media = media;
     m_mediaChanged = true;
-    if (m_state == eLive)
+    if (!m_outputError.isEmpty())
+    {
+      // No output: report that first, whatever the media.
+      setStateLocked(eError, media.ok ? m_outputError : m_outputError + QString::fromUtf8("; ") + media.error);
+    }
+    else if (m_state == eLive)
     {
       // keep sending live; the media is used once live ends
     }
@@ -138,6 +145,10 @@ void PlayoutChannel::play()
 {
   {
     QMutexLocker locker(&m_mutex);
+    if (!m_outputError.isEmpty())
+    {
+      return; // nothing can be sent
+    }
     if (m_state == eLive || !m_media.ok)
     {
       return;
@@ -172,6 +183,10 @@ void PlayoutChannel::stop()
 {
   {
     QMutexLocker locker(&m_mutex);
+    if (!m_outputError.isEmpty())
+    {
+      return; // nothing can be sent
+    }
     if (m_state == eLive)
     {
       return;
@@ -189,6 +204,10 @@ void PlayoutChannel::replay()
 {
   {
     QMutexLocker locker(&m_mutex);
+    if (!m_outputError.isEmpty())
+    {
+      return; // nothing can be sent
+    }
     if (m_state == eLive || !m_media.ok)
     {
       return;
@@ -206,6 +225,10 @@ void PlayoutChannel::cue()
 {
   {
     QMutexLocker locker(&m_mutex);
+    if (!m_outputError.isEmpty())
+    {
+      return; // nothing can be sent
+    }
     if (m_state == eLive || !m_media.ok)
     {
       return;
@@ -368,6 +391,7 @@ bool PlayoutChannel::startDecoder(int frame)
 
   m_decoder = new QProcess;
   m_decoder->setReadChannel(QProcess::StandardOutput);
+  prepareBundledTool(m_decoder, m_ffmpegPath);
   m_decoder->start(m_ffmpegPath, args, QIODevice::ReadOnly);
   if (!m_decoder->waitForStarted(5000))
   {
@@ -428,7 +452,8 @@ void PlayoutChannel::run()
   {
     {
       QMutexLocker locker(&m_mutex);
-      setStateLocked(eError, error.isEmpty() ? tr("no output") : error);
+      m_outputError = error.isEmpty() ? tr("no output") : error;
+      setStateLocked(eError, m_media.ok || m_media.error.isEmpty() ? m_outputError : m_outputError + QString::fromUtf8("; ") + m_media.error);
     }
     Q_EMIT statusChanged();
     // Stay alive (idle) so the channel can be queried and destroyed normally.

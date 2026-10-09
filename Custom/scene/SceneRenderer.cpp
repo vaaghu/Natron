@@ -30,22 +30,49 @@ const int kOutputTailBytes = 4000;
 const int kThumbnailWidth = 320;
 const int kFfmpegTimeoutMs = 20000;
 
-QString lastLines(const QByteArray &output, int count)
+// The renderer's own error lines (ERROR: ..., Python tracebacks), or the
+// last lines of its output if it printed none.
+QString errorLines(const QByteArray &output, int fallbackCount)
 {
-  QStringList lines;
   const QStringList all = QString::fromUtf8(output).split(QLatin1Char('\n'));
+  QStringList errors;
+  bool traceback = false;
   for (int i = 0; i < all.size(); ++i)
   {
-    if (!all.at(i).trimmed().isEmpty())
+    const QString line = all.at(i).trimmed();
+    if (line.startsWith(QString::fromUtf8("Traceback")))
     {
-      lines << all.at(i);
+      traceback = true;
+    }
+    if (traceback || line.contains(QString::fromUtf8("ERROR")) || line.startsWith(QString::fromUtf8("Error")))
+    {
+      if (!line.isEmpty())
+      {
+        errors << line;
+      }
     }
   }
-  while (lines.size() > count)
+  if (errors.isEmpty())
   {
-    lines.removeFirst();
+    QStringList lines;
+    for (int i = 0; i < all.size(); ++i)
+    {
+      if (!all.at(i).trimmed().isEmpty())
+      {
+        lines << all.at(i);
+      }
+    }
+    while (lines.size() > fallbackCount)
+    {
+      lines.removeFirst();
+    }
+    return lines.join(QString::fromUtf8("\n")).trimmed();
   }
-  return lines.join(QString::fromUtf8("\n")).trimmed();
+  while (errors.size() > 12)
+  {
+    errors.removeFirst();
+  }
+  return errors.join(QString::fromUtf8("\n"));
 }
 
 // File name of an output path written on any OS (C:\\a\\b.mov -> b.mov).
@@ -320,6 +347,12 @@ void SceneRenderer::startNext()
     finishCurrent(false, tr("NatronRenderer not found at %1").arg(m_rendererPath));
     return;
   }
+  if (readProjectInfo(m_current.project).outputs.isEmpty())
+  {
+    finishCurrent(false, tr("The project has no Write node: open it in the editor, add a Write node "
+                            "with an output file, save, and render again."));
+    return;
+  }
   if (!scene.outputDir.isEmpty() && !QDir().mkpath(scene.outputDir))
   {
     finishCurrent(false, tr("Cannot create the output folder %1").arg(scene.outputDir));
@@ -471,11 +504,14 @@ void SceneRenderer::onFinished(int exitCode, QProcess::ExitStatus exitStatus)
   }
   else if (exitStatus != QProcess::NormalExit)
   {
-    finishCurrent(false, tr("Renderer crashed.\n%1").arg(lastLines(m_outputTail, 8)));
+    finishCurrent(false, tr("Renderer crashed.\n%1").arg(errorLines(m_outputTail, 8)));
   }
   else if (exitCode != 0)
   {
-    finishCurrent(false, tr("Renderer exited with code %1.\n%2").arg(exitCode).arg(lastLines(m_outputTail, 8)));
+    // First line: the reason (shown in the status column); then details.
+    const QString errors = errorLines(m_outputTail, 8);
+    const QString reason = errors.section(QLatin1Char('\n'), 0, 0).remove(QString::fromUtf8("ERROR: ")).remove(QString::fromUtf8("Natron: ")).trimmed();
+    finishCurrent(false, tr("%1\n(renderer exit code %2)\n%3").arg(reason).arg(exitCode).arg(errors));
   }
   else
   {

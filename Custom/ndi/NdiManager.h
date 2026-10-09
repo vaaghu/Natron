@@ -7,9 +7,11 @@
 #include <QObject>
 #include <QString>
 #include <QStringList>
+#include <QTimer>
 
 class PlayoutChannel;
 class SceneRenderer;
+class StateStore;
 class SceneStore;
 struct Scene;
 
@@ -49,6 +51,10 @@ public:
   // Re-reads the rendered output of a channel (e.g. after a render).
   void reloadMedia(const QString &sceneId, const QString &project);
 
+  // Scenes in Live mode re-render (restarting a running render) when a
+  // value they use changes in this store.
+  void setStateStore(StateStore *state);
+
   // HttpRouteHandler: /ndi
   //   GET  /ndi   -> all NDI sources with their state
   //   POST /ndi   {"scene": "<name or id>", "project": "<name>" (optional:
@@ -70,6 +76,8 @@ private Q_SLOTS:
   void onRendererStatusChanged();
   void onNdiSettingsChanged(const QString &sceneId, const QString &project);
   void onChannelStatusChanged();
+  void onStateValueChanged(const QString &key);
+  void onDataChangeTimer();
 
 private:
   struct ChannelInfo
@@ -93,6 +101,9 @@ private:
   QString m_ffprobePath;
   FrameSinkFactory m_sinkFactory;
   QHash<QString, ChannelInfo> m_channels; // key: "<scene id>|<project>"
+  StateStore *m_state;
+  QStringList m_changedKeys; // store keys changed since the last re-render
+  QTimer m_dataChangeTimer;  // batches bursts of changes (one API request)
   QString m_liveKey; // channel currently fed live frames
   int m_liveLastFrame; // last frame sent live (renderer frame number)
 };

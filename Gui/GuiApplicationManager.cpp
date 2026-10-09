@@ -1009,6 +1009,7 @@ GuiApplicationManager::initGui(const CLArgs& args)
                                                 binDir.absoluteFilePath(QString::fromUtf8("ffmpeg") + exe),
                                                 binDir.absoluteFilePath(QString::fromUtf8("ffprobe") + exe),
                                                 &Ndi::createSink ) );
+        _imp->ndiManager->setStateStore(&_imp->stateStore);
     }
 
     // Local control HTTP server (see Custom/server).

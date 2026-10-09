@@ -1283,7 +1283,8 @@ ScenePanel::createNdiTab(QWidget* parent)
     _ndiModeCombo->addItem( tr("Live render") );
     _ndiModeCombo->setToolTip( tr("Rendered playout: play the last render at its frame rate (smooth).\n"
                                   "Live render: send frames while the scene renders (frame rate = render speed; "
-                                  "needs an image-sequence output such as frame_####.png).") );
+                                  "needs an image-sequence output such as frame_####.png). When a value the scene "
+                                  "uses changes, the render restarts with the new value.") );
     settings->addWidget(_ndiEnabledCheck);
     settings->addWidget(_ndiAlphaCheck);
     settings->addWidget( new QLabel(tr("Source:"), tab) );

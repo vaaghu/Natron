@@ -6,6 +6,7 @@
 #include "../scene/SceneRenderer.h"
 #include "../scene/SceneStore.h"
 #include "../state/Json.h"
+#include "../state/StateStore.h"
 
 #include <QFileInfo>
 #include <QImage>
@@ -43,8 +44,12 @@ NdiManager::NdiManager(SceneStore *scenes,
       m_ffmpegPath(ffmpegPath),
       m_ffprobePath(ffprobePath),
       m_sinkFactory(sinkFactory),
+      m_state(nullptr),
       m_liveLastFrame(-1)
 {
+  m_dataChangeTimer.setSingleShot(true);
+  m_dataChangeTimer.setInterval(300);
+  connect(&m_dataChangeTimer, SIGNAL(timeout()), this, SLOT(onDataChangeTimer()));
   connect(m_scenes, SIGNAL(scenesChanged()), this, SLOT(syncChannels()));
   connect(m_scenes, SIGNAL(renderRecordChanged(QString,QString)), this, SLOT(onRenderRecordChanged(QString,QString)));
   connect(m_scenes, SIGNAL(ndiSettingsChanged(QString,QString)), this, SLOT(onNdiSettingsChanged(QString,QString)));
@@ -202,6 +207,67 @@ void NdiManager::reloadMedia(const QString &sceneId, const QString &project)
   }
   const double fps = readProjectInfo(project).fps;
   c->setMedia(probeMedia(outputs.first(), m_ffprobePath, fps));
+}
+
+void NdiManager::setStateStore(StateStore *state)
+{
+  if (m_state)
+  {
+    disconnect(m_state, nullptr, this, nullptr);
+  }
+  m_state = state;
+  if (m_state)
+  {
+    connect(m_state, SIGNAL(valueChanged(QString)), this, SLOT(onStateValueChanged(QString)));
+  }
+}
+
+void NdiManager::onStateValueChanged(const QString &key)
+{
+  if (!m_changedKeys.contains(key))
+  {
+    m_changedKeys << key;
+  }
+  m_dataChangeTimer.start();
+}
+
+void NdiManager::onDataChangeTimer()
+{
+  const QStringList changed = m_changedKeys;
+  m_changedKeys.clear();
+  if (!m_renderer || changed.isEmpty())
+  {
+    return;
+  }
+
+  // Live scenes: re-render the projects using a changed value (through the
+  // scene's key renaming).
+  const QList<Scene> scenes = m_scenes->scenes();
+  for (int i = 0; i < scenes.size(); ++i)
+  {
+    const Scene &scene = scenes.at(i);
+    if (!scene.ndiEnabled || !scene.ndiLive)
+    {
+      continue;
+    }
+    QStringList affected;
+    for (int p = 0; p < scene.projects.size(); ++p)
+    {
+      const QStringList keys = readProjectInfo(scene.projects.at(p)).stateKeys;
+      for (int k = 0; k < keys.size(); ++k)
+      {
+        if (changed.contains(scene.mappedKey(keys.at(k))))
+        {
+          affected << scene.projects.at(p);
+          break;
+        }
+      }
+    }
+    if (!affected.isEmpty())
+    {
+      m_renderer->rerender(scene.id, affected);
+    }
+  }
 }
 
 void NdiManager::onRenderRecordChanged(const QString &sceneId, const QString &project)

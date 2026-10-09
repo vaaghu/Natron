@@ -68,6 +68,10 @@ public:
   // are skipped).
   void enqueue(const QString &sceneId, const QStringList &projects);
 
+  // Renders projects again with the current values: queued like enqueue(),
+  // and a project that is rendering right now is stopped and restarted.
+  void rerender(const QString &sceneId, const QStringList &projects);
+
   // Kills the current render and clears the queue.
   void stop();
 

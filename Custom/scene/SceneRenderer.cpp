@@ -203,6 +203,38 @@ void SceneRenderer::enqueue(const QString &sceneId, const QStringList &projects)
   }
 }
 
+void SceneRenderer::rerender(const QString &sceneId, const QStringList &projects)
+{
+  for (int i = 0; i < projects.size(); ++i)
+  {
+    Job job;
+    job.sceneId = sceneId;
+    job.project = projects.at(i);
+
+    if (isCurrent(job.sceneId, job.project))
+    {
+      // Restart: kill it (finishCurrent then starts the queue) and queue it again.
+      m_stopping = true;
+      m_process->kill();
+    }
+    else if (!m_queue.contains(job))
+    {
+      setRecordStatus(job, RenderRecord::eQueued, QString());
+    }
+    if (!m_queue.contains(job))
+    {
+      m_queue << job;
+    }
+  }
+
+  Q_EMIT statusChanged();
+
+  if (!m_process)
+  {
+    startNext();
+  }
+}
+
 void SceneRenderer::stop()
 {
   const QList<Job> cancelled = m_queue;

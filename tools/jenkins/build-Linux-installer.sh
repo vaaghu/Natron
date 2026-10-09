@@ -340,6 +340,21 @@ function fixrpath() {
     done
 }
 
+# Libraries that must come from the system, never from the bundle:
+# - libdbus-1: system services (Avahi for NDI discovery, desktop portals...)
+#   talk to the system D-Bus through it; the SDK's old copy breaks them
+#   silently (e.g. NDI sources are created but never announced). Every
+#   desktop Linux ships it, and newer versions stay ABI compatible.
+NATRON_SYSTEM_LIBS="libdbus-1.so"
+is_system_lib() {
+    for l in $NATRON_SYSTEM_LIBS; do
+        case "$1" in
+            "$l"*) return 0 ;;
+        esac
+    done
+    return 1
+}
+
 # We copy all files to both the portable archive and the package for the installer in a loop
 COPY_LOCATIONS=("${TMP_PORTABLE_DIR}" "$LIBS_PACKAGE_PATH/data")
 
@@ -355,7 +370,7 @@ for location in "${COPY_LOCATIONS[@]}"; do
     # Copy dependencies
     for i in $CORE_DEPENDS; do
         dep=$(basename "$i")
-        if [ ! -f "${location}/lib/$dep" ]; then
+        if ! is_system_lib "$dep" && [ ! -f "${location}/lib/$dep" ]; then
             cp -f "$i" "${location}/lib/"
         fi
     done
@@ -364,7 +379,7 @@ for location in "${COPY_LOCATIONS[@]}"; do
     LIB_DEPENDS=$(ldd $(find "${location}/lib" -maxdepth 1 -type f) |grep "$SDK_HOME" | awk '{print $3}'|sort|uniq)
     for y in $LIB_DEPENDS; do
         dep=$(basename "$y")
-        if [ ! -f "${location}/lib/$dep" ]; then
+        if ! is_system_lib "$dep" && [ ! -f "${location}/lib/$dep" ]; then
             cp -f "$y" "${location}/lib/"
         fi
     done
@@ -373,7 +388,7 @@ for location in "${COPY_LOCATIONS[@]}"; do
     QT_PLUG_DEPENDS=$(ldd $(find "${location}/bin" -maxdepth 2 -type f -name '*.so') | grep "$SDK_HOME" | awk '{print $3}'|sort|uniq)
     for z in $QT_PLUG_DEPENDS; do
         dep=$(basename "$z")
-        if [ ! -f "${location}/lib/$dep" ]; then
+        if ! is_system_lib "$dep" && [ ! -f "${location}/lib/$dep" ]; then
             cp -f "$z" "${location}/lib/"
         fi
     done

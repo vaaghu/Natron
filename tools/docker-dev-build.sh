@@ -8,6 +8,7 @@
 #   tmp/openfx-*         plug-in checkouts
 #   tmp/tmp_deploy       built Natron binaries and OFX plug-ins
 #   builds_archive/      portable Natron archive (the thing to run)
+#   src/                 downloaded sources (OpenColorIO configs, ~280 MB, fetched once)
 #
 # The first run clones and builds the plug-ins (slow). Later runs skip the
 # plug-ins, sync only changed sources, and rebuild Natron incrementally.
@@ -35,7 +36,7 @@ SRC="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 CACHE="${NATRON_BUILD_CACHE:-$(dirname "$SRC")/natron-build-cache}"
 IMAGE="${NATRON_SDK_IMAGE:-natrongithub/natron-sdk:latest}"
 
-mkdir -p "$CACHE/tmp" "$CACHE/builds_archive"
+mkdir -p "$CACHE/tmp" "$CACHE/builds_archive" "$CACHE/src"
 
 echo "Source: $SRC"
 echo "Cache:  $CACHE"
@@ -44,6 +45,7 @@ docker run --rm -it \
     --mount type=bind,src="$SRC",target=/src,readonly \
     --mount type=bind,src="$CACHE/tmp",target=/home/tmp \
     --mount type=bind,src="$CACHE/builds_archive",target=/home/builds_archive \
+    --mount type=bind,src="$CACHE/src",target=/home/src \
     --env GIT_URL=https://github.com/vaaghu/Natron.git \
     --env GIT_URL_IS_NATRON=1 \
     --env GIT_BRANCH="$(git -C "$SRC" rev-parse --abbrev-ref HEAD)" \

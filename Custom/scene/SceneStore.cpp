@@ -114,6 +114,20 @@ bool SceneStore::loadAndAutoSave(const QString &path)
       scene.keyMap.insert(k.key(), k.value().toString());
     }
     scene.outputDir = s.value(key("outputDir")).toString();
+    const QVariantMap ndi = s.value(key("ndi")).toMap();
+    scene.ndiEnabled = ndi.value(key("enabled")).toBool();
+    scene.ndiAlpha = ndi.value(key("alpha")).toBool();
+    scene.ndiLive = ndi.value(key("live")).toBool();
+    const QVariantMap pauseAt = ndi.value(key("pauseAt")).toMap();
+    for (QVariantMap::const_iterator p = pauseAt.constBegin(); p != pauseAt.constEnd(); ++p)
+    {
+      scene.ndiPauseAt.insert(p.key(), p.value().toDouble());
+    }
+    const QVariantMap loop = ndi.value(key("loop")).toMap();
+    for (QVariantMap::const_iterator l = loop.constBegin(); l != loop.constEnd(); ++l)
+    {
+      scene.ndiLoop.insert(l.key(), l.value().toBool());
+    }
     if (!scene.id.isEmpty())
     {
       m_scenes << scene;
@@ -170,6 +184,23 @@ bool SceneStore::saveNow()
     }
     s.insert(key("keyMap"), keyMap);
     s.insert(key("outputDir"), m_scenes.at(i).outputDir);
+    QVariantMap ndi;
+    ndi.insert(key("enabled"), m_scenes.at(i).ndiEnabled);
+    ndi.insert(key("alpha"), m_scenes.at(i).ndiAlpha);
+    ndi.insert(key("live"), m_scenes.at(i).ndiLive);
+    QVariantMap pauseAt;
+    for (QHash<QString, double>::const_iterator p = m_scenes.at(i).ndiPauseAt.constBegin(); p != m_scenes.at(i).ndiPauseAt.constEnd(); ++p)
+    {
+      pauseAt.insert(p.key(), p.value());
+    }
+    ndi.insert(key("pauseAt"), pauseAt);
+    QVariantMap loop;
+    for (QHash<QString, bool>::const_iterator l = m_scenes.at(i).ndiLoop.constBegin(); l != m_scenes.at(i).ndiLoop.constEnd(); ++l)
+    {
+      loop.insert(l.key(), l.value());
+    }
+    ndi.insert(key("loop"), loop);
+    s.insert(key("ndi"), ndi);
     scenes << s;
   }
 
@@ -399,6 +430,73 @@ void SceneStore::setOutputDir(const QString &id, const QString &dir)
 
   changed();
   Q_EMIT scenesChanged();
+}
+
+void SceneStore::setNdiEnabled(const QString &id, bool enabled)
+{
+  const int i = indexOf(id);
+  if (i < 0 || m_scenes.at(i).ndiEnabled == enabled)
+  {
+    return;
+  }
+  m_scenes[i].ndiEnabled = enabled;
+  changed();
+  Q_EMIT scenesChanged();
+}
+
+void SceneStore::setNdiAlpha(const QString &id, bool alpha)
+{
+  const int i = indexOf(id);
+  if (i < 0 || m_scenes.at(i).ndiAlpha == alpha)
+  {
+    return;
+  }
+  m_scenes[i].ndiAlpha = alpha;
+  changed();
+  Q_EMIT scenesChanged();
+}
+
+void SceneStore::setNdiLive(const QString &id, bool live)
+{
+  const int i = indexOf(id);
+  if (i < 0 || m_scenes.at(i).ndiLive == live)
+  {
+    return;
+  }
+  m_scenes[i].ndiLive = live;
+  changed();
+  Q_EMIT scenesChanged();
+}
+
+void SceneStore::setNdiPauseAt(const QString &id, const QString &project, double seconds)
+{
+  const int i = indexOf(id);
+  if (i < 0 || m_scenes.at(i).pauseAt(project) == seconds)
+  {
+    return;
+  }
+  if (seconds < 0)
+  {
+    m_scenes[i].ndiPauseAt.remove(project);
+  }
+  else
+  {
+    m_scenes[i].ndiPauseAt.insert(project, seconds);
+  }
+  changed();
+  Q_EMIT ndiSettingsChanged(id, project);
+}
+
+void SceneStore::setNdiLoop(const QString &id, const QString &project, bool loop)
+{
+  const int i = indexOf(id);
+  if (i < 0 || m_scenes.at(i).ndiLoop.value(project, false) == loop)
+  {
+    return;
+  }
+  m_scenes[i].ndiLoop.insert(project, loop);
+  changed();
+  Q_EMIT ndiSettingsChanged(id, project);
 }
 
 RenderRecord SceneStore::renderRecord(const QString &sceneId, const QString &project) const

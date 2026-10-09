@@ -55,6 +55,7 @@ CLANG_DIAG_ON(uninitialized)
 #include "Custom/state/StateStore.h"
 #include "Custom/scene/SceneStore.h"
 #include "Custom/scene/SceneRenderer.h"
+#include "Custom/ndi/NdiManager.h"
 
 NATRON_NAMESPACE_ENTER
 
@@ -96,6 +97,7 @@ struct GuiApplicationManagerPrivate
     std::unique_ptr<HttpServer> httpServer;
     std::unique_ptr<SceneStore> sceneStore;
     std::unique_ptr<SceneRenderer> sceneRenderer;
+    std::unique_ptr<NdiManager> ndiManager; // NDI outputs of the scenes
     // Declared after the stores and renderer: destroyed first, as it uses them.
     std::unique_ptr<DashboardWindow> dashboard;
     // Set once the user asked to quit; the last closed project window then

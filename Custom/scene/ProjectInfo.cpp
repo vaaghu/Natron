@@ -4,6 +4,7 @@
 #include <QFile>
 #include <QFileInfo>
 #include <QRegExp>
+#include <algorithm>
 
 namespace
 {
@@ -204,8 +205,87 @@ ProjectInfo readProjectInfo(const QString &projectFilePath)
     pos = next;
   }
 
+  // Project settings follow the nodes; the frame rate is only saved when it
+  // differs from the default.
+  const int projectKnobs = text.indexOf(QString::fromUtf8("<ProjectKnobsCount>"));
+  if (projectKnobs >= 0)
+  {
+    int from = projectKnobs;
+    QString value;
+    if (nextKnobValue(text, QString::fromUtf8("frameRate"), &from, &value))
+    {
+      bool ok = false;
+      const double fps = value.trimmed().toDouble(&ok);
+      if (ok && fps > 0)
+      {
+        info.fps = fps;
+      }
+    }
+  }
+
   info.ok = true;
   return info;
+}
+
+namespace
+{
+// Regex matching the frame number part of a sequence file name; the number
+// is captured.
+QRegExp sequenceRegex(const QString &fileNamePattern)
+{
+  QString regex = QRegExp::escape(fileNamePattern);
+  regex.replace(QRegExp(QString::fromUtf8("#+")), QString::fromUtf8("(-?\\d+)"));
+  regex.replace(QRegExp(QString::fromUtf8("%0?\\d*d")), QString::fromUtf8("(-?\\d+)"));
+  return QRegExp(regex);
+}
+}
+
+bool isSequencePattern(const QString &outputPattern)
+{
+  const QString name = QFileInfo(outputPattern).fileName();
+  return QRegExp(QString::fromUtf8("#+")).indexIn(name) >= 0 ||
+         QRegExp(QString::fromUtf8("%0?\\d*d")).indexIn(name) >= 0;
+}
+
+QList<int> existingSequenceFrames(const QString &outputPattern)
+{
+  QList<int> frames;
+  const QFileInfo fi(outputPattern);
+  QRegExp match = sequenceRegex(fi.fileName());
+
+  const QStringList files = QDir(fi.absolutePath()).entryList(QDir::Files);
+  for (int i = 0; i < files.size(); ++i)
+  {
+    if (match.exactMatch(files.at(i)))
+    {
+      frames << match.cap(1).toInt();
+    }
+  }
+  std::sort(frames.begin(), frames.end());
+  return frames;
+}
+
+QString sequenceFrameFile(const QString &outputPattern, int frame)
+{
+  const QFileInfo fi(outputPattern);
+  QString name = fi.fileName();
+
+  QRegExp hashes(QString::fromUtf8("#+"));
+  if (hashes.indexIn(name) >= 0)
+  {
+    const int width = hashes.matchedLength();
+    name.replace(hashes.pos(), width, QString::fromUtf8("%1").arg(frame, width, 10, QLatin1Char('0')));
+  }
+  else
+  {
+    QRegExp printfFrame(QString::fromUtf8("%0?(\\d*)d"));
+    if (printfFrame.indexIn(name) >= 0)
+    {
+      const int width = printfFrame.cap(1).toInt();
+      name.replace(printfFrame.pos(), printfFrame.matchedLength(), QString::fromUtf8("%1").arg(frame, width, 10, QLatin1Char('0')));
+    }
+  }
+  return QDir(fi.absolutePath()).absoluteFilePath(name);
 }
 
 QString findExistingOutputFile(const QString &outputPattern)

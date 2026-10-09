@@ -53,6 +53,7 @@ class StateStore; // Custom/state/StateStore.h
 class HttpServer; // Custom/server/HttpServer.h
 class SceneRenderer; // Custom/scene/SceneRenderer.h
 class SceneStore; // Custom/scene/SceneStore.h
+class NdiManager; // Custom/ndi/NdiManager.h
 
 NATRON_NAMESPACE_ENTER
 
@@ -81,6 +82,9 @@ public:
                     QWidget* parent = 0);
 
     virtual ~DashboardWindow();
+
+    // NDI outputs, shown in the scene view.
+    void setNdiManager(::NdiManager* ndi);
 
 public Q_SLOTS:
 

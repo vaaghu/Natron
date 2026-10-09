@@ -28,7 +28,10 @@
 CLANG_DIAG_OFF(deprecated)
 CLANG_DIAG_OFF(uninitialized)
 #include <QBrush>
+#include <QCheckBox>
 #include <QColor>
+#include <QDoubleSpinBox>
+#include <QTabWidget>
 #include <QStyle>
 #include <QComboBox>
 #include <QDesktopServices>
@@ -57,6 +60,9 @@ CLANG_DIAG_ON(uninitialized)
 
 #include "Gui/GuiApplicationManager.h" // appPTR
 
+#include "Custom/ndi/NdiManager.h"
+#include "Custom/ndi/NdiOutput.h"
+#include "Custom/ndi/PlayoutChannel.h"
 #include "Custom/scene/SceneRenderer.h"
 #include "Custom/scene/SceneStore.h"
 #include "Custom/state/KvValue.h"
@@ -163,6 +169,18 @@ ScenePanel::ScenePanel(::SceneStore* scenes,
     , _projectTable(0)
     , _kvTable(0)
     , _renderStatus(0)
+    , _ndi(0)
+    , _ndiEnabledCheck(0)
+    , _ndiAlphaCheck(0)
+    , _ndiModeCombo(0)
+    , _ndiRuntimeLabel(0)
+    , _ndiCueButton(0)
+    , _ndiContinueButton(0)
+    , _ndiPlayAllButton(0)
+    , _ndiPauseAllButton(0)
+    , _ndiStopAllButton(0)
+    , _ndiReplayAllButton(0)
+    , _ndiTable(0)
 {
     QHBoxLayout* layout = new QHBoxLayout(this);
     layout->setContentsMargins(0, 0, 0, 0);
@@ -305,10 +323,10 @@ ScenePanel::createSceneDetail()
     _projectTable->setToolTip( tr("Double-click a preview to open the rendered output, or a project to open it in the editor.") );
     split->addWidget(_projectTable);
 
-    QWidget* kvBox = new QWidget(split);
+    QTabWidget* bottomTabs = new QTabWidget(split);
+    QWidget* kvBox = new QWidget(bottomTabs);
     QVBoxLayout* kvLayout = new QVBoxLayout(kvBox);
     kvLayout->setContentsMargins(0, 4, 0, 0);
-    kvLayout->addWidget( new QLabel(tr("KVs used in this scene"), kvBox) );
     _kvTable = new QTableWidget(0, 5, kvBox);
     QStringList kvHeaders;
     kvHeaders << tr("Key in projects") << tr("Uses key") << tr("Type") << tr("Value") << tr("Used by");
@@ -326,9 +344,11 @@ ScenePanel::createSceneDetail()
                              "Double-click an image to open it. Edit values in the Data panel, then re-render.") );
     QObject::connect( _kvTable, SIGNAL(cellDoubleClicked(int,int)), this, SLOT(onKvCellDoubleClicked(int,int)) );
     kvLayout->addWidget(_kvTable);
-    split->addWidget(kvBox);
+    bottomTabs->addTab( kvBox, tr("KVs used in this scene") );
+    bottomTabs->addTab( createNdiTab(bottomTabs), tr("NDI output") );
+    split->addWidget(bottomTabs);
     split->setStretchFactor(0, 3);
-    split->setStretchFactor(1, 1);
+    split->setStretchFactor(1, 2);
     layout->addWidget(split);
 
     _renderStatus = new QLabel(detail);
@@ -539,6 +559,7 @@ ScenePanel::showScene()
 
     if ( !_scenes->scene(_currentSceneId, &scene) ) {
         _detailStack->setCurrentIndex(0);
+        refreshNdiTab();
         refreshButtons();
 
         return;
@@ -580,6 +601,7 @@ ScenePanel::showScene()
     }
 
     refreshKvTable();
+    refreshNdiTab();
     refreshButtons();
 }
 
@@ -1239,6 +1261,354 @@ ScenePanel::onStateChanged()
     }
 
     refreshKvTable();
+}
+
+// ----- NDI output -----
+
+QWidget*
+ScenePanel::createNdiTab(QWidget* parent)
+{
+    QWidget* tab = new QWidget(parent);
+    QVBoxLayout* layout = new QVBoxLayout(tab);
+    layout->setContentsMargins(0, 4, 0, 0);
+
+    QHBoxLayout* settings = new QHBoxLayout;
+    _ndiEnabledCheck = new QCheckBox(tr("NDI output"), tab);
+    _ndiEnabledCheck->setToolTip( tr("Send every project of this scene as its own NDI source \"<scene> - <project>\".") );
+    _ndiAlphaCheck = new QCheckBox(tr("Transparent (alpha)"), tab);
+    _ndiAlphaCheck->setToolTip( tr("Send with transparency, for overlays (lower thirds...). "
+                                   "The projects must render with alpha: PNG sequence, ProRes 4444 or QuickTime Animation, not MP4/H.264.") );
+    _ndiModeCombo = new QComboBox(tab);
+    _ndiModeCombo->addItem( tr("Rendered playout") );
+    _ndiModeCombo->addItem( tr("Live render") );
+    _ndiModeCombo->setToolTip( tr("Rendered playout: play the last render at its frame rate (smooth).\n"
+                                  "Live render: send frames while the scene renders (frame rate = render speed; "
+                                  "needs an image-sequence output such as frame_####.png).") );
+    settings->addWidget(_ndiEnabledCheck);
+    settings->addWidget(_ndiAlphaCheck);
+    settings->addWidget( new QLabel(tr("Source:"), tab) );
+    settings->addWidget(_ndiModeCombo);
+    settings->addStretch();
+    _ndiRuntimeLabel = new QLabel(tab);
+    _ndiRuntimeLabel->setTextFormat(Qt::PlainText);
+    settings->addWidget(_ndiRuntimeLabel);
+    layout->addLayout(settings);
+
+    QHBoxLayout* transport = new QHBoxLayout;
+    _ndiCueButton = new QPushButton(tr("Cue (play to pause points)"), tab);
+    _ndiCueButton->setToolTip( tr("Start every project from the beginning; each stops at its own pause point. Then use Continue.") );
+    _ndiContinueButton = new QPushButton(tr("Continue"), tab);
+    _ndiContinueButton->setToolTip( tr("Resume every paused project (past its pause point).") );
+    _ndiPlayAllButton = new QPushButton(tr("Play all"), tab);
+    _ndiPauseAllButton = new QPushButton(tr("Pause all"), tab);
+    _ndiStopAllButton = new QPushButton(tr("Stop all"), tab);
+    _ndiStopAllButton->setToolTip( tr("Stop and clear every source of the scene.") );
+    _ndiReplayAllButton = new QPushButton(tr("Replay all"), tab);
+    _ndiReplayAllButton->setToolTip( tr("Play every project from the start, without stopping at the pause points.") );
+    transport->addWidget(_ndiCueButton);
+    transport->addWidget(_ndiContinueButton);
+    transport->addSpacing(12);
+    transport->addWidget(_ndiPlayAllButton);
+    transport->addWidget(_ndiPauseAllButton);
+    transport->addWidget(_ndiStopAllButton);
+    transport->addWidget(_ndiReplayAllButton);
+    transport->addStretch();
+    layout->addLayout(transport);
+
+    _ndiTable = new QTableWidget(0, 6, tab);
+    QStringList headers;
+    headers << tr("NDI source") << tr("State") << tr("Position") << tr("Controls") << tr("Pause at (s)") << tr("Receivers");
+    _ndiTable->setHorizontalHeaderLabels(headers);
+    _ndiTable->verticalHeader()->setVisible(false);
+    _ndiTable->setEditTriggers(QAbstractItemView::NoEditTriggers);
+    _ndiTable->setSelectionBehavior(QAbstractItemView::SelectRows);
+    _ndiTable->horizontalHeader()->setStretchLastSection(true);
+    _ndiTable->setColumnWidth(0, 200);
+    _ndiTable->setColumnWidth(1, 150);
+    _ndiTable->setColumnWidth(2, 170);
+    _ndiTable->setColumnWidth(3, 130);
+    _ndiTable->setColumnWidth(4, 100);
+    layout->addWidget(_ndiTable);
+
+    _ndiRefreshTimer.setInterval(100);
+    _ndiRefreshTimer.setSingleShot(true);
+
+    QObject::connect( _ndiEnabledCheck, SIGNAL(toggled(bool)), this, SLOT(onNdiEnabledToggled(bool)) );
+    QObject::connect( _ndiAlphaCheck, SIGNAL(toggled(bool)), this, SLOT(onNdiAlphaToggled(bool)) );
+    QObject::connect( _ndiModeCombo, SIGNAL(currentIndexChanged(int)), this, SLOT(onNdiModeChanged(int)) );
+    QObject::connect( _ndiCueButton, SIGNAL(clicked()), this, SLOT(onNdiSceneAction()) );
+    QObject::connect( _ndiContinueButton, SIGNAL(clicked()), this, SLOT(onNdiSceneAction()) );
+    QObject::connect( _ndiPlayAllButton, SIGNAL(clicked()), this, SLOT(onNdiSceneAction()) );
+    QObject::connect( _ndiPauseAllButton, SIGNAL(clicked()), this, SLOT(onNdiSceneAction()) );
+    QObject::connect( _ndiStopAllButton, SIGNAL(clicked()), this, SLOT(onNdiSceneAction()) );
+    QObject::connect( _ndiReplayAllButton, SIGNAL(clicked()), this, SLOT(onNdiSceneAction()) );
+    QObject::connect( &_ndiRefreshTimer, SIGNAL(timeout()), this, SLOT(refreshNdiRows()) );
+
+    return tab;
+}
+
+void
+ScenePanel::setNdiManager(::NdiManager* ndi)
+{
+    _ndi = ndi;
+    if (_ndi) {
+        QObject::connect( _ndi, SIGNAL(channelsChanged(QString)), this, SLOT(onNdiChannelsChanged(QString)) );
+        QObject::connect( _ndi, SIGNAL(channelStatusChanged(QString,QString)), this, SLOT(onNdiChannelStatusChanged(QString,QString)) );
+    }
+    refreshNdiTab();
+}
+
+void
+ScenePanel::refreshNdiTab()
+{
+    ::Scene scene;
+    const bool hasScene = _scenes->scene(_currentSceneId, &scene);
+
+    QString why;
+    const bool runtime = ::Ndi::load(&why);
+    _ndiRuntimeLabel->setText( runtime ? tr("NDI runtime: %1").arg( QFileInfo( ::Ndi::libraryPath() ).fileName() )
+                                       : tr("NDI unavailable: %1").arg(why) );
+
+    const bool blocked = _ndiEnabledCheck->blockSignals(true);
+    _ndiAlphaCheck->blockSignals(true);
+    _ndiModeCombo->blockSignals(true);
+    _ndiEnabledCheck->setChecked(hasScene && scene.ndiEnabled);
+    _ndiAlphaCheck->setChecked(hasScene && scene.ndiAlpha);
+    _ndiModeCombo->setCurrentIndex( (hasScene && scene.ndiLive) ? 1 : 0 );
+    _ndiEnabledCheck->blockSignals(blocked);
+    _ndiAlphaCheck->blockSignals(blocked);
+    _ndiModeCombo->blockSignals(blocked);
+
+    _ndiEnabledCheck->setEnabled(hasScene && _ndi);
+    _ndiAlphaCheck->setEnabled(hasScene && _ndi);
+    _ndiModeCombo->setEnabled(hasScene && _ndi);
+    const bool active = hasScene && _ndi && scene.ndiEnabled;
+    _ndiCueButton->setEnabled(active);
+    _ndiContinueButton->setEnabled(active);
+    _ndiPlayAllButton->setEnabled(active);
+    _ndiPauseAllButton->setEnabled(active);
+    _ndiStopAllButton->setEnabled(active);
+    _ndiReplayAllButton->setEnabled(active);
+
+    // One row per project / NDI source.
+    _ndiRows.clear();
+    _ndiTable->setRowCount(0);
+    if (!active) {
+        return;
+    }
+    _ndiTable->setRowCount( scene.projects.size() );
+    for (int row = 0; row < scene.projects.size(); ++row) {
+        const QString& project = scene.projects.at(row);
+        NdiRow r;
+        r.row = row;
+
+        QTableWidgetItem* nameItem = new QTableWidgetItem( ::NdiManager::sourceName(scene, project) );
+        nameItem->setToolTip( QDir::toNativeSeparators(project) );
+        _ndiTable->setItem(row, 0, nameItem);
+
+        r.position = new QProgressBar;
+        r.position->setRange(0, 1000);
+        r.position->setAlignment(Qt::AlignCenter);
+        _ndiTable->setCellWidget(row, 2, r.position);
+
+        QWidget* controls = new QWidget;
+        QHBoxLayout* cl = new QHBoxLayout(controls);
+        cl->setContentsMargins(2, 0, 2, 0);
+        cl->setSpacing(2);
+        r.play = makeControlButton( playerIcon(NATRON_ENUM::NATRON_PIXMAP_PLAYER_PLAY_DISABLED, NATRON_ENUM::NATRON_PIXMAP_PLAYER_PLAY_DISABLED), tr("Play (continues after a pause point)"), controls );
+        r.pause = makeControlButton( playerIcon(NATRON_ENUM::NATRON_PIXMAP_PLAYER_PAUSE_DISABLED, NATRON_ENUM::NATRON_PIXMAP_PLAYER_PAUSE_ENABLED), tr("Pause"), controls );
+        r.stop = makeControlButton( playerIcon(NATRON_ENUM::NATRON_PIXMAP_PLAYER_STOP_DISABLED, NATRON_ENUM::NATRON_PIXMAP_PLAYER_STOP_DISABLED), tr("Stop and clear the output"), controls );
+        r.replay = makeControlButton( playerIcon(NATRON_ENUM::NATRON_PIXMAP_PLAYER_FIRST_FRAME, NATRON_ENUM::NATRON_PIXMAP_PLAYER_FIRST_FRAME), tr("Replay from the start"), controls );
+        r.loop = makeControlButton( playerIcon(NATRON_ENUM::NATRON_PIXMAP_PLAYER_LOOP_MODE, NATRON_ENUM::NATRON_PIXMAP_PLAYER_LOOP_MODE), tr("Loop"), controls );
+        r.loop->setCheckable(true);
+        QPushButton* buttons[] = { r.play, r.pause, r.stop, r.replay, r.loop };
+        const char* names[] = { "play", "pause", "stop", "replay", "loop" };
+        for (int b = 0; b < 5; ++b) {
+            buttons[b]->setObjectName( QString::fromUtf8(names[b]) );
+            buttons[b]->setProperty("project", project);
+            cl->addWidget(buttons[b]);
+        }
+        cl->addStretch();
+        QObject::connect( r.play, SIGNAL(clicked()), this, SLOT(onNdiRowAction()) );
+        QObject::connect( r.pause, SIGNAL(clicked()), this, SLOT(onNdiRowAction()) );
+        QObject::connect( r.stop, SIGNAL(clicked()), this, SLOT(onNdiRowAction()) );
+        QObject::connect( r.replay, SIGNAL(clicked()), this, SLOT(onNdiRowAction()) );
+        QObject::connect( r.loop, SIGNAL(toggled(bool)), this, SLOT(onNdiLoopToggled(bool)) );
+        _ndiTable->setCellWidget(row, 3, controls);
+
+        r.pauseAt = new QDoubleSpinBox;
+        r.pauseAt->setRange(-1, 24 * 3600);
+        r.pauseAt->setDecimals(2);
+        r.pauseAt->setSingleStep(0.5);
+        r.pauseAt->setSpecialValueText( tr("none") ); // shown at the minimum (-1)
+        r.pauseAt->setSuffix( tr(" s") );
+        r.pauseAt->setToolTip( tr("Cue / Play stop here (seconds from the start); Continue goes on. \"none\": no pause point.") );
+        r.pauseAt->setValue( scene.pauseAt(project) );
+        r.pauseAt->setProperty("project", project);
+        r.pauseAt->setKeyboardTracking(false);
+        QObject::connect( r.pauseAt, SIGNAL(valueChanged(double)), this, SLOT(onNdiPauseAtChanged(double)) );
+        _ndiTable->setCellWidget(row, 4, r.pauseAt);
+
+        _ndiRows.insert(project, r);
+    }
+    refreshNdiRows();
+}
+
+QString
+ScenePanel::formatTime(double seconds)
+{
+    const int minutes = int(seconds / 60);
+    const double rest = seconds - minutes * 60;
+
+    return QString::fromUtf8("%1:%2").arg(minutes, 2, 10, QLatin1Char('0')).arg(rest, 4, 'f', 1, QLatin1Char('0'));
+}
+
+void
+ScenePanel::refreshNdiRows()
+{
+    if (!_ndi) {
+        return;
+    }
+
+    for (QHash<QString, NdiRow>::const_iterator it = _ndiRows.constBegin(); it != _ndiRows.constEnd(); ++it) {
+        const NdiRow& r = it.value();
+        ::PlayoutChannel* c = _ndi->channel( _currentSceneId, it.key() );
+        if (!c) {
+            continue;
+        }
+        const ::PlayoutChannel::Status st = c->status();
+
+        QString state = ::PlayoutChannel::stateName(st.state);
+        if ( !st.message.isEmpty() ) {
+            state += QString::fromUtf8(" - ") + st.message;
+        }
+        QTableWidgetItem* stateItem = new QTableWidgetItem(state);
+        stateItem->setToolTip(state);
+        if (st.state == ::PlayoutChannel::eError) {
+            stateItem->setForeground( QColor(230, 90, 80) );
+        } else if (st.state == ::PlayoutChannel::ePlaying || st.state == ::PlayoutChannel::eLive) {
+            stateItem->setForeground( QColor(110, 200, 110) );
+        }
+        _ndiTable->setItem(r.row, 1, stateItem);
+
+        const double duration = st.duration();
+        r.position->setValue( duration > 0 ? int(1000.0 * qMin(1.0, st.seconds() / duration)) : 0 );
+        r.position->setFormat( (st.state == ::PlayoutChannel::eLive) ? tr("live %1").arg( formatTime( st.seconds() ) )
+                                                                     : tr("%1 / %2").arg( formatTime( st.seconds() ) ).arg( formatTime(duration) ) );
+
+        const bool live = st.state == ::PlayoutChannel::eLive;
+        const bool playable = !live && duration > 0;
+        r.play->setEnabled(playable && st.state != ::PlayoutChannel::ePlaying);
+        r.pause->setEnabled(st.state == ::PlayoutChannel::ePlaying);
+        r.stop->setEnabled(!live && st.state != ::PlayoutChannel::eStopped);
+        r.replay->setEnabled(playable);
+        const bool blocked = r.loop->blockSignals(true);
+        r.loop->setChecked(st.loop);
+        r.loop->blockSignals(blocked);
+
+        _ndiTable->setItem( r.row, 5, new QTableWidgetItem( st.connections < 0 ? tr("-") : QString::number(st.connections) ) );
+    }
+}
+
+void
+ScenePanel::onNdiChannelsChanged(const QString& sceneId)
+{
+    if (sceneId == _currentSceneId) {
+        refreshNdiTab();
+    }
+}
+
+void
+ScenePanel::onNdiChannelStatusChanged(const QString& sceneId,
+                                      const QString& /*project*/)
+{
+    // Channels report every frame: refresh the rows at most 10 times/s.
+    if ( (sceneId == _currentSceneId) && !_ndiRefreshTimer.isActive() ) {
+        _ndiRefreshTimer.start();
+    }
+}
+
+void
+ScenePanel::onNdiEnabledToggled(bool enabled)
+{
+    _scenes->setNdiEnabled(_currentSceneId, enabled);
+}
+
+void
+ScenePanel::onNdiAlphaToggled(bool alpha)
+{
+    _scenes->setNdiAlpha(_currentSceneId, alpha);
+}
+
+void
+ScenePanel::onNdiModeChanged(int index)
+{
+    _scenes->setNdiLive(_currentSceneId, index == 1);
+}
+
+void
+ScenePanel::onNdiSceneAction()
+{
+    if (!_ndi) {
+        return;
+    }
+
+    QObject* s = sender();
+    if (s == _ndiCueButton) {
+        _ndi->cueAll(_currentSceneId);
+    } else if (s == _ndiContinueButton) {
+        _ndi->continueAll(_currentSceneId);
+    } else if (s == _ndiPlayAllButton) {
+        _ndi->playAll(_currentSceneId);
+    } else if (s == _ndiPauseAllButton) {
+        _ndi->pauseAll(_currentSceneId);
+    } else if (s == _ndiStopAllButton) {
+        _ndi->stopAll(_currentSceneId);
+    } else if (s == _ndiReplayAllButton) {
+        _ndi->replayAll(_currentSceneId);
+    }
+}
+
+void
+ScenePanel::onNdiRowAction()
+{
+    QObject* s = sender();
+    ::PlayoutChannel* c = (_ndi && s) ? _ndi->channel( _currentSceneId, s->property("project").toString() ) : 0;
+
+    if (!c) {
+        return;
+    }
+
+    const QString action = s->objectName();
+    if ( action == QString::fromUtf8("play") ) {
+        c->play();
+    } else if ( action == QString::fromUtf8("pause") ) {
+        c->pause();
+    } else if ( action == QString::fromUtf8("stop") ) {
+        c->stop();
+    } else if ( action == QString::fromUtf8("replay") ) {
+        c->replay();
+    }
+}
+
+void
+ScenePanel::onNdiLoopToggled(bool loop)
+{
+    QObject* s = sender();
+
+    if (s) {
+        _scenes->setNdiLoop( _currentSceneId, s->property("project").toString(), loop );
+    }
+}
+
+void
+ScenePanel::onNdiPauseAtChanged(double seconds)
+{
+    QObject* s = sender();
+
+    if (s) {
+        _scenes->setNdiPauseAt( _currentSceneId, s->property("project").toString(), (seconds < 0) ? -1.0 : seconds );
+    }
 }
 
 NATRON_NAMESPACE_EXIT

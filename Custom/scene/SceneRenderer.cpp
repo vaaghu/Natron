@@ -409,6 +409,7 @@ void SceneRenderer::parseOutputLine(const QString &line)
   if (frame.exactMatch(line))
   {
     const int f = frame.cap(2).toInt();
+    m_progress.currentFrame = f;
     m_progress.node = frame.cap(1);
     m_progress.percent = frame.cap(3).toDouble();
     m_progress.fps = frame.cap(4).toDouble();

@@ -23,6 +23,25 @@ struct Scene
   // projects' Write nodes). Empty: use the projects' own output paths.
   QString outputDir;
 
+  // NDI output: one source per project of the scene.
+  bool ndiEnabled;
+  bool ndiAlpha;  // send with transparency (overlays)
+  bool ndiLive;   // send frames while rendering instead of playing the render
+  QHash<QString, double> ndiPauseAt; // project -> pause point in seconds
+  QHash<QString, bool> ndiLoop;      // project -> loop
+
+  Scene()
+      : ndiEnabled(false),
+        ndiAlpha(false),
+        ndiLive(false)
+  {
+  }
+
+  double pauseAt(const QString &project) const
+  {
+    return ndiPauseAt.value(project, -1.0);
+  }
+
   // Store key used for a key bound in the projects.
   QString mappedKey(const QString &key) const
   {
@@ -82,6 +101,12 @@ public:
   void setKeyMapping(const QString &id, const QString &key, const QString &usedKey);
   void setOutputDir(const QString &id, const QString &dir);
 
+  void setNdiEnabled(const QString &id, bool enabled);
+  void setNdiAlpha(const QString &id, bool alpha);
+  void setNdiLive(const QString &id, bool live);
+  void setNdiPauseAt(const QString &id, const QString &project, double seconds); // < 0: none
+  void setNdiLoop(const QString &id, const QString &project, bool loop);
+
   // Renders are per scene: the same project renders differently (other
   // keys, other output folder) in another scene.
   RenderRecord renderRecord(const QString &sceneId, const QString &project) const;
@@ -90,6 +115,9 @@ public:
 Q_SIGNALS:
   void scenesChanged();
   void renderRecordChanged(const QString &sceneId, const QString &project);
+  // A project's NDI pause point / loop changed (no scenesChanged: the
+  // scene views do not need rebuilding).
+  void ndiSettingsChanged(const QString &sceneId, const QString &project);
 
 private Q_SLOTS:
   void onSaveTimer();

@@ -53,6 +53,7 @@ CLANG_DIAG_ON(uninitialized)
 #include "Engine/Project.h"
 #include "Engine/StandardPaths.h"
 #include "Custom/state/KvValue.h"
+#include "Custom/ndi/NdiOutput.h"
 #include "Gui/QtEnumConvert.h"
 #include "Gui/GuiAppInstance.h"
 #include "Gui/Gui.h"
@@ -87,6 +88,10 @@ GuiApplicationManager::~GuiApplicationManager()
     }
     _imp->previewRenderThread.quitThread(false);
     _imp->dashboard.reset();
+    if (_imp->httpServer) {
+        _imp->httpServer->removeRouteHandler( _imp->ndiManager.get() );
+    }
+    _imp->ndiManager.reset(); // stops the NDI channels
 }
 
 void
@@ -997,6 +1002,13 @@ GuiApplicationManager::initGui(const CLArgs& args)
                                                       applyScript,
                                                       binDir.absoluteFilePath(QString::fromUtf8("ffmpeg") + exe),
                                                       dir.absoluteFilePath( QString::fromUtf8("thumbnails") ) ) );
+
+        // NDI: one source per project of the scenes that enable it (the NDI
+        // Runtime is loaded only if installed).
+        _imp->ndiManager.reset( new NdiManager( _imp->sceneStore.get(), _imp->sceneRenderer.get(),
+                                                binDir.absoluteFilePath(QString::fromUtf8("ffmpeg") + exe),
+                                                binDir.absoluteFilePath(QString::fromUtf8("ffprobe") + exe),
+                                                &Ndi::createSink ) );
     }
 
     // Local control HTTP server (see Custom/server).
@@ -1011,6 +1023,7 @@ GuiApplicationManager::initGui(const CLArgs& args)
     }
     _imp->httpServer.reset( new HttpServer(static_cast<unsigned short>(httpPort), _imp->stateStore) );
     _imp->httpServer->start();
+    _imp->httpServer->addRouteHandler( _imp->ndiManager.get() ); // /ndi
 
     return exec();
 } // GuiApplicationManager::initGui
@@ -1190,6 +1203,7 @@ GuiApplicationManager::showStartWindow()
 {
     if (!_imp->dashboard) {
         _imp->dashboard.reset( new DashboardWindow( &_imp->stateStore, _imp->httpServer.get(), _imp->sceneStore.get(), _imp->sceneRenderer.get() ) );
+        _imp->dashboard->setNdiManager( _imp->ndiManager.get() );
     }
     _imp->dashboard->show();
     _imp->dashboard->raise();

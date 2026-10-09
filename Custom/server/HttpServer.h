@@ -2,6 +2,7 @@
 
 #include <QByteArray>
 #include <QHash>
+#include <QList>
 #include <QObject>
 #include <QString>
 #include <QTcpServer>
@@ -9,6 +10,21 @@
 #include <QTimer>
 
 class StateStore;
+
+// Extra routes served by other parts of the application (e.g. /ndi).
+class HttpRouteHandler
+{
+public:
+  virtual ~HttpRouteHandler() {}
+
+  // Returns false if the path is not handled. Otherwise sets the status
+  // code and the JSON response body.
+  virtual bool handleHttpRequest(const QByteArray &method,
+                                 const QByteArray &path,
+                                 const QByteArray &body,
+                                 int *status,
+                                 QByteArray *response) = 0;
+};
 
 class HttpServer : public QObject
 {
@@ -24,6 +40,10 @@ public:
   // Starts listening on localhost. If the port is busy (e.g. another Natron
   // is running), keeps retrying every few seconds until it is free.
   void start();
+
+  // Not owned; must outlive the server or be removed.
+  void addRouteHandler(HttpRouteHandler *handler);
+  void removeRouteHandler(HttpRouteHandler *handler);
 
   bool isListening() const;
   unsigned short port() const;
@@ -72,4 +92,5 @@ private:
   unsigned short m_port;
   StateStore &m_store;
   QHash<QTcpSocket *, QByteArray> m_buffers;
+  QList<HttpRouteHandler *> m_handlers;
 };

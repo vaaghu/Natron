@@ -219,6 +219,10 @@ SOURCES += \
     ../Custom/scene/ProjectInfo.cpp \
     ../Custom/scene/SceneStore.cpp \
     ../Custom/scene/SceneRenderer.cpp \
+    ../Custom/ndi/NdiOutput.cpp \
+    ../Custom/ndi/MediaProbe.cpp \
+    ../Custom/ndi/PlayoutChannel.cpp \
+    ../Custom/ndi/NdiManager.cpp \
     Splitter.cpp \
     TabGroup.cpp \
     TabWidget.cpp \
@@ -369,6 +373,11 @@ HEADERS += \
     ../Custom/scene/ProjectInfo.h \
     ../Custom/scene/SceneStore.h \
     ../Custom/scene/SceneRenderer.h \
+    ../Custom/ndi/FrameSink.h \
+    ../Custom/ndi/NdiOutput.h \
+    ../Custom/ndi/MediaProbe.h \
+    ../Custom/ndi/PlayoutChannel.h \
+    ../Custom/ndi/NdiManager.h \
     Splitter.h \
     TabGroup.h \
     TabWidget.h \

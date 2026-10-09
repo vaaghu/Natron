@@ -13,6 +13,15 @@ add_library(NatronCustom STATIC
     scene/SceneStore.cpp
     scene/SceneRenderer.h
     scene/SceneRenderer.cpp
+    ndi/FrameSink.h
+    ndi/NdiOutput.h
+    ndi/NdiOutput.cpp
+    ndi/MediaProbe.h
+    ndi/MediaProbe.cpp
+    ndi/PlayoutChannel.h
+    ndi/PlayoutChannel.cpp
+    ndi/NdiManager.h
+    ndi/NdiManager.cpp
 )
 target_link_libraries(NatronCustom
     PUBLIC

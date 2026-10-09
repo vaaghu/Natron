@@ -124,6 +124,14 @@ DashboardWindow::~DashboardWindow()
 {
 }
 
+void
+DashboardWindow::setNdiManager(::NdiManager* ndi)
+{
+    if (_scenePanel) {
+        _scenePanel->setNdiManager(ndi);
+    }
+}
+
 QWidget*
 DashboardWindow::createProjectsPanel()
 {

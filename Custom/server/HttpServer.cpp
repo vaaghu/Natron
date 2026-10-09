@@ -268,8 +268,38 @@ void HttpServer::handleRequest(
   }
   else
   {
+    // Strip a query string for the extra routes.
+    const QByteArray route = path.contains('?') ? path.left(path.indexOf('?')) : path;
+    for (int i = 0; i < m_handlers.size(); ++i)
+    {
+      int status = 200;
+      QByteArray response;
+      if (m_handlers.at(i)->handleHttpRequest(method, route, body, &status, &response))
+      {
+        const QByteArray reason = (status == 200) ? QByteArray("OK")
+                                : (status == 400) ? QByteArray("Bad Request")
+                                : (status == 404) ? QByteArray("Not Found")
+                                : (status == 405) ? QByteArray("Method Not Allowed")
+                                                  : QByteArray("Error");
+        sendResponse(socket, status, reason, "application/json", response);
+        return;
+      }
+    }
     sendResponse(socket, 404, "Not Found", "text/plain", "Not Found");
   }
+}
+
+void HttpServer::addRouteHandler(HttpRouteHandler *handler)
+{
+  if (handler && !m_handlers.contains(handler))
+  {
+    m_handlers << handler;
+  }
+}
+
+void HttpServer::removeRouteHandler(HttpRouteHandler *handler)
+{
+  m_handlers.removeAll(handler);
 }
 
 // POST /state

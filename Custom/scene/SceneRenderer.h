@@ -19,6 +19,7 @@ struct RenderProgress
   double percent;        // of the current Write node, 0-100
   double fps;
   QString timeRemaining; // as printed by the renderer
+  int currentFrame;      // frame just rendered (-1: none yet)
   int firstFrame;        // lowest / highest frame rendered so far (-1: none)
   int lastFrame;
   int framesDone;
@@ -28,6 +29,7 @@ struct RenderProgress
         paused(false),
         percent(0),
         fps(0),
+        currentFrame(-1),
         firstFrame(-1),
         lastFrame(-1),
         framesDone(0)

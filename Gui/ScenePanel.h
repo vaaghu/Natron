@@ -33,6 +33,7 @@ CLANG_DIAG_OFF(uninitialized)
 #include <QHash>
 #include <QString>
 #include <QStringList>
+#include <QTimer>
 #include <QWidget>
 CLANG_DIAG_ON(deprecated)
 CLANG_DIAG_ON(uninitialized)
@@ -40,6 +41,9 @@ CLANG_DIAG_ON(uninitialized)
 #include "Custom/scene/ProjectInfo.h"
 #include "Custom/scene/SceneStore.h"
 
+class QCheckBox;
+class QComboBox;
+class QDoubleSpinBox;
 class QLabel;
 class QListWidget;
 class QProgressBar;
@@ -47,6 +51,7 @@ class QPushButton;
 class QStackedWidget;
 class QTableWidget;
 class QTableWidgetItem;
+class NdiManager; // Custom/ndi/NdiManager.h
 class SceneRenderer; // Custom/scene/SceneRenderer.h
 class SceneStore; // Custom/scene/SceneStore.h
 class StateStore; // Custom/state/StateStore.h
@@ -82,6 +87,9 @@ public:
 
     // Re-reads the projects of the opened scene (bindings may have changed).
     void refresh();
+
+    // NDI outputs of the scenes (optional).
+    void setNdiManager(::NdiManager* ndi);
 
 Q_SIGNALS:
 
@@ -121,10 +129,24 @@ private Q_SLOTS:
     void onChooseOutputDirClicked();
     void onClearOutputDirClicked();
 
+    void refreshNdiRows();
+    void onNdiChannelsChanged(const QString& sceneId);
+    void onNdiChannelStatusChanged(const QString& sceneId, const QString& project);
+    void onNdiEnabledToggled(bool enabled);
+    void onNdiAlphaToggled(bool alpha);
+    void onNdiModeChanged(int index);
+    void onNdiSceneAction();
+    void onNdiRowAction();
+    void onNdiLoopToggled(bool loop);
+    void onNdiPauseAtChanged(double seconds);
+
 private:
 
     QWidget* createSceneList();
     QWidget* createSceneDetail();
+    QWidget* createNdiTab(QWidget* parent);
+    void refreshNdiTab();
+    static QString formatTime(double seconds);
 
     void refreshSceneList();
     void showScene();
@@ -181,6 +203,33 @@ private:
     QTableWidget* _projectTable;
     QTableWidget* _kvTable;
     QLabel* _renderStatus;
+
+    // NDI output tab
+    ::NdiManager* _ndi;
+    QCheckBox* _ndiEnabledCheck;
+    QCheckBox* _ndiAlphaCheck;
+    QComboBox* _ndiModeCombo;
+    QLabel* _ndiRuntimeLabel;
+    QPushButton* _ndiCueButton;
+    QPushButton* _ndiContinueButton;
+    QPushButton* _ndiPlayAllButton;
+    QPushButton* _ndiPauseAllButton;
+    QPushButton* _ndiStopAllButton;
+    QPushButton* _ndiReplayAllButton;
+    QTableWidget* _ndiTable;
+    QTimer _ndiRefreshTimer;
+    struct NdiRow
+    {
+        int row;
+        QProgressBar* position;
+        QPushButton* play;
+        QPushButton* pause;
+        QPushButton* stop;
+        QPushButton* replay;
+        QPushButton* loop;
+        QDoubleSpinBox* pauseAt;
+    };
+    QHash<QString, NdiRow> _ndiRows; // project -> row widgets
 };
 
 NATRON_NAMESPACE_EXIT

@@ -70,6 +70,7 @@ GuiApplicationManagerPrivate::GuiApplicationManagerPrivate(GuiApplicationManager
     , httpServer()
     , sceneStore()
     , sceneRenderer()
+    , ndiManager()
     , dashboard()
     , quitRequested(false)
 {

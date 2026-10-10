@@ -330,7 +330,7 @@ INFO
         # (the sync below restores any tracked file).
         if [ -f "$tmp/.built-qt" ] && [ "$(cat "$tmp/.built-qt")" != "${QT_VERSION_MAJOR:-}" ]; then
             echo "Qt version changed: removing the objects of the previous build."
-            find "$tmp/Natron" \( -name '*.o' -o -name '*.a' -o -name '*.so' -o -name 'moc_*' -o -name 'qrc_*' \
+            find "$tmp/Natron" -type f \( -name '*.o' -o -name '*.a' -o -name '*.so' -o -name 'moc_*' -o -name 'qrc_*' \
                                 -o -name 'Makefile' -o -name 'Makefile.*' -o -name '.qmake.stash' \) -delete
         fi
         mkdir -p "$tmp/Natron"

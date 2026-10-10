@@ -6,9 +6,11 @@
 # Usage: scripts/natron-build.sh [MODE] [OPTIONS]
 #
 # Modes:
-#   all        build Natron, then the installer and portable archive (default)
+#   all        build Natron, then the installer and portable archive (default);
+#              skips compiling when the cache already holds a build of this source
 #   build      build Natron only, in the cache (no installer, nothing in the output)
-#   installer  make the installer and portable archive from the existing build
+#   installer  make the installer and portable archive from the cached build;
+#              builds first if that build is not of the current source
 #   plugins    re-clone and rebuild the OFX plug-ins (otherwise built once and kept)
 #   status     show what the cache holds
 #   clean      delete the cache (the next run starts from scratch)
@@ -21,6 +23,7 @@
 #   -d             linux only: run detached; follow with: docker logs -f natron-build
 #   --tests        run Natron's unit tests (skipped by default)
 #   --no-portable  installer only, no portable .tar.xz archive (saves a few minutes)
+#   --rebuild      compile even if the cache holds a build of this source
 #   --committed    refuse to build with uncommitted changes (build = HEAD)
 #   --qt4, --qt5   Qt to build against (default: 4, or 5 on Apple Silicon)
 #
@@ -81,6 +84,7 @@ NUMBER="" # next free one, see next_build_number
 DETACH=0
 TESTS=0
 PORTABLE=1
+REBUILD=0
 COMMITTED=0
 QT=""
 
@@ -102,6 +106,7 @@ while [ $# -gt 0 ]; do
         -d) DETACH=1 ;;
         --tests) TESTS=1 ;;
         --no-portable) PORTABLE=0 ;;
+        --rebuild) REBUILD=1 ;;
         --committed) COMMITTED=1 ;;
         --qt4) QT=4 ;;
         --qt5) QT=5 ;;
@@ -190,10 +195,50 @@ if running; then
     echo "A build is already running (docker logs -f $CONTAINER)." >&2
     exit 1
 fi
-if [ "$MODE" = "installer" ] && [ ! -f "$CACHE/tmp/$NATRON_BIN" ]; then
-    echo "No Natron build in the cache: run \`$0 build\` first." >&2
-    exit 1
+# What a build is made of: the commit, the uncommitted changes (tracked and
+# untracked, as copied into the cache) and the Qt version. Recorded in the
+# cache by a successful build, to know whether the cached build is current.
+source_stamp() {
+    local changes
+
+    changes="$( { git -C "$SRC" diff HEAD --binary
+                  git -C "$SRC" ls-files -o --exclude-standard -- ':(exclude)build' ':(exclude)builds' |
+                      while IFS= read -r f; do
+                          echo "$f $(git -C "$SRC" hash-object -- "$f")"
+                      done
+                } | git hash-object --stdin )"
+    echo "$(git -C "$SRC" rev-parse HEAD) qt${QT:-default} $changes"
+}
+
+STAMP_FILE="$CACHE/tmp/.built-source"
+SOURCE_STAMP="$(source_stamp)"
+CURRENT_BUILD=0
+if [ -f "$CACHE/tmp/$NATRON_BIN" ] && [ "$(cat "$STAMP_FILE" 2>/dev/null || true)" = "$SOURCE_STAMP" ]; then
+    CURRENT_BUILD=1
 fi
+BUILT_COMMIT="$(cut -c1-7 "$STAMP_FILE" 2>/dev/null || true)"
+case "$MODE" in
+    installer)
+        if [ "$CURRENT_BUILD" = "0" ]; then
+            echo "The cached build (${BUILT_COMMIT:-none}) is not of the current source: building it first."
+            MODE=all
+            STEPS="BUILD_FROM=1 BUILD_TO=4"
+        fi
+        ;;
+    all)
+        if [ "$CURRENT_BUILD" = "1" ] && [ "$REBUILD" = "0" ]; then
+            echo "The cache already holds a build of this source: making the installer only (--rebuild to compile anyway)."
+            MODE=installer
+            STEPS="BUILD_FROM=4 BUILD_TO=4"
+        fi
+        ;;
+    build)
+        if [ "$CURRENT_BUILD" = "1" ] && [ "$REBUILD" = "0" ]; then
+            echo "The cache already holds a build of this source (--rebuild to compile anyway)."
+            exit 0
+        fi
+        ;;
+esac
 # Next build number for NAME: one more than the highest used so far, from
 # the numbered folders in the output directory and the counter kept in the
 # cache (so a deleted build's number is not reused).
@@ -249,10 +294,11 @@ echo "Jobs:     $JOBS"
 # Natron binary path relative to tmp/.
 prepare_and_build() {
     local src="$1" workspace="$2" natron_bin="$3"
-    local tmp="$workspace/tmp"
+    local tmp="$workspace/tmp" status=0
 
     case "$MODE" in
     all|build)
+        rm -f "$tmp/.built-source" # until this build succeeds
         mkdir -p "$tmp/Natron"
         # .git with mtimes (cheap on later runs). Submodules are left to the
         # checkout step, which updates them in the cache like the CI does.
@@ -275,10 +321,22 @@ prepare_and_build() {
         ;;
     esac
 
-    env $STEPS WORKSPACE="$workspace" "${LAUNCH[@]}"
+    env $STEPS WORKSPACE="$workspace" "${LAUNCH[@]}" || status=$?
+
+    # Natron got built (the installer step may still have failed): record
+    # what it was built from.
+    case "$MODE" in
+    all|build)
+        if [ -f "$tmp/$natron_bin" ]; then
+            echo "$SOURCE_STAMP" > "$tmp/.built-source"
+        fi
+        ;;
+    esac
+
+    return $status
 }
 
-export MODE STEPS
+export MODE STEPS SOURCE_STAMP
 export GIT_URL=https://github.com/vaaghu/Natron.git
 export GIT_URL_IS_NATRON=1
 export GIT_BRANCH="$BRANCH"
@@ -325,7 +383,7 @@ prepare_and_build /src /home $NATRON_BIN"
         --mount type=bind,src="$CACHE/tmp",target=/home/tmp
         --mount type=bind,src="$CACHE/src",target=/home/src
         --mount type=bind,src="$OUT",target=/home/builds_archive)
-    for v in MODE STEPS GIT_URL GIT_URL_IS_NATRON GIT_BRANCH GIT_COMMIT BUILD_NAME BUILD_NUMBER MKJOBS \
+    for v in MODE STEPS SOURCE_STAMP GIT_URL GIT_URL_IS_NATRON GIT_BRANCH GIT_COMMIT BUILD_NAME BUILD_NUMBER MKJOBS \
              UNIT_TESTS DEBUG_SCRIPTS SKIP_NATRON_TESTS DISABLE_PORTABLE_ARCHIVE XZ_OPT QT_VERSION_MAJOR; do
         [ -n "${!v+x}" ] && RUN_OPTS+=(--env "$v=${!v}")
     done

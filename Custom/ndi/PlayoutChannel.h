@@ -42,8 +42,8 @@ public:
   QString sourceName() const;
   bool alpha() const;
 
-  // New rendered output to play (keeps the position if possible; a playing
-  // channel continues with the new media from the start).
+  // New rendered output to play, from the same position (a playing channel
+  // continues playing it).
   void setMedia(const MediaInfo &media);
 
   void play();          // from the current position (continues after a pause point)

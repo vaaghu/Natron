@@ -92,6 +92,7 @@ private:
   static QString channelKey(const QString &sceneId, const QString &project);
   QList<PlayoutChannel *> sceneChannels(const QString &sceneId) const;
   void applySettings(const ChannelInfo &info, const Scene &scene);
+  void rerenderRemappedProjects(const QList<Scene> &scenes);
   QString findScene(const QString &nameOrId) const;
   QVariantMap channelState(const ChannelInfo &info) const;
 
@@ -104,6 +105,7 @@ private:
   StateStore *m_state;
   QStringList m_changedKeys; // store keys changed since the last re-render
   QTimer m_dataChangeTimer;  // batches bursts of changes (one API request)
+  QHash<QString, QHash<QString, QString> > m_keyMaps; // scene id -> its last key renaming
   QString m_liveKey; // channel currently fed live frames
   int m_liveLastFrame; // last frame sent live (renderer frame number)
 };

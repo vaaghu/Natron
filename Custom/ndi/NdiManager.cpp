@@ -175,6 +175,47 @@ void NdiManager::syncChannels()
   {
     Q_EMIT channelsChanged(*it);
   }
+
+  rerenderRemappedProjects(scenes);
+}
+
+void NdiManager::rerenderRemappedProjects(const QList<Scene> &scenes)
+{
+  // Live scenes: a key renamed to another store key changes the values the
+  // projects use, like a value change.
+  QHash<QString, QHash<QString, QString> > keyMaps;
+  for (int i = 0; i < scenes.size(); ++i)
+  {
+    const Scene &scene = scenes.at(i);
+    keyMaps.insert(scene.id, scene.keyMap);
+    if (!m_renderer || !scene.ndiEnabled || !scene.ndiLive || !m_keyMaps.contains(scene.id))
+    {
+      continue;
+    }
+    const QHash<QString, QString> previous = m_keyMaps.value(scene.id);
+    if (previous == scene.keyMap)
+    {
+      continue;
+    }
+    QStringList affected;
+    for (int p = 0; p < scene.projects.size(); ++p)
+    {
+      const QStringList keys = readProjectInfo(scene.projects.at(p)).stateKeys;
+      for (int k = 0; k < keys.size(); ++k)
+      {
+        if (previous.value(keys.at(k), keys.at(k)) != scene.mappedKey(keys.at(k)))
+        {
+          affected << scene.projects.at(p);
+          break;
+        }
+      }
+    }
+    if (!affected.isEmpty())
+    {
+      m_renderer->rerender(scene.id, affected);
+    }
+  }
+  m_keyMaps = keyMaps;
 }
 
 void NdiManager::onNdiSettingsChanged(const QString &sceneId, const QString &project)

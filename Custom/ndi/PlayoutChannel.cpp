@@ -134,8 +134,10 @@ void PlayoutChannel::setMedia(const MediaInfo &media)
     else
     {
       m_message.clear();
+      // Same position in the new media (e.g. a re-render with new values
+      // continues where the previous one was).
       m_position = qMin(m_position, qMax(0, media.frameCount - 1));
-      m_seekTo = (m_state == ePlaying) ? 0 : m_position;
+      m_seekTo = m_position;
     }
   }
   Q_EMIT statusChanged();

@@ -18,6 +18,8 @@
 #include <QRegExp>
 #include <QVariantMap>
 
+#include <cstdio>
+
 #ifdef Q_OS_UNIX
 #include <signal.h>
 #include <sys/types.h>
@@ -391,6 +393,29 @@ void SceneRenderer::startNext()
     return;
   }
 
+  // Movies: render next to the final file (same disk: the move is a rename).
+  // Image sequences are written frame by frame (live output reads them), so
+  // they still go straight to their final files.
+  const QDir projectDir = QFileInfo(m_current.project).absoluteDir();
+  m_finalOutputs.clear();
+  m_stagingDir.clear();
+  const QStringList outputs = sceneOutputs(scene.outputDir, m_current.project);
+  bool stage = !outputs.isEmpty();
+  for (int i = 0; i < outputs.size(); ++i)
+  {
+    m_finalOutputs << projectDir.absoluteFilePath(outputs.at(i));
+    stage = stage && !isSequencePattern(outputs.at(i));
+  }
+  if (stage)
+  {
+    m_stagingDir = QFileInfo(m_finalOutputs.first()).absoluteDir().absoluteFilePath(QString::fromUtf8(".natron-render"));
+    removeStagingDir();
+    if (!QDir().mkpath(m_stagingDir))
+    {
+      m_stagingDir.clear(); // render in place
+    }
+  }
+
   // The renderer reads the values from the saved store.
   if (m_state)
   {
@@ -418,7 +443,7 @@ void SceneRenderer::startNext()
     env.insert(QString::fromUtf8("NATRON_STATE_JSON"), m_state->filePath());
   }
   env.insert(QString::fromUtf8("NATRON_STATE_KEYMAP"), QString::fromUtf8(Json::serialize(keyMap)));
-  env.insert(QString::fromUtf8("NATRON_OUTPUT_DIR"), scene.outputDir);
+  env.insert(QString::fromUtf8("NATRON_OUTPUT_DIR"), m_stagingDir.isEmpty() ? scene.outputDir : m_stagingDir);
   m_process->setProcessEnvironment(env);
 
   connect(m_process, SIGNAL(finished(int,QProcess::ExitStatus)), this, SLOT(onFinished(int,QProcess::ExitStatus)));
@@ -564,6 +589,16 @@ void SceneRenderer::finishCurrent(bool ok, const QString &message)
   }
   m_progress = RenderProgress();
 
+  QString moveError;
+  if (ok && !m_stagingDir.isEmpty() && !moveStagedOutputs(&moveError))
+  {
+    ok = false;
+    record.message = moveError;
+  }
+  removeStagingDir();
+  m_stagingDir.clear();
+  m_finalOutputs.clear();
+
   if (ok)
   {
     record.status = RenderRecord::eDone;
@@ -596,6 +631,53 @@ void SceneRenderer::finishCurrent(bool ok, const QString &message)
   m_current = Job();
 
   startNext();
+}
+
+bool SceneRenderer::moveStagedOutputs(QString *error)
+{
+  const QDir staging(m_stagingDir);
+  for (int i = 0; i < m_finalOutputs.size(); ++i)
+  {
+    const QString target = m_finalOutputs.at(i);
+    const QString staged = staging.absoluteFilePath(outputFileName(target));
+    if (!QFile::exists(staged))
+    {
+      continue; // reported later as "no output file was found"
+    }
+#ifdef Q_OS_UNIX
+    // Atomic replace: a reader of the old file keeps reading it.
+    const bool moved = ::rename(QFile::encodeName(staged).constData(), QFile::encodeName(target).constData()) == 0;
+#else
+    QFile::remove(target);
+    const bool moved = QFile::rename(staged, target);
+#endif
+    // Another disk: copy instead.
+    if (!moved && !((!QFile::exists(target) || QFile::remove(target)) && QFile::copy(staged, target)))
+    {
+      *error = tr("Rendered, but could not replace %1").arg(target);
+      return false;
+    }
+  }
+  return true;
+}
+
+void SceneRenderer::removeStagingDir()
+{
+  if (m_stagingDir.isEmpty())
+  {
+    return;
+  }
+  QDir dir(m_stagingDir);
+  if (!dir.exists())
+  {
+    return;
+  }
+  const QStringList files = dir.entryList(QDir::Files | QDir::Hidden | QDir::System);
+  for (int i = 0; i < files.size(); ++i)
+  {
+    dir.remove(files.at(i));
+  }
+  QDir().rmdir(m_stagingDir);
 }
 
 QString SceneRenderer::makeThumbnail(const Job &job, const QString &output)

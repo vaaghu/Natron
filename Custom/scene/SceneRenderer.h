@@ -134,6 +134,8 @@ private:
   void parseOutputLine(const QString &line);
   bool signalProcess(int signal);
   void setRecordStatus(const Job &job, int status, const QString &message);
+  bool moveStagedOutputs(QString *error);
+  void removeStagingDir();
 
   StateStore *m_state;
   SceneStore *m_scenes;
@@ -149,4 +151,9 @@ private:
   QByteArray m_partialLine;
   RenderProgress m_progress;
   bool m_stopping; // the current render is being cancelled
+  // Movie outputs are rendered into a staging folder and moved over their
+  // final file once complete, so a channel playing the previous render never
+  // reads a half-written file.
+  QString m_stagingDir;      // empty: rendering straight to the final files
+  QStringList m_finalOutputs; // where the staged files go
 };

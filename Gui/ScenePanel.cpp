@@ -851,7 +851,7 @@ ScenePanel::refreshRowRenderState(const QString& item)
     _projectTable->setItem(w.row, kSceneColumnStatus, statusItem);
 
     w.progress->setValue(percent);
-    w.progress->setFormat( progress.active && !progress.node.isEmpty() ? tr("%1: %p%").arg(progress.node) : tr("%p%") );
+    w.progress->setFormat( tr("%p%") ); // the bar is too small for more
 
     const bool rendering = progress.active;
     const bool wasBlocked = w.pause->blockSignals(true);

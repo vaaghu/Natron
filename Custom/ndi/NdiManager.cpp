@@ -69,19 +69,26 @@ NdiManager::~NdiManager()
   }
 }
 
-QString NdiManager::channelKey(const QString &sceneId, const QString &project)
+QString NdiManager::channelKey(const QString &sceneId, const QString &item)
 {
-  return sceneId + QLatin1Char('|') + project;
+  return sceneId + QLatin1Char('|') + item;
 }
 
-QString NdiManager::sourceName(const Scene &scene, const QString &project)
+QString NdiManager::sourceName(const Scene &scene, const QString &item)
 {
-  return s("%1 - %2").arg(scene.name).arg(projectName(project));
+  // A project with a single Write node keeps the plain "<scene> - <project>"
+  // name; with several, each source names its Write node.
+  const QString project = SceneItem::project(item);
+  if (readProjectInfo(project).writers.size() <= 1)
+  {
+    return s("%1 - %2").arg(scene.name).arg(projectName(project));
+  }
+  return s("%1 - %2 - %3").arg(scene.name).arg(projectName(project)).arg(SceneItem::writer(item));
 }
 
-PlayoutChannel *NdiManager::channel(const QString &sceneId, const QString &project) const
+PlayoutChannel *NdiManager::channel(const QString &sceneId, const QString &item) const
 {
-  const QHash<QString, ChannelInfo>::const_iterator it = m_channels.find(channelKey(sceneId, project));
+  const QHash<QString, ChannelInfo>::const_iterator it = m_channels.find(channelKey(sceneId, item));
   return it == m_channels.end() ? nullptr : it.value().channel;
 }
 
@@ -100,13 +107,13 @@ QList<PlayoutChannel *> NdiManager::sceneChannels(const QString &sceneId) const
 
 void NdiManager::applySettings(const ChannelInfo &info, const Scene &scene)
 {
-  info.channel->setPauseAt(scene.pauseAt(info.project));
-  info.channel->setLoop(scene.ndiLoop.value(info.project, false));
+  info.channel->setPauseAt(scene.pauseAt(info.item));
+  info.channel->setLoop(scene.ndiLoop.value(info.item, false));
 }
 
 void NdiManager::syncChannels()
 {
-  // Wanted channels: projects of the NDI-enabled scenes.
+  // Wanted channels: items of the NDI-enabled scenes.
   QHash<QString, ChannelInfo> wanted;
   const QList<Scene> scenes = m_scenes->scenes();
   for (int i = 0; i < scenes.size(); ++i)
@@ -116,15 +123,15 @@ void NdiManager::syncChannels()
     {
       continue;
     }
-    for (int p = 0; p < scene.projects.size(); ++p)
+    for (int p = 0; p < scene.items.size(); ++p)
     {
       ChannelInfo info;
       info.channel = nullptr;
       info.sceneId = scene.id;
-      info.project = scene.projects.at(p);
-      info.name = sourceName(scene, info.project);
+      info.item = scene.items.at(p);
+      info.name = sourceName(scene, info.item);
       info.alpha = scene.ndiAlpha;
-      wanted.insert(channelKey(scene.id, info.project), info);
+      wanted.insert(channelKey(scene.id, info.item), info);
     }
   }
 
@@ -159,7 +166,7 @@ void NdiManager::syncChannels()
     ChannelInfo info = it.value();
     info.channel = new PlayoutChannel(info.name, info.alpha, m_ffmpegPath, m_sinkFactory);
     info.channel->setProperty("sceneId", info.sceneId);
-    info.channel->setProperty("project", info.project);
+    info.channel->setProperty("item", info.item);
     connect(info.channel, SIGNAL(statusChanged()), this, SLOT(onChannelStatusChanged()), Qt::QueuedConnection);
     info.channel->start();
     m_channels.insert(it.key(), info);
@@ -168,7 +175,7 @@ void NdiManager::syncChannels()
     Scene scene;
     m_scenes->scene(info.sceneId, &scene);
     applySettings(info, scene);
-    reloadMedia(info.sceneId, info.project);
+    reloadMedia(info.sceneId, info.item);
   }
 
   for (QSet<QString>::const_iterator it = touchedScenes.constBegin(); it != touchedScenes.constEnd(); ++it)
@@ -176,13 +183,13 @@ void NdiManager::syncChannels()
     Q_EMIT channelsChanged(*it);
   }
 
-  rerenderRemappedProjects(scenes);
+  rerenderRemappedItems(scenes);
 }
 
-void NdiManager::rerenderRemappedProjects(const QList<Scene> &scenes)
+void NdiManager::rerenderRemappedItems(const QList<Scene> &scenes)
 {
   // Live scenes: a key renamed to another store key changes the values the
-  // projects use, like a value change.
+  // items use, like a value change.
   QHash<QString, QHash<QString, QString> > keyMaps;
   for (int i = 0; i < scenes.size(); ++i)
   {
@@ -198,14 +205,14 @@ void NdiManager::rerenderRemappedProjects(const QList<Scene> &scenes)
       continue;
     }
     QStringList affected;
-    for (int p = 0; p < scene.projects.size(); ++p)
+    for (int p = 0; p < scene.items.size(); ++p)
     {
-      const QStringList keys = readProjectInfo(scene.projects.at(p)).stateKeys;
+      const QStringList keys = readProjectInfo(SceneItem::project(scene.items.at(p))).stateKeys;
       for (int k = 0; k < keys.size(); ++k)
       {
         if (previous.value(keys.at(k), keys.at(k)) != scene.mappedKey(keys.at(k)))
         {
-          affected << scene.projects.at(p);
+          affected << scene.items.at(p);
           break;
         }
       }
@@ -218,9 +225,9 @@ void NdiManager::rerenderRemappedProjects(const QList<Scene> &scenes)
   m_keyMaps = keyMaps;
 }
 
-void NdiManager::onNdiSettingsChanged(const QString &sceneId, const QString &project)
+void NdiManager::onNdiSettingsChanged(const QString &sceneId, const QString &item)
 {
-  const QHash<QString, ChannelInfo>::const_iterator it = m_channels.find(channelKey(sceneId, project));
+  const QHash<QString, ChannelInfo>::const_iterator it = m_channels.find(channelKey(sceneId, item));
   if (it != m_channels.end())
   {
     Scene scene;
@@ -229,25 +236,25 @@ void NdiManager::onNdiSettingsChanged(const QString &sceneId, const QString &pro
   }
 }
 
-void NdiManager::reloadMedia(const QString &sceneId, const QString &project)
+void NdiManager::reloadMedia(const QString &sceneId, const QString &item)
 {
-  PlayoutChannel *c = channel(sceneId, project);
+  PlayoutChannel *c = channel(sceneId, item);
   Scene scene;
   if (!c || !m_scenes->scene(sceneId, &scene))
   {
     return;
   }
 
-  const QStringList outputs = SceneRenderer::sceneOutputs(scene.outputDir, project);
-  if (outputs.isEmpty())
+  const QString output = SceneRenderer::itemOutput(scene.outputDir, item);
+  if (output.isEmpty())
   {
     MediaInfo none;
-    none.error = tr("the project has no Write node output");
+    none.error = tr("the Write node has no output file");
     c->setMedia(none);
     return;
   }
-  const double fps = readProjectInfo(project).fps;
-  c->setMedia(probeMedia(outputs.first(), m_ffprobePath, fps));
+  const double fps = readProjectInfo(SceneItem::project(item)).fps;
+  c->setMedia(probeMedia(output, m_ffprobePath, fps));
 }
 
 void NdiManager::setStateStore(StateStore *state)
@@ -281,7 +288,7 @@ void NdiManager::onDataChangeTimer()
     return;
   }
 
-  // Live scenes: re-render the projects using a changed value (through the
+  // Live scenes: re-render the items whose project uses a changed value (through the
   // scene's key renaming).
   const QList<Scene> scenes = m_scenes->scenes();
   for (int i = 0; i < scenes.size(); ++i)
@@ -292,14 +299,14 @@ void NdiManager::onDataChangeTimer()
       continue;
     }
     QStringList affected;
-    for (int p = 0; p < scene.projects.size(); ++p)
+    for (int p = 0; p < scene.items.size(); ++p)
     {
-      const QStringList keys = readProjectInfo(scene.projects.at(p)).stateKeys;
+      const QStringList keys = readProjectInfo(SceneItem::project(scene.items.at(p))).stateKeys;
       for (int k = 0; k < keys.size(); ++k)
       {
         if (changed.contains(scene.mappedKey(keys.at(k))))
         {
-          affected << scene.projects.at(p);
+          affected << scene.items.at(p);
           break;
         }
       }
@@ -311,26 +318,26 @@ void NdiManager::onDataChangeTimer()
   }
 }
 
-void NdiManager::onRenderRecordChanged(const QString &sceneId, const QString &project)
+void NdiManager::onRenderRecordChanged(const QString &sceneId, const QString &item)
 {
-  PlayoutChannel *c = channel(sceneId, project);
+  PlayoutChannel *c = channel(sceneId, item);
   if (!c)
   {
     return;
   }
 
-  const RenderRecord record = m_scenes->renderRecord(sceneId, project);
+  const RenderRecord record = m_scenes->renderRecord(sceneId, item);
   if (record.status == RenderRecord::eDone || record.status == RenderRecord::eFailed || record.status == RenderRecord::eNone)
   {
-    if (m_liveKey == channelKey(sceneId, project))
+    if (m_liveKey == channelKey(sceneId, item))
     {
       m_liveKey.clear();
-      reloadMedia(sceneId, project);
+      reloadMedia(sceneId, item);
       c->leaveLive();
     }
     else if (record.status == RenderRecord::eDone)
     {
-      reloadMedia(sceneId, project); // the new render is what plays now
+      reloadMedia(sceneId, item); // the new render is what plays now
     }
   }
 }
@@ -339,44 +346,44 @@ void NdiManager::onRendererStatusChanged()
 {
   // A live render that was cancelled before any frame: leave live mode.
   if (!m_liveKey.isEmpty() && (!m_renderer->isBusy() ||
-                               channelKey(m_renderer->currentSceneId(), m_renderer->currentProject()) != m_liveKey))
+                               channelKey(m_renderer->currentSceneId(), m_renderer->currentItem()) != m_liveKey))
   {
     const ChannelInfo info = m_channels.value(m_liveKey);
     m_liveKey.clear();
     if (info.channel)
     {
-      reloadMedia(info.sceneId, info.project);
+      reloadMedia(info.sceneId, info.item);
       info.channel->leaveLive();
     }
   }
 }
 
-void NdiManager::onRenderProgressChanged(const QString &sceneId, const QString &project)
+void NdiManager::onRenderProgressChanged(const QString &sceneId, const QString &item)
 {
-  PlayoutChannel *c = channel(sceneId, project);
+  PlayoutChannel *c = channel(sceneId, item);
   Scene scene;
   if (!c || !m_scenes->scene(sceneId, &scene) || !scene.ndiLive)
   {
     return;
   }
 
-  const RenderProgress progress = m_renderer->progress(sceneId, project);
+  const RenderProgress progress = m_renderer->progress(sceneId, item);
   // Progress is also reported for "started"/"finished": send each frame once.
   if (progress.currentFrame < 0 ||
-      (m_liveKey == channelKey(sceneId, project) && progress.currentFrame == m_liveLastFrame))
+      (m_liveKey == channelKey(sceneId, item) && progress.currentFrame == m_liveLastFrame))
   {
     return;
   }
 
   // Live needs one file per frame to read as soon as it is written.
-  const QStringList outputs = SceneRenderer::sceneOutputs(scene.outputDir, project);
-  if (outputs.isEmpty() || !isSequencePattern(outputs.first()))
+  const QString output = SceneRenderer::itemOutput(scene.outputDir, item);
+  if (output.isEmpty() || !isSequencePattern(output))
   {
     c->setMessage(tr("Live needs an image-sequence output (e.g. frame_####.png); playing the render instead."));
     return;
   }
 
-  const QString file = sequenceFrameFile(outputs.first(), progress.currentFrame);
+  const QString file = sequenceFrameFile(output, progress.currentFrame);
   QImage image(file);
   if (image.isNull())
   {
@@ -385,12 +392,12 @@ void NdiManager::onRenderProgressChanged(const QString &sceneId, const QString &
   image = image.convertToFormat(QImage::Format_ARGB32); // BGRA bytes in memory (little endian)
   const QByteArray bgra(reinterpret_cast<const char *>(image.constBits()), image.bytesPerLine() * image.height());
 
-  const QString key = channelKey(sceneId, project);
+  const QString key = channelKey(sceneId, item);
   if (m_liveKey != key)
   {
     m_liveKey = key;
     m_liveLastFrame = -1;
-    c->enterLive(image.width(), image.height(), readProjectInfo(project).fps);
+    c->enterLive(image.width(), image.height(), readProjectInfo(SceneItem::project(item)).fps);
   }
   c->pushLiveFrame(bgra, image.width(), image.height());
   m_liveLastFrame = progress.currentFrame;
@@ -401,7 +408,7 @@ void NdiManager::onChannelStatusChanged()
   QObject *source = sender();
   if (source)
   {
-    Q_EMIT channelStatusChanged(source->property("sceneId").toString(), source->property("project").toString());
+    Q_EMIT channelStatusChanged(source->property("sceneId").toString(), source->property("item").toString());
   }
 }
 
@@ -482,7 +489,8 @@ QVariantMap NdiManager::channelState(const ChannelInfo &info) const
   const PlayoutChannel::Status st = info.channel->status();
   QVariantMap m;
   m.insert(s("source"), info.name);
-  m.insert(s("project"), projectName(info.project));
+  m.insert(s("project"), projectName(SceneItem::project(info.item)));
+  m.insert(s("writer"), SceneItem::writer(info.item));
   m.insert(s("state"), PlayoutChannel::stateName(st.state).toLower());
   m.insert(s("position"), st.seconds());
   m.insert(s("duration"), st.duration());
@@ -547,41 +555,46 @@ bool NdiManager::handleHttpRequest(const QByteArray &method, const QByteArray &p
     return true;
   }
 
-  // Projects addressed: one (by name or path) or all of the scene.
-  QStringList projects;
+  // Sources addressed: all of the scene, or those of one project (by name or
+  // path), optionally only one of its Write nodes ("writer").
+  QStringList items;
   const QString projectArg = request.value(s("project")).toString();
-  for (int i = 0; i < scene.projects.size(); ++i)
+  const QString writerArg = request.value(s("writer")).toString();
+  for (int i = 0; i < scene.items.size(); ++i)
   {
-    if (projectArg.isEmpty() || projectArg == scene.projects.at(i) || projectArg == projectName(scene.projects.at(i)))
+    const QString item = scene.items.at(i);
+    const QString project = SceneItem::project(item);
+    const bool projectMatches = projectArg.isEmpty() || projectArg == project || projectArg == projectName(project);
+    if (projectMatches && (writerArg.isEmpty() || writerArg == SceneItem::writer(item)))
     {
-      projects << scene.projects.at(i);
+      items << item;
     }
   }
-  if (projects.isEmpty())
+  if (items.isEmpty())
   {
     *status = 404;
-    *response = "{\"error\":\"unknown project in this scene\"}";
+    *response = "{\"error\":\"unknown project or writer in this scene\"}";
     return true;
   }
 
   // Settings first, then the action.
-  for (int i = 0; i < projects.size(); ++i)
+  for (int i = 0; i < items.size(); ++i)
   {
     if (request.contains(s("pauseAt")))
     {
       const QVariant v = request.value(s("pauseAt"));
-      m_scenes->setNdiPauseAt(sceneId, projects.at(i), v.isValid() ? v.toDouble() : -1.0);
+      m_scenes->setNdiPauseAt(sceneId, items.at(i), v.isValid() ? v.toDouble() : -1.0);
     }
     if (request.contains(s("loop")))
     {
-      m_scenes->setNdiLoop(sceneId, projects.at(i), request.value(s("loop")).toBool());
+      m_scenes->setNdiLoop(sceneId, items.at(i), request.value(s("loop")).toBool());
     }
   }
 
   const QString action = request.value(s("action")).toString();
-  for (int i = 0; i < projects.size(); ++i)
+  for (int i = 0; i < items.size(); ++i)
   {
-    PlayoutChannel *c = channel(sceneId, projects.at(i));
+    PlayoutChannel *c = channel(sceneId, items.at(i));
     if (!c || action.isEmpty())
     {
       continue;
@@ -622,9 +635,9 @@ bool NdiManager::handleHttpRequest(const QByteArray &method, const QByteArray &p
   }
 
   QVariantList sources;
-  for (int i = 0; i < projects.size(); ++i)
+  for (int i = 0; i < items.size(); ++i)
   {
-    const QHash<QString, ChannelInfo>::const_iterator it = m_channels.find(channelKey(sceneId, projects.at(i)));
+    const QHash<QString, ChannelInfo>::const_iterator it = m_channels.find(channelKey(sceneId, items.at(i)));
     if (it != m_channels.end())
     {
       sources << channelState(it.value());

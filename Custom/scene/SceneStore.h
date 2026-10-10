@@ -8,12 +8,26 @@
 #include <QStringList>
 #include <QTimer>
 
-// A named group of Natron projects rendered together.
+// A scene renders Write nodes of projects ("items"). An item is
+// "<absolute .ntp path>#<Write node script name>" (empty name: the project
+// has no Write node). Render records, NDI sources and their settings are
+// per item.
+namespace SceneItem
+{
+QString make(const QString &project, const QString &writer);
+QString project(const QString &item);
+QString writer(const QString &item);
+// Items for every Write node of a project (one item without a writer if it
+// has none).
+QStringList allOf(const QString &project);
+}
+
+// A named group of Write nodes of Natron projects, rendered together.
 struct Scene
 {
   QString id;
   QString name;
-  QStringList projects; // absolute .ntp paths
+  QStringList items; // see SceneItem, in display order
 
   // Key renaming for this scene: key bound in the projects -> store key
   // used instead when rendering (e.g. PlayerName1 -> PlayerName2).
@@ -23,12 +37,12 @@ struct Scene
   // projects' Write nodes). Empty: use the projects' own output paths.
   QString outputDir;
 
-  // NDI output: one source per project of the scene.
+  // NDI output: one source per item of the scene.
   bool ndiEnabled;
   bool ndiAlpha;  // send with transparency (overlays)
   bool ndiLive;   // send frames while rendering instead of playing the render
-  QHash<QString, double> ndiPauseAt; // project -> pause point in seconds
-  QHash<QString, bool> ndiLoop;      // project -> loop
+  QHash<QString, double> ndiPauseAt; // item -> pause point in seconds
+  QHash<QString, bool> ndiLoop;      // item -> loop
 
   Scene()
       : ndiEnabled(false),
@@ -37,9 +51,24 @@ struct Scene
   {
   }
 
-  double pauseAt(const QString &project) const
+  double pauseAt(const QString &item) const
   {
-    return ndiPauseAt.value(project, -1.0);
+    return ndiPauseAt.value(item, -1.0);
+  }
+
+  // Projects of the items, without duplicates, in order of appearance.
+  QStringList projects() const
+  {
+    QStringList out;
+    for (int i = 0; i < items.size(); ++i)
+    {
+      const QString project = SceneItem::project(items.at(i));
+      if (!out.contains(project))
+      {
+        out << project;
+      }
+    }
+    return out;
   }
 
   // Store key used for a key bound in the projects.
@@ -49,7 +78,7 @@ struct Scene
   }
 };
 
-// Result of the last render of a project.
+// Result of the last render of an item.
 struct RenderRecord
 {
   enum Status
@@ -66,7 +95,6 @@ struct RenderRecord
   QString message;    // error / summary
   QString output;     // existing output file found after the render
   QString thumbnail;  // png made from the output
-  QString frameRange; // frames rendered, e.g. "1-250"
 
   RenderRecord()
       : status(eNone)
@@ -74,7 +102,7 @@ struct RenderRecord
   }
 };
 
-// Scenes and per-project render records, saved to a JSON file.
+// Scenes and per-item render records, saved to a JSON file.
 class SceneStore : public QObject
 {
   Q_OBJECT
@@ -94,8 +122,9 @@ public:
   QString createScene(const QString &name);
   void renameScene(const QString &id, const QString &name);
   void removeScene(const QString &id);
-  void addProjects(const QString &id, const QStringList &projects);
-  void removeProjects(const QString &id, const QStringList &projects);
+  // Items already in the scene are skipped.
+  void addItems(const QString &id, const QStringList &items);
+  void removeItems(const QString &id, const QStringList &items);
 
   // usedKey empty or equal to key: no renaming.
   void setKeyMapping(const QString &id, const QString &key, const QString &usedKey);
@@ -104,20 +133,20 @@ public:
   void setNdiEnabled(const QString &id, bool enabled);
   void setNdiAlpha(const QString &id, bool alpha);
   void setNdiLive(const QString &id, bool live);
-  void setNdiPauseAt(const QString &id, const QString &project, double seconds); // < 0: none
-  void setNdiLoop(const QString &id, const QString &project, bool loop);
+  void setNdiPauseAt(const QString &id, const QString &item, double seconds); // < 0: none
+  void setNdiLoop(const QString &id, const QString &item, bool loop);
 
-  // Renders are per scene: the same project renders differently (other
-  // keys, other output folder) in another scene.
-  RenderRecord renderRecord(const QString &sceneId, const QString &project) const;
-  void setRenderRecord(const QString &sceneId, const QString &project, const RenderRecord &record);
+  // Renders are per scene: the same item renders differently (other keys,
+  // other output folder) in another scene.
+  RenderRecord renderRecord(const QString &sceneId, const QString &item) const;
+  void setRenderRecord(const QString &sceneId, const QString &item, const RenderRecord &record);
 
 Q_SIGNALS:
   void scenesChanged();
-  void renderRecordChanged(const QString &sceneId, const QString &project);
-  // A project's NDI pause point / loop changed (no scenesChanged: the
+  void renderRecordChanged(const QString &sceneId, const QString &item);
+  // An item's NDI pause point / loop changed (no scenesChanged: the
   // scene views do not need rebuilding).
-  void ndiSettingsChanged(const QString &sceneId, const QString &project);
+  void ndiSettingsChanged(const QString &sceneId, const QString &item);
 
 private Q_SLOTS:
   void onSaveTimer();

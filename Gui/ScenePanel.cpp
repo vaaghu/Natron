@@ -35,6 +35,8 @@ CLANG_DIAG_OFF(uninitialized)
 #include <QStyle>
 #include <QComboBox>
 #include <QDesktopServices>
+#include <QDialog>
+#include <QDialogButtonBox>
 #include <QDir>
 #include <QFileDialog>
 #include <QFileInfo>
@@ -53,6 +55,7 @@ CLANG_DIAG_OFF(uninitialized)
 #include <QSplitter>
 #include <QStackedWidget>
 #include <QTableWidget>
+#include <QTreeWidget>
 #include <QUrl>
 #include <QVBoxLayout>
 CLANG_DIAG_ON(deprecated)
@@ -71,11 +74,11 @@ CLANG_DIAG_ON(uninitialized)
 
 #define kSceneColumnPreview 0
 #define kSceneColumnProject 1
-#define kSceneColumnProgress 2
-#define kSceneColumnStatus 3
-#define kSceneColumnControls 4
-#define kSceneColumnRemaining 5
-#define kSceneColumnFrames 6
+#define kSceneColumnWriter 2
+#define kSceneColumnProgress 3
+#define kSceneColumnStatus 4
+#define kSceneColumnControls 5
+#define kSceneColumnRemaining 6
 #define kSceneColumnCount 7
 
 #define kSceneControlButtonSize 22
@@ -283,12 +286,13 @@ ScenePanel::createSceneDetail()
 
     QHBoxLayout* buttons = new QHBoxLayout;
     QPushButton* addButton = new QPushButton(tr("Add Projects..."), detail);
-    addButton->setToolTip( tr("Link project files to this scene. You can also select a recent project and use \"Add to Scene\".") );
+    addButton->setToolTip( tr("Add the Write nodes of project files to this scene (for projects with several Write nodes, "
+                              "you pick which). You can also select a recent project and use \"Add to Scene\".") );
     _removeProjectsButton = new QPushButton(tr("Remove"), detail);
-    _removeProjectsButton->setToolTip( tr("Unlink the selected projects from the scene (files are not touched).") );
+    _removeProjectsButton->setToolTip( tr("Remove the selected Write nodes from the scene (files are not touched).") );
     _openInEditorButton = new QPushButton(tr("Open in Editor"), detail);
     _renderAllButton = new QPushButton(tr("Render All"), detail);
-    _renderAllButton->setToolTip( tr("Render every project of the scene with the current KV values, one after the other.") );
+    _renderAllButton->setToolTip( tr("Render every Write node of the scene with the current KV values, one after the other.") );
     _renderSelectedButton = new QPushButton(tr("Render Selected"), detail);
     _stopButton = new QPushButton(tr("Stop All"), detail);
     _stopButton->setToolTip( tr("Stop the current render and clear the queue.") );
@@ -305,7 +309,7 @@ ScenePanel::createSceneDetail()
 
     _projectTable = new QTableWidget(0, kSceneColumnCount, split);
     QStringList headers;
-    headers << tr("Preview") << tr("Project") << tr("Progress") << tr("Status") << tr("Controls") << tr("Time remaining") << tr("Frame range");
+    headers << tr("Preview") << tr("Project") << tr("Writer") << tr("Progress") << tr("Status") << tr("Controls") << tr("Time remaining");
     _projectTable->setHorizontalHeaderLabels(headers);
     _projectTable->verticalHeader()->setVisible(false);
     _projectTable->verticalHeader()->setDefaultSectionSize(kSceneThumbnailHeight + 8);
@@ -316,6 +320,7 @@ ScenePanel::createSceneDetail()
     _projectTable->horizontalHeader()->setStretchLastSection(true);
     _projectTable->setColumnWidth(kSceneColumnPreview, kSceneThumbnailWidth + 12);
     _projectTable->setColumnWidth(kSceneColumnProject, 160);
+    _projectTable->setColumnWidth(kSceneColumnWriter, 110);
     _projectTable->setColumnWidth(kSceneColumnProgress, 110);
     _projectTable->setColumnWidth(kSceneColumnStatus, 190);
     _projectTable->setColumnWidth(kSceneColumnControls, 100);
@@ -388,7 +393,7 @@ ScenePanel::refreshSceneList()
     _sceneList->clear();
     const QList< ::Scene> scenes = _scenes->scenes();
     for (int i = 0; i < scenes.size(); ++i) {
-        QListWidgetItem* item = new QListWidgetItem( tr("%1  (%2)").arg( scenes.at(i).name ).arg( scenes.at(i).projects.size() ) );
+        QListWidgetItem* item = new QListWidgetItem( tr("%1  (%2)").arg( scenes.at(i).name ).arg( scenes.at(i).items.size() ) );
         item->setData(Qt::UserRole, scenes.at(i).id);
         _sceneList->addItem(item);
         if (scenes.at(i).id == _currentSceneId) {
@@ -495,7 +500,7 @@ ScenePanel::onScenesChanged()
 // ----- Opened scene -----
 
 QStringList
-ScenePanel::currentProjects() const
+ScenePanel::currentItems() const
 {
     ::Scene scene;
 
@@ -503,24 +508,24 @@ ScenePanel::currentProjects() const
         return QStringList();
     }
 
-    return scene.projects;
+    return scene.items;
 }
 
 QStringList
-ScenePanel::selectedProjects() const
+ScenePanel::selectedItems() const
 {
-    QStringList projects;
+    QStringList items;
     QList<QTableWidgetItem*> selected = _projectTable->selectedItems();
 
     for (int i = 0; i < selected.size(); ++i) {
-        QTableWidgetItem* item = _projectTable->item(selected.at(i)->row(), kSceneColumnProject);
-        const QString path = item ? item->data(Qt::UserRole).toString() : QString();
-        if ( !path.isEmpty() && !projects.contains(path) ) {
-            projects << path;
+        QTableWidgetItem* cell = _projectTable->item(selected.at(i)->row(), kSceneColumnProject);
+        const QString item = cell ? cell->data(Qt::UserRole).toString() : QString();
+        if ( !item.isEmpty() && !items.contains(item) ) {
+            items << item;
         }
     }
 
-    return projects;
+    return items;
 }
 
 const ProjectInfo&
@@ -566,19 +571,19 @@ ScenePanel::showScene()
     }
 
     _detailStack->setCurrentIndex(1);
-    _sceneTitle->setText( tr("%1 - %2 project(s)").arg(scene.name).arg( scene.projects.size() ) );
+    _sceneTitle->setText( tr("%1 - %2 Write node(s) of %3 project(s)").arg(scene.name).arg( scene.items.size() ).arg( scene.projects().size() ) );
     _outputDirLabel->setText( scene.outputDir.isEmpty() ? tr("(each project's own Write node path)") : QDir::toNativeSeparators(scene.outputDir) );
     _clearOutputDirButton->setEnabled( !scene.outputDir.isEmpty() );
 
-    const QStringList keepSelected = selectedProjects();
+    const QStringList keepSelected = selectedItems();
 
     _rows.clear();
     _projectTable->setRowCount(0);
-    _projectTable->setRowCount( scene.projects.size() );
-    for (int row = 0; row < scene.projects.size(); ++row) {
-        const QString& path = scene.projects.at(row);
+    _projectTable->setRowCount( scene.items.size() );
+    for (int row = 0; row < scene.items.size(); ++row) {
+        const QString& item = scene.items.at(row);
         QTableWidgetItem* projectItem = new QTableWidgetItem;
-        projectItem->setData(Qt::UserRole, path);
+        projectItem->setData(Qt::UserRole, item);
         _projectTable->setItem(row, kSceneColumnProject, projectItem);
 
         RowWidgets widgets;
@@ -587,15 +592,15 @@ ScenePanel::showScene()
         widgets.progress->setRange(0, 100);
         widgets.progress->setAlignment(Qt::AlignCenter);
         _projectTable->setCellWidget(row, kSceneColumnProgress, widgets.progress);
-        QWidget* controls = createRowControls(path);
+        QWidget* controls = createRowControls(item);
         _projectTable->setCellWidget(row, kSceneColumnControls, controls);
         widgets.pause = controls->findChild<QPushButton*>( QString::fromUtf8("pause") );
         widgets.render = controls->findChild<QPushButton*>( QString::fromUtf8("render") );
         widgets.stop = controls->findChild<QPushButton*>( QString::fromUtf8("stop") );
-        _rows.insert(path, widgets);
+        _rows.insert(item, widgets);
 
         refreshProjectRow(row);
-        if ( keepSelected.contains(path) ) {
+        if ( keepSelected.contains(item) ) {
             _projectTable->selectRow(row);
         }
     }
@@ -606,7 +611,7 @@ ScenePanel::showScene()
 }
 
 QWidget*
-ScenePanel::createRowControls(const QString& project)
+ScenePanel::createRowControls(const QString& item)
 {
     QWidget* w = new QWidget;
     QHBoxLayout* layout = new QHBoxLayout(w);
@@ -618,15 +623,15 @@ ScenePanel::createRowControls(const QString& project)
     pause->setObjectName( QString::fromUtf8("pause") );
     pause->setCheckable(true);
     QPushButton* render = makeControlButton( playerIcon(NATRON_ENUM::NATRON_PIXMAP_PLAYER_PLAY_DISABLED, NATRON_ENUM::NATRON_PIXMAP_PLAYER_PLAY_DISABLED),
-                                             tr("Render this project (again) with the current KV values."), w );
+                                             tr("Render this Write node (again) with the current KV values."), w );
     render->setObjectName( QString::fromUtf8("render") );
     QPushButton* stop = makeControlButton( playerIcon(NATRON_ENUM::NATRON_PIXMAP_PLAYER_STOP_DISABLED, NATRON_ENUM::NATRON_PIXMAP_PLAYER_STOP_DISABLED),
                                            tr("Stop this render, or remove it from the queue."), w );
     stop->setObjectName( QString::fromUtf8("stop") );
 
-    pause->setProperty("project", project);
-    render->setProperty("project", project);
-    stop->setProperty("project", project);
+    pause->setProperty("item", item);
+    render->setProperty("item", item);
+    stop->setProperty("item", item);
 
     layout->addWidget(pause);
     layout->addWidget(render);
@@ -649,9 +654,11 @@ ScenePanel::refreshProjectRow(int row)
         return;
     }
 
-    const QString path = projectItem->data(Qt::UserRole).toString();
+    const QString item = projectItem->data(Qt::UserRole).toString();
+    const QString path = ::SceneItem::project(item);
+    const QString writer = ::SceneItem::writer(item);
     const QFileInfo fi(path);
-    const ::RenderRecord record = _scenes->renderRecord(_currentSceneId, path);
+    const ::RenderRecord record = _scenes->renderRecord(_currentSceneId, item);
 
     // Project: name only (path in the tooltip)
     QString name = fi.fileName();
@@ -665,6 +672,17 @@ ScenePanel::refreshProjectRow(int row)
         projectItem->setForeground( QColor(230, 90, 80) );
     }
 
+    // Writer: the Write node (its output in the tooltip)
+    const ProjectInfo& info = projectInfo(path);
+    QTableWidgetItem* writerItem = new QTableWidgetItem( writer.isEmpty() ? tr("(no Write node)") : writer );
+    if ( !writer.isEmpty() && fi.exists() && !info.writers.contains(writer) ) {
+        writerItem->setText( tr("%1 (missing)").arg(writer) );
+        writerItem->setForeground( QColor(230, 90, 80) );
+    }
+    const QString output = info.writerOutputs.value(writer);
+    writerItem->setToolTip( output.isEmpty() ? tr("No output file") : tr("Output: %1").arg( QDir::toNativeSeparators(output) ) );
+    _projectTable->setItem(row, kSceneColumnWriter, writerItem);
+
     // Preview: thumbnail of the last rendered output
     QTableWidgetItem* previewItem = new QTableWidgetItem;
     QPixmap thumb;
@@ -673,31 +691,30 @@ ScenePanel::refreshProjectRow(int row)
     } else {
         previewItem->setText( record.output.isEmpty() ? tr("no output yet") : tr("no preview") );
     }
-    previewItem->setToolTip( record.output.isEmpty() ? tr("Render the project to get a preview.")
+    previewItem->setToolTip( record.output.isEmpty() ? tr("Render the Write node to get a preview.")
                                                      : tr("Output: %1\nDouble-click to open it.").arg( QDir::toNativeSeparators(record.output) ) );
     _projectTable->setItem(row, kSceneColumnPreview, previewItem);
 
-    refreshRowRenderState(path);
+    refreshRowRenderState(item);
 }
 
 void
-ScenePanel::refreshRowRenderState(const QString& project)
+ScenePanel::refreshRowRenderState(const QString& item)
 {
-    QHash<QString, RowWidgets>::const_iterator it = _rows.find(project);
+    QHash<QString, RowWidgets>::const_iterator it = _rows.find(item);
 
     if ( it == _rows.end() ) {
         return;
     }
 
     const RowWidgets& w = it.value();
-    const ::RenderRecord record = _scenes->renderRecord(_currentSceneId, project);
-    const ::RenderProgress progress = _renderer ? _renderer->progress(_currentSceneId, project) : ::RenderProgress();
-    const bool queued = _renderer && _renderer->isQueued(_currentSceneId, project);
+    const ::RenderRecord record = _scenes->renderRecord(_currentSceneId, item);
+    const ::RenderProgress progress = _renderer ? _renderer->progress(_currentSceneId, item) : ::RenderProgress();
+    const bool queued = _renderer && _renderer->isQueued(_currentSceneId, item);
     const QString timeFormat = QString::fromUtf8("yyyy-MM-dd hh:mm");
 
     QString status;
     QString remaining = tr("N/A");
-    QString frames = record.frameRange.isEmpty() ? tr("N/A") : record.frameRange;
     int percent = 0;
 
     if (progress.active) {
@@ -711,9 +728,6 @@ ScenePanel::refreshRowRenderState(const QString& project)
             status = (progress.fps > 0) ? tr("Rendering %1 (%2 fps)").arg(progress.node).arg(progress.fps, 0, 'f', 1)
                                         : tr("Rendering %1").arg(progress.node);
             remaining = progress.timeRemaining.isEmpty() ? tr("...") : progress.timeRemaining;
-        }
-        if ( !progress.frameRange().isEmpty() ) {
-            frames = progress.frameRange();
         }
     } else if (queued) {
         status = tr("Queued");
@@ -742,7 +756,6 @@ ScenePanel::refreshRowRenderState(const QString& project)
     }
     _projectTable->setItem(w.row, kSceneColumnStatus, statusItem);
     _projectTable->setItem( w.row, kSceneColumnRemaining, new QTableWidgetItem(remaining) );
-    _projectTable->setItem( w.row, kSceneColumnFrames, new QTableWidgetItem(frames) );
 
     w.progress->setValue(percent);
     w.progress->setFormat( progress.active && !progress.node.isEmpty() ? tr("%1: %p%").arg(progress.node) : tr("%p%") );
@@ -752,16 +765,16 @@ ScenePanel::refreshRowRenderState(const QString& project)
     w.pause->setChecked(rendering && progress.paused);
     w.pause->blockSignals(wasBlocked);
     w.pause->setEnabled( rendering && _renderer->canPause() );
-    w.render->setEnabled( _renderer && !rendering && !queued && QFileInfo(project).exists() );
+    w.render->setEnabled( _renderer && !rendering && !queued && QFileInfo( ::SceneItem::project(item) ).exists() );
     w.stop->setEnabled(rendering || queued);
 }
 
 void
 ScenePanel::onRowPauseToggled(bool paused)
 {
-    const QString project = sender() ? sender()->property("project").toString() : QString();
+    const QString item = sender() ? sender()->property("item").toString() : QString();
 
-    if ( !_renderer || !_renderer->isCurrent(_currentSceneId, project) ) {
+    if ( !_renderer || !_renderer->isCurrent(_currentSceneId, item) ) {
         return;
     }
     if (paused) {
@@ -774,29 +787,29 @@ ScenePanel::onRowPauseToggled(bool paused)
 void
 ScenePanel::onRowRenderClicked()
 {
-    const QString project = sender() ? sender()->property("project").toString() : QString();
+    const QString item = sender() ? sender()->property("item").toString() : QString();
 
-    if ( _renderer && !project.isEmpty() && confirmRender() ) {
-        _renderer->enqueue( _currentSceneId, QStringList(project) );
+    if ( _renderer && !item.isEmpty() && confirmRender() ) {
+        _renderer->enqueue( _currentSceneId, QStringList(item) );
     }
 }
 
 void
 ScenePanel::onRowStopClicked()
 {
-    const QString project = sender() ? sender()->property("project").toString() : QString();
+    const QString item = sender() ? sender()->property("item").toString() : QString();
 
-    if ( _renderer && !project.isEmpty() ) {
-        _renderer->cancel(_currentSceneId, project);
+    if ( _renderer && !item.isEmpty() ) {
+        _renderer->cancel(_currentSceneId, item);
     }
 }
 
 void
 ScenePanel::onRenderProgressChanged(const QString& sceneId,
-                                    const QString& project)
+                                    const QString& item)
 {
     if (sceneId == _currentSceneId) {
-        refreshRowRenderState(project);
+        refreshRowRenderState(item);
     }
 }
 
@@ -809,7 +822,7 @@ ScenePanel::refreshKvTable()
     // key -> projects using it, in order of first appearance
     QStringList keys;
     QHash<QString, QStringList> usedBy;
-    const QStringList projects = scene.projects;
+    const QStringList projects = scene.projects();
 
     for (int i = 0; i < projects.size(); ++i) {
         const ProjectInfo& info = projectInfo( projects.at(i) );
@@ -904,7 +917,7 @@ ScenePanel::kvIssues(const QString& key,
 
     // Type the projects bind this key for (Text node: text, Read node: image).
     QStringList expected;
-    const QStringList projects = scene.projects;
+    const QStringList projects = scene.projects();
     for (int i = 0; i < projects.size(); ++i) {
         const QStringList types = boundTypes( projectInfo( projects.at(i) ), key );
         for (int t = 0; t < types.size(); ++t) {
@@ -949,8 +962,9 @@ ScenePanel::sceneIssues()
     }
 
     QStringList keys;
-    for (int i = 0; i < scene.projects.size(); ++i) {
-        const QStringList projectKeys = projectInfo( scene.projects.at(i) ).stateKeys;
+    const QStringList projects = scene.projects();
+    for (int i = 0; i < projects.size(); ++i) {
+        const QStringList projectKeys = projectInfo( projects.at(i) ).stateKeys;
         for (int k = 0; k < projectKeys.size(); ++k) {
             if ( !keys.contains( projectKeys.at(k) ) ) {
                 keys << projectKeys.at(k);
@@ -1058,8 +1072,9 @@ ScenePanel::applyKeyMapping(const QString& key,
         ::Scene test = scene;
         test.keyMap.insert(key, used);
         const QString actual = Kv::typeName( Kv::typeOf( _state->get(used) ) );
-        for (int i = 0; i < scene.projects.size(); ++i) {
-            const QStringList types = boundTypes( projectInfo( scene.projects.at(i) ), key );
+        const QStringList projects = scene.projects();
+        for (int i = 0; i < projects.size(); ++i) {
+            const QStringList types = boundTypes( projectInfo( projects.at(i) ), key );
             if ( !types.isEmpty() && !types.contains(actual) ) {
                 QMessageBox::warning( this, tr("Uses key"),
                                       tr("%1 is bound to %2 in the projects, but %3 is %4.\nPick a key of the same type.")
@@ -1102,8 +1117,8 @@ void
 ScenePanel::refreshButtons()
 {
     const bool scene = hasCurrentScene();
-    const bool hasProjects = scene && !currentProjects().isEmpty();
-    const bool hasSelection = scene && !selectedProjects().isEmpty();
+    const bool hasProjects = scene && !currentItems().isEmpty();
+    const bool hasSelection = scene && !selectedItems().isEmpty();
     const bool busy = _renderer && _renderer->isBusy();
 
     _removeProjectsButton->setEnabled(hasSelection);
@@ -1117,8 +1132,9 @@ ScenePanel::refreshButtons()
     } else if (busy) {
         ::Scene renderingScene;
         _scenes->scene(_renderer->currentSceneId(), &renderingScene);
-        _renderStatus->setText( tr("Rendering %1 of scene \"%2\" (%3 more queued)...")
-                                .arg( QFileInfo( _renderer->currentProject() ).fileName() )
+        _renderStatus->setText( tr("Rendering %1 of %2 in scene \"%3\" (%4 more queued)...")
+                                .arg( ::SceneItem::writer( _renderer->currentItem() ) )
+                                .arg( QFileInfo( ::SceneItem::project( _renderer->currentItem() ) ).fileName() )
                                 .arg(renderingScene.name)
                                 .arg( _renderer->queuedCount() ) );
     } else {
@@ -1133,7 +1149,78 @@ ScenePanel::addProjectsToCurrentScene(const QStringList& projects)
     if ( !hasCurrentScene() ) {
         return;
     }
-    _scenes->addProjects(_currentSceneId, projects);
+    _scenes->addItems( _currentSceneId, chooseItems(projects) );
+}
+
+QStringList
+ScenePanel::chooseItems(const QStringList& projects)
+{
+    QStringList all;
+    bool choice = false; // a project has several Write nodes
+
+    for (int i = 0; i < projects.size(); ++i) {
+        const QStringList items = ::SceneItem::allOf( projects.at(i) );
+        all << items;
+        choice = choice || items.size() > 1;
+    }
+    if (!choice) {
+        return all;
+    }
+
+    // Projects with their Write nodes, all checked: uncheck the ones the
+    // scene does not render.
+    QDialog dialog(this);
+    dialog.setWindowTitle( tr("Add Write Nodes to Scene") );
+    QVBoxLayout* layout = new QVBoxLayout(&dialog);
+    layout->addWidget( new QLabel(tr("Write nodes to add to the scene (each gets its own row and NDI source):"), &dialog) );
+    QTreeWidget* tree = new QTreeWidget(&dialog);
+    tree->setColumnCount(2);
+    QStringList headers;
+    headers << tr("Write node") << tr("Output");
+    tree->setHeaderLabels(headers);
+    tree->setColumnWidth(0, 220);
+    layout->addWidget(tree);
+
+    for (int i = 0; i < projects.size(); ++i) {
+        const QString path = QFileInfo( projects.at(i) ).absoluteFilePath();
+        const ProjectInfo info = readProjectInfo(path);
+        QTreeWidgetItem* projectItem = new QTreeWidgetItem( tree, QStringList( QFileInfo(path).fileName() ) );
+        projectItem->setToolTip( 0, QDir::toNativeSeparators(path) );
+        projectItem->setFlags( projectItem->flags() | Qt::ItemIsUserCheckable | Qt::ItemIsTristate );
+        const QStringList items = ::SceneItem::allOf(path);
+        for (int w = 0; w < items.size(); ++w) {
+            const QString writer = ::SceneItem::writer( items.at(w) );
+            QStringList columns;
+            columns << ( writer.isEmpty() ? tr("(no Write node)") : writer )
+                    << QDir::toNativeSeparators( info.writerOutputs.value(writer) );
+            QTreeWidgetItem* writerItem = new QTreeWidgetItem(projectItem, columns);
+            writerItem->setFlags( writerItem->flags() | Qt::ItemIsUserCheckable );
+            writerItem->setCheckState(0, Qt::Checked);
+            writerItem->setData( 0, Qt::UserRole, items.at(w) );
+        }
+        projectItem->setExpanded(true);
+    }
+
+    QDialogButtonBox* buttons = new QDialogButtonBox(QDialogButtonBox::Ok | QDialogButtonBox::Cancel, Qt::Horizontal, &dialog);
+    layout->addWidget(buttons);
+    QObject::connect( buttons, SIGNAL(accepted()), &dialog, SLOT(accept()) );
+    QObject::connect( buttons, SIGNAL(rejected()), &dialog, SLOT(reject()) );
+    dialog.resize(560, 360);
+
+    QStringList chosen;
+    if (dialog.exec() != QDialog::Accepted) {
+        return chosen;
+    }
+    for (int i = 0; i < tree->topLevelItemCount(); ++i) {
+        QTreeWidgetItem* projectItem = tree->topLevelItem(i);
+        for (int w = 0; w < projectItem->childCount(); ++w) {
+            if (projectItem->child(w)->checkState(0) == Qt::Checked) {
+                chosen << projectItem->child(w)->data(0, Qt::UserRole).toString();
+            }
+        }
+    }
+
+    return chosen;
 }
 
 void
@@ -1150,16 +1237,21 @@ ScenePanel::onAddProjectsClicked()
 void
 ScenePanel::onRemoveProjectsClicked()
 {
-    _scenes->removeProjects( _currentSceneId, selectedProjects() );
+    _scenes->removeItems( _currentSceneId, selectedItems() );
 }
 
 void
 ScenePanel::onOpenInEditorClicked()
 {
-    const QStringList projects = selectedProjects();
+    const QStringList items = selectedItems();
+    QStringList opened;
 
-    for (int i = 0; i < projects.size(); ++i) {
-        appPTR->openProjectWindow( projects.at(i) );
+    for (int i = 0; i < items.size(); ++i) {
+        const QString project = ::SceneItem::project( items.at(i) );
+        if ( !opened.contains(project) ) {
+            opened << project;
+            appPTR->openProjectWindow(project);
+        }
     }
 }
 
@@ -1167,7 +1259,7 @@ void
 ScenePanel::onRenderAllClicked()
 {
     if ( _renderer && confirmRender() ) {
-        _renderer->enqueue( _currentSceneId, currentProjects() );
+        _renderer->enqueue( _currentSceneId, currentItems() );
     }
 }
 
@@ -1175,7 +1267,7 @@ void
 ScenePanel::onRenderSelectedClicked()
 {
     if ( _renderer && confirmRender() ) {
-        _renderer->enqueue( _currentSceneId, selectedProjects() );
+        _renderer->enqueue( _currentSceneId, selectedItems() );
     }
 }
 
@@ -1202,10 +1294,10 @@ ScenePanel::onProjectCellDoubleClicked(int row,
     if (!projectItem) {
         return;
     }
-    const QString path = projectItem->data(Qt::UserRole).toString();
+    const QString item = projectItem->data(Qt::UserRole).toString();
 
     if (column == kSceneColumnPreview) {
-        const QString output = _scenes->renderRecord(_currentSceneId, path).output;
+        const QString output = _scenes->renderRecord(_currentSceneId, item).output;
         if ( !output.isEmpty() && QFileInfo(output).exists() ) {
             QDesktopServices::openUrl( QUrl::fromLocalFile(output) );
         }
@@ -1213,28 +1305,27 @@ ScenePanel::onProjectCellDoubleClicked(int row,
         return;
     }
 
-    appPTR->openProjectWindow(path);
+    appPTR->openProjectWindow( ::SceneItem::project(item) );
 }
 
 void
 ScenePanel::onRenderRecordChanged(const QString& sceneId,
-                                  const QString& project)
+                                  const QString& item)
 {
     if (sceneId != _currentSceneId) {
         return;
     }
 
-    const QStringList projects = currentProjects();
-    const int row = projects.indexOf(project);
+    const int row = currentItems().indexOf(item);
 
     if (row < 0) {
         return;
     }
 
     // A finished render may follow changes to the project file.
-    const ::RenderRecord record = _scenes->renderRecord(sceneId, project);
+    const ::RenderRecord record = _scenes->renderRecord(sceneId, item);
     if (record.status == ::RenderRecord::eDone || record.status == ::RenderRecord::eFailed) {
-        _infos.remove(project);
+        _infos.remove( ::SceneItem::project(item) );
     }
 
     if ( row < _projectTable->rowCount() ) {
@@ -1274,7 +1365,8 @@ ScenePanel::createNdiTab(QWidget* parent)
 
     QHBoxLayout* settings = new QHBoxLayout;
     _ndiEnabledCheck = new QCheckBox(tr("NDI output"), tab);
-    _ndiEnabledCheck->setToolTip( tr("Send every project of this scene as its own NDI source \"<scene> - <project>\".") );
+    _ndiEnabledCheck->setToolTip( tr("Send every Write node of this scene as its own NDI source \"<scene> - <project>\" "
+                                     "(\"<scene> - <project> - <Write node>\" for projects with several Write nodes).") );
     _ndiAlphaCheck = new QCheckBox(tr("Transparent (alpha)"), tab);
     _ndiAlphaCheck->setToolTip( tr("Send with transparency, for overlays (lower thirds...). "
                                    "The projects must render with alpha: PNG sequence, ProRes 4444 or QuickTime Animation, not MP4/H.264.") );
@@ -1297,15 +1389,15 @@ ScenePanel::createNdiTab(QWidget* parent)
 
     QHBoxLayout* transport = new QHBoxLayout;
     _ndiCueButton = new QPushButton(tr("Cue (play to pause points)"), tab);
-    _ndiCueButton->setToolTip( tr("Start every project from the beginning; each stops at its own pause point. Then use Continue.") );
+    _ndiCueButton->setToolTip( tr("Start every source from the beginning; each stops at its own pause point. Then use Continue.") );
     _ndiContinueButton = new QPushButton(tr("Continue"), tab);
-    _ndiContinueButton->setToolTip( tr("Resume every paused project (past its pause point).") );
+    _ndiContinueButton->setToolTip( tr("Resume every paused source (past its pause point).") );
     _ndiPlayAllButton = new QPushButton(tr("Play all"), tab);
     _ndiPauseAllButton = new QPushButton(tr("Pause all"), tab);
     _ndiStopAllButton = new QPushButton(tr("Stop all"), tab);
     _ndiStopAllButton->setToolTip( tr("Stop and clear every source of the scene.") );
     _ndiReplayAllButton = new QPushButton(tr("Replay all"), tab);
-    _ndiReplayAllButton->setToolTip( tr("Play every project from the start, without stopping at the pause points.") );
+    _ndiReplayAllButton->setToolTip( tr("Play every source from the start, without stopping at the pause points.") );
     transport->addWidget(_ndiCueButton);
     transport->addWidget(_ndiContinueButton);
     transport->addSpacing(12);
@@ -1391,20 +1483,20 @@ ScenePanel::refreshNdiTab()
     _ndiStopAllButton->setEnabled(active);
     _ndiReplayAllButton->setEnabled(active);
 
-    // One row per project / NDI source.
+    // One row per item / NDI source.
     _ndiRows.clear();
     _ndiTable->setRowCount(0);
     if (!active) {
         return;
     }
-    _ndiTable->setRowCount( scene.projects.size() );
-    for (int row = 0; row < scene.projects.size(); ++row) {
-        const QString& project = scene.projects.at(row);
+    _ndiTable->setRowCount( scene.items.size() );
+    for (int row = 0; row < scene.items.size(); ++row) {
+        const QString& item = scene.items.at(row);
         NdiRow r;
         r.row = row;
 
-        QTableWidgetItem* nameItem = new QTableWidgetItem( ::NdiManager::sourceName(scene, project) );
-        nameItem->setToolTip( QDir::toNativeSeparators(project) );
+        QTableWidgetItem* nameItem = new QTableWidgetItem( ::NdiManager::sourceName(scene, item) );
+        nameItem->setToolTip( tr("%1\nWrite node: %2").arg( QDir::toNativeSeparators( ::SceneItem::project(item) ) ).arg( ::SceneItem::writer(item) ) );
         _ndiTable->setItem(row, 0, nameItem);
 
         r.position = new QProgressBar;
@@ -1426,7 +1518,7 @@ ScenePanel::refreshNdiTab()
         const char* names[] = { "play", "pause", "stop", "replay", "loop" };
         for (int b = 0; b < 5; ++b) {
             buttons[b]->setObjectName( QString::fromUtf8(names[b]) );
-            buttons[b]->setProperty("project", project);
+            buttons[b]->setProperty("item", item);
             cl->addWidget(buttons[b]);
         }
         cl->addStretch();
@@ -1444,13 +1536,13 @@ ScenePanel::refreshNdiTab()
         r.pauseAt->setSpecialValueText( tr("none") ); // shown at the minimum (-1)
         r.pauseAt->setSuffix( tr(" s") );
         r.pauseAt->setToolTip( tr("Cue / Play stop here (seconds from the start); Continue goes on. \"none\": no pause point.") );
-        r.pauseAt->setValue( scene.pauseAt(project) );
-        r.pauseAt->setProperty("project", project);
+        r.pauseAt->setValue( scene.pauseAt(item) );
+        r.pauseAt->setProperty("item", item);
         r.pauseAt->setKeyboardTracking(false);
         QObject::connect( r.pauseAt, SIGNAL(valueChanged(double)), this, SLOT(onNdiPauseAtChanged(double)) );
         _ndiTable->setCellWidget(row, 4, r.pauseAt);
 
-        _ndiRows.insert(project, r);
+        _ndiRows.insert(item, r);
     }
     refreshNdiRows();
 }
@@ -1521,7 +1613,7 @@ ScenePanel::onNdiChannelsChanged(const QString& sceneId)
 
 void
 ScenePanel::onNdiChannelStatusChanged(const QString& sceneId,
-                                      const QString& /*project*/)
+                                      const QString& /*item*/)
 {
     // Channels report every frame: refresh the rows at most 10 times/s.
     if ( (sceneId == _currentSceneId) && !_ndiRefreshTimer.isActive() ) {
@@ -1574,7 +1666,7 @@ void
 ScenePanel::onNdiRowAction()
 {
     QObject* s = sender();
-    ::PlayoutChannel* c = (_ndi && s) ? _ndi->channel( _currentSceneId, s->property("project").toString() ) : 0;
+    ::PlayoutChannel* c = (_ndi && s) ? _ndi->channel( _currentSceneId, s->property("item").toString() ) : 0;
 
     if (!c) {
         return;
@@ -1598,7 +1690,7 @@ ScenePanel::onNdiLoopToggled(bool loop)
     QObject* s = sender();
 
     if (s) {
-        _scenes->setNdiLoop( _currentSceneId, s->property("project").toString(), loop );
+        _scenes->setNdiLoop( _currentSceneId, s->property("item").toString(), loop );
     }
 }
 
@@ -1608,7 +1700,7 @@ ScenePanel::onNdiPauseAtChanged(double seconds)
     QObject* s = sender();
 
     if (s) {
-        _scenes->setNdiPauseAt( _currentSceneId, s->property("project").toString(), (seconds < 0) ? -1.0 : seconds );
+        _scenes->setNdiPauseAt( _currentSceneId, s->property("item").toString(), (seconds < 0) ? -1.0 : seconds );
     }
 }
 

@@ -141,6 +141,7 @@ ProjectInfo readProjectInfo(const QString &projectFilePath)
   const QString text = QString::fromUtf8(file.readAll());
   const QString projectDir = QFileInfo(projectFilePath).absolutePath();
   const QString pluginTag = QString::fromUtf8("<Plugin_id>");
+  const QString nameTag = QString::fromUtf8("<Plugin_script_name>");
   const QString pluginEnd = QString::fromUtf8("</Plugin_id>");
 
   // Each node starts with its <Plugin_id>; its parameters follow until the
@@ -183,6 +184,16 @@ ProjectInfo readProjectInfo(const QString &projectFilePath)
 
     if (isWritePlugin(pluginId))
     {
+      // The node's script name comes just before its <Plugin_id>.
+      const int nameStart = text.lastIndexOf(nameTag, pos);
+      const int nameEnd = (nameStart < 0) ? -1 : text.indexOf(QString::fromUtf8("</Plugin_script_name>"), nameStart);
+      const QString writer = (nameEnd < 0) ? QString()
+                                           : unescapeXml(text.mid(nameStart + nameTag.size(), nameEnd - nameStart - nameTag.size()).trimmed());
+      if (!writer.isEmpty() && !info.writers.contains(writer))
+      {
+        info.writers << writer;
+      }
+
       from = 0;
       if (nextKnobValue(node, QString::fromUtf8("filename"), &from, &value))
       {
@@ -198,6 +209,10 @@ ProjectInfo readProjectInfo(const QString &projectFilePath)
         if (!value.isEmpty() && !info.outputs.contains(value))
         {
           info.outputs << value;
+        }
+        if (!writer.isEmpty() && !value.isEmpty())
+        {
+          info.writerOutputs.insert(writer, value);
         }
       }
     }

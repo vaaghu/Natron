@@ -86,19 +86,6 @@ QString outputFileName(const QString &path)
 }
 }
 
-QString RenderProgress::frameRange() const
-{
-  if (firstFrame < 0)
-  {
-    return QString();
-  }
-  if (firstFrame == lastFrame)
-  {
-    return QString::number(firstFrame);
-  }
-  return QString::fromUtf8("%1-%2").arg(firstFrame).arg(lastFrame);
-}
-
 SceneRenderer::SceneRenderer(StateStore *state,
                              SceneStore *scenes,
                              const QString &rendererPath,
@@ -146,9 +133,9 @@ QString SceneRenderer::currentSceneId() const
   return m_process ? m_current.sceneId : QString();
 }
 
-QString SceneRenderer::currentProject() const
+QString SceneRenderer::currentItem() const
 {
-  return m_process ? m_current.project : QString();
+  return m_process ? m_current.item : QString();
 }
 
 int SceneRenderer::queuedCount() const
@@ -156,40 +143,40 @@ int SceneRenderer::queuedCount() const
   return m_queue.size();
 }
 
-bool SceneRenderer::isQueued(const QString &sceneId, const QString &project) const
+bool SceneRenderer::isQueued(const QString &sceneId, const QString &item) const
 {
   Job job;
   job.sceneId = sceneId;
-  job.project = project;
+  job.item = item;
   return m_queue.contains(job);
 }
 
-bool SceneRenderer::isCurrent(const QString &sceneId, const QString &project) const
+bool SceneRenderer::isCurrent(const QString &sceneId, const QString &item) const
 {
-  return m_process && m_current.sceneId == sceneId && m_current.project == project;
+  return m_process && m_current.sceneId == sceneId && m_current.item == item;
 }
 
-RenderProgress SceneRenderer::progress(const QString &sceneId, const QString &project) const
+RenderProgress SceneRenderer::progress(const QString &sceneId, const QString &item) const
 {
-  return isCurrent(sceneId, project) ? m_progress : RenderProgress();
+  return isCurrent(sceneId, item) ? m_progress : RenderProgress();
 }
 
 void SceneRenderer::setRecordStatus(const Job &job, int status, const QString &message)
 {
-  RenderRecord record = m_scenes->renderRecord(job.sceneId, job.project);
+  RenderRecord record = m_scenes->renderRecord(job.sceneId, job.item);
   record.status = static_cast<RenderRecord::Status>(status);
   record.message = message;
-  m_scenes->setRenderRecord(job.sceneId, job.project, record);
+  m_scenes->setRenderRecord(job.sceneId, job.item, record);
 }
 
-void SceneRenderer::enqueue(const QString &sceneId, const QStringList &projects)
+void SceneRenderer::enqueue(const QString &sceneId, const QStringList &items)
 {
-  for (int i = 0; i < projects.size(); ++i)
+  for (int i = 0; i < items.size(); ++i)
   {
     Job job;
     job.sceneId = sceneId;
-    job.project = projects.at(i);
-    if (isCurrent(job.sceneId, job.project) || m_queue.contains(job))
+    job.item = items.at(i);
+    if (isCurrent(job.sceneId, job.item) || m_queue.contains(job))
     {
       continue;
     }
@@ -205,15 +192,15 @@ void SceneRenderer::enqueue(const QString &sceneId, const QStringList &projects)
   }
 }
 
-void SceneRenderer::rerender(const QString &sceneId, const QStringList &projects)
+void SceneRenderer::rerender(const QString &sceneId, const QStringList &items)
 {
-  for (int i = 0; i < projects.size(); ++i)
+  for (int i = 0; i < items.size(); ++i)
   {
     Job job;
     job.sceneId = sceneId;
-    job.project = projects.at(i);
+    job.item = items.at(i);
 
-    if (isCurrent(job.sceneId, job.project))
+    if (isCurrent(job.sceneId, job.item))
     {
       // Restart: kill it (finishCurrent then starts the queue) and queue it again.
       m_stopping = true;
@@ -256,11 +243,11 @@ void SceneRenderer::stop()
   Q_EMIT statusChanged();
 }
 
-void SceneRenderer::cancel(const QString &sceneId, const QString &project)
+void SceneRenderer::cancel(const QString &sceneId, const QString &item)
 {
   Job job;
   job.sceneId = sceneId;
-  job.project = project;
+  job.item = item;
 
   if (m_queue.removeAll(job) > 0)
   {
@@ -268,7 +255,7 @@ void SceneRenderer::cancel(const QString &sceneId, const QString &project)
     Q_EMIT statusChanged();
   }
 
-  if (isCurrent(sceneId, project))
+  if (isCurrent(sceneId, item))
   {
     m_stopping = true;
     m_process->kill(); // SIGKILL also ends a stopped (paused) process
@@ -314,7 +301,7 @@ void SceneRenderer::pause()
   if (m_process && !m_progress.paused && signalProcess(SIGSTOP))
   {
     m_progress.paused = true;
-    Q_EMIT progressChanged(m_current.sceneId, m_current.project);
+    Q_EMIT progressChanged(m_current.sceneId, m_current.item);
     Q_EMIT statusChanged();
   }
 #endif
@@ -326,27 +313,21 @@ void SceneRenderer::resume()
   if (m_process && m_progress.paused && signalProcess(SIGCONT))
   {
     m_progress.paused = false;
-    Q_EMIT progressChanged(m_current.sceneId, m_current.project);
+    Q_EMIT progressChanged(m_current.sceneId, m_current.item);
     Q_EMIT statusChanged();
   }
 #endif
 }
 
-QStringList SceneRenderer::sceneOutputs(const QString &outputDir, const QString &project)
+QString SceneRenderer::itemOutput(const QString &outputDir, const QString &item)
 {
-  const QStringList outputs = readProjectInfo(project).outputs;
+  const QString output = readProjectInfo(SceneItem::project(item)).writerOutputs.value(SceneItem::writer(item));
 
-  if (outputDir.isEmpty())
+  if (output.isEmpty() || outputDir.isEmpty())
   {
-    return outputs;
+    return output;
   }
-
-  QStringList moved;
-  for (int i = 0; i < outputs.size(); ++i)
-  {
-    moved << QDir(outputDir).absoluteFilePath(outputFileName(outputs.at(i)));
-  }
-  return moved;
+  return QDir(outputDir).absoluteFilePath(outputFileName(output));
 }
 
 void SceneRenderer::startNext()
@@ -371,7 +352,9 @@ void SceneRenderer::startNext()
     finishCurrent(false, tr("Scene was deleted"));
     return;
   }
-  if (!QFile::exists(m_current.project))
+  const QString project = SceneItem::project(m_current.item);
+  const QString writer = SceneItem::writer(m_current.item);
+  if (!QFile::exists(project))
   {
     finishCurrent(false, tr("Project file not found"));
     return;
@@ -381,10 +364,23 @@ void SceneRenderer::startNext()
     finishCurrent(false, tr("NatronRenderer not found at %1").arg(m_rendererPath));
     return;
   }
-  if (readProjectInfo(m_current.project).outputs.isEmpty())
+  const ProjectInfo info = readProjectInfo(project);
+  if (writer.isEmpty())
   {
     finishCurrent(false, tr("The project has no Write node: open it in the editor, add a Write node "
                             "with an output file, save, and render again."));
+    return;
+  }
+  if (!info.writers.contains(writer))
+  {
+    finishCurrent(false, tr("The project has no Write node named %1 any more (renamed or deleted?): "
+                            "remove it from the scene and add the project's Write nodes again.").arg(writer));
+    return;
+  }
+  const QString output = itemOutput(scene.outputDir, m_current.item);
+  if (output.isEmpty())
+  {
+    finishCurrent(false, tr("%1 has no output file: set one in the editor, save, and render again.").arg(writer));
     return;
   }
   if (!scene.outputDir.isEmpty() && !QDir().mkpath(scene.outputDir))
@@ -396,19 +392,11 @@ void SceneRenderer::startNext()
   // Movies: render next to the final file (same disk: the move is a rename).
   // Image sequences are written frame by frame (live output reads them), so
   // they still go straight to their final files.
-  const QDir projectDir = QFileInfo(m_current.project).absoluteDir();
-  m_finalOutputs.clear();
+  m_finalOutput = QFileInfo(project).absoluteDir().absoluteFilePath(output);
   m_stagingDir.clear();
-  const QStringList outputs = sceneOutputs(scene.outputDir, m_current.project);
-  bool stage = !outputs.isEmpty();
-  for (int i = 0; i < outputs.size(); ++i)
+  if (!isSequencePattern(output))
   {
-    m_finalOutputs << projectDir.absoluteFilePath(outputs.at(i));
-    stage = stage && !isSequencePattern(outputs.at(i));
-  }
-  if (stage)
-  {
-    m_stagingDir = QFileInfo(m_finalOutputs.first()).absoluteDir().absoluteFilePath(QString::fromUtf8(".natron-render"));
+    m_stagingDir = QFileInfo(m_finalOutput).absoluteDir().absoluteFilePath(QString::fromUtf8(".natron-render"));
     removeStagingDir();
     if (!QDir().mkpath(m_stagingDir))
     {
@@ -422,14 +410,14 @@ void SceneRenderer::startNext()
     m_state->saveNow();
   }
 
-  RenderRecord record = m_scenes->renderRecord(m_current.sceneId, m_current.project);
+  RenderRecord record = m_scenes->renderRecord(m_current.sceneId, m_current.item);
   record.status = RenderRecord::eRendering;
   record.message.clear();
-  m_scenes->setRenderRecord(m_current.sceneId, m_current.project, record);
+  m_scenes->setRenderRecord(m_current.sceneId, m_current.item, record);
 
   m_process = new QProcess(this);
   m_process->setProcessChannelMode(QProcess::MergedChannels);
-  m_process->setWorkingDirectory(QFileInfo(m_current.project).absolutePath());
+  m_process->setWorkingDirectory(QFileInfo(project).absolutePath());
 
   QVariantMap keyMap;
   for (QHash<QString, QString>::const_iterator it = scene.keyMap.constBegin(); it != scene.keyMap.constEnd(); ++it)
@@ -455,7 +443,7 @@ void SceneRenderer::startNext()
   {
     args << QString::fromUtf8("-l") << m_applyScriptPath;
   }
-  args << m_current.project;
+  args << QString::fromUtf8("-w") << writer << project;
 
   Q_EMIT statusChanged();
   m_process->start(m_rendererPath, args);
@@ -505,10 +493,7 @@ void SceneRenderer::parseOutputLine(const QString &line)
     m_progress.percent = frame.cap(3).toDouble();
     m_progress.fps = frame.cap(4).toDouble();
     m_progress.timeRemaining = frame.cap(5).trimmed();
-    m_progress.firstFrame = (m_progress.firstFrame < 0) ? f : qMin(m_progress.firstFrame, f);
-    m_progress.lastFrame = (m_progress.lastFrame < 0) ? f : qMax(m_progress.lastFrame, f);
-    ++m_progress.framesDone;
-    Q_EMIT progressChanged(m_current.sceneId, m_current.project);
+    Q_EMIT progressChanged(m_current.sceneId, m_current.item);
   }
   else if (state.exactMatch(line))
   {
@@ -523,7 +508,7 @@ void SceneRenderer::parseOutputLine(const QString &line)
       m_progress.percent = 100;
       m_progress.timeRemaining = tr("Done");
     }
-    Q_EMIT progressChanged(m_current.sceneId, m_current.project);
+    Q_EMIT progressChanged(m_current.sceneId, m_current.item);
   }
 }
 
@@ -580,13 +565,9 @@ void SceneRenderer::finishCurrent(bool ok, const QString &message)
 {
   const Job job = m_current;
 
-  RenderRecord record = m_scenes->renderRecord(job.sceneId, job.project);
+  RenderRecord record = m_scenes->renderRecord(job.sceneId, job.item);
   record.time = QDateTime::currentDateTime();
   record.message = message;
-  if (!m_progress.frameRange().isEmpty())
-  {
-    record.frameRange = m_progress.frameRange();
-  }
   m_progress = RenderProgress();
 
   QString moveError;
@@ -597,7 +578,7 @@ void SceneRenderer::finishCurrent(bool ok, const QString &message)
   }
   removeStagingDir();
   m_stagingDir.clear();
-  m_finalOutputs.clear();
+  m_finalOutput.clear();
 
   if (ok)
   {
@@ -607,15 +588,12 @@ void SceneRenderer::finishCurrent(bool ok, const QString &message)
 
     Scene scene;
     m_scenes->scene(job.sceneId, &scene);
-    const QStringList outputs = sceneOutputs(scene.outputDir, job.project);
-    for (int i = 0; i < outputs.size() && record.output.isEmpty(); ++i)
-    {
-      record.output = findExistingOutputFile(outputs.at(i));
-    }
+    const QString output = itemOutput(scene.outputDir, job.item);
+    record.output = findExistingOutputFile(output);
     if (record.output.isEmpty())
     {
-      record.message = outputs.isEmpty() ? tr("Rendered, but the project has no Write node output.")
-                                         : tr("Rendered, but no output file was found at %1").arg(outputs.first());
+      record.message = output.isEmpty() ? tr("Rendered, but the Write node has no output file.")
+                                        : tr("Rendered, but no output file was found at %1").arg(output);
     }
     else
     {
@@ -627,7 +605,7 @@ void SceneRenderer::finishCurrent(bool ok, const QString &message)
     record.status = m_stopping ? RenderRecord::eNone : RenderRecord::eFailed;
   }
 
-  m_scenes->setRenderRecord(job.sceneId, job.project, record);
+  m_scenes->setRenderRecord(job.sceneId, job.item, record);
   m_current = Job();
 
   startNext();
@@ -635,28 +613,24 @@ void SceneRenderer::finishCurrent(bool ok, const QString &message)
 
 bool SceneRenderer::moveStagedOutputs(QString *error)
 {
-  const QDir staging(m_stagingDir);
-  for (int i = 0; i < m_finalOutputs.size(); ++i)
+  const QString target = m_finalOutput;
+  const QString staged = QDir(m_stagingDir).absoluteFilePath(outputFileName(target));
+  if (!QFile::exists(staged))
   {
-    const QString target = m_finalOutputs.at(i);
-    const QString staged = staging.absoluteFilePath(outputFileName(target));
-    if (!QFile::exists(staged))
-    {
-      continue; // reported later as "no output file was found"
-    }
+    return true; // reported as "no output file was found"
+  }
 #ifdef Q_OS_UNIX
-    // Atomic replace: a reader of the old file keeps reading it.
-    const bool moved = ::rename(QFile::encodeName(staged).constData(), QFile::encodeName(target).constData()) == 0;
+  // Atomic replace: a reader of the old file keeps reading it.
+  const bool moved = ::rename(QFile::encodeName(staged).constData(), QFile::encodeName(target).constData()) == 0;
 #else
-    QFile::remove(target);
-    const bool moved = QFile::rename(staged, target);
+  QFile::remove(target);
+  const bool moved = QFile::rename(staged, target);
 #endif
-    // Another disk: copy instead.
-    if (!moved && !((!QFile::exists(target) || QFile::remove(target)) && QFile::copy(staged, target)))
-    {
-      *error = tr("Rendered, but could not replace %1").arg(target);
-      return false;
-    }
+  // Another disk: copy instead.
+  if (!moved && !((!QFile::exists(target) || QFile::remove(target)) && QFile::copy(staged, target)))
+  {
+    *error = tr("Rendered, but could not replace %1").arg(target);
+    return false;
   }
   return true;
 }
@@ -688,7 +662,7 @@ QString SceneRenderer::makeThumbnail(const Job &job, const QString &output)
   }
 
   QDir().mkpath(m_thumbnailDir);
-  const QByteArray id = (job.sceneId + QLatin1Char('|') + job.project).toUtf8();
+  const QByteArray id = (job.sceneId + QLatin1Char('|') + job.item).toUtf8();
   const QString hash = QString::fromLatin1(QCryptographicHash::hash(id, QCryptographicHash::Md5).toHex());
   const QString thumbPath = QDir(m_thumbnailDir).absoluteFilePath(hash + QString::fromUtf8(".png"));
   QFile::remove(thumbPath);

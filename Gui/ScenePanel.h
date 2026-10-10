@@ -59,10 +59,11 @@ class StateStore; // Custom/state/StateStore.h
 NATRON_NAMESPACE_ENTER
 
 /**
- * @brief Dashboard panel managing scenes: named groups of projects that are
- * rendered together with the current state store values.
- * Left: scene list. Right: the opened scene (its projects with the KVs they
- * use, last render status and output thumbnail; all KVs of the scene).
+ * @brief Dashboard panel managing scenes: named groups of Write nodes of
+ * projects ("items", see SceneItem) rendered together with the current state
+ * store values.
+ * Left: scene list. Right: the opened scene (one row per Write node with its
+ * last render status and output thumbnail; all KVs of the scene).
  **/
 class ScenePanel
     : public QWidget
@@ -82,7 +83,8 @@ public:
 
     bool hasCurrentScene() const;
 
-    // Links projects to the opened scene.
+    // Adds Write nodes of projects to the opened scene (asks which ones when
+    // a project has several).
     void addProjectsToCurrentScene(const QStringList& projects);
 
     // Re-reads the projects of the opened scene (bindings may have changed).
@@ -111,15 +113,15 @@ private Q_SLOTS:
     void onProjectSelectionChanged();
     void onProjectCellDoubleClicked(int row, int column);
 
-    // Per-row render controls (the project path is the sender's "project" property).
+    // Per-row render controls (the item is the sender's "item" property).
     void onRowPauseToggled(bool paused);
     void onRowRenderClicked();
     void onRowStopClicked();
 
     void onScenesChanged();
-    void onRenderRecordChanged(const QString& sceneId, const QString& project);
+    void onRenderRecordChanged(const QString& sceneId, const QString& item);
     void onRendererStatusChanged();
-    void onRenderProgressChanged(const QString& sceneId, const QString& project);
+    void onRenderProgressChanged(const QString& sceneId, const QString& item);
     void onStateChanged();
 
     void onStateValueChanged();
@@ -131,7 +133,7 @@ private Q_SLOTS:
 
     void refreshNdiRows();
     void onNdiChannelsChanged(const QString& sceneId);
-    void onNdiChannelStatusChanged(const QString& sceneId, const QString& project);
+    void onNdiChannelStatusChanged(const QString& sceneId, const QString& item);
     void onNdiEnabledToggled(bool enabled);
     void onNdiAlphaToggled(bool alpha);
     void onNdiModeChanged(int index);
@@ -151,8 +153,8 @@ private:
     void refreshSceneList();
     void showScene();
     void refreshProjectRow(int row);
-    void refreshRowRenderState(const QString& project);
-    QWidget* createRowControls(const QString& project);
+    void refreshRowRenderState(const QString& item);
+    QWidget* createRowControls(const QString& item);
     void refreshKvTable();
     void refreshKvRow(int row, const ::Scene& scene);
 
@@ -164,8 +166,11 @@ private:
     bool confirmRender();
     void refreshButtons();
 
-    QStringList currentProjects() const;
-    QStringList selectedProjects() const;
+    QStringList currentItems() const;
+    QStringList selectedItems() const;
+    // Items of the projects to add: all their Write nodes, or the ones the
+    // user picks when a project has several. Empty if cancelled.
+    QStringList chooseItems(const QStringList& projects);
     const ProjectInfo& projectInfo(const QString& project);
     QString valueText(const QString& key) const;
 
@@ -176,7 +181,7 @@ private:
     QString _currentSceneId;
     QHash<QString, ProjectInfo> _infos; // per project, read from the .ntp
 
-    // Widgets of a project row (created once per showScene()).
+    // Widgets of an item row (created once per showScene()).
     struct RowWidgets
     {
         int row;
@@ -185,7 +190,7 @@ private:
         QPushButton* render;
         QPushButton* stop;
     };
-    QHash<QString, RowWidgets> _rows;
+    QHash<QString, RowWidgets> _rows; // item -> row widgets
 
     QListWidget* _sceneList;
     QPushButton* _renameSceneButton;
@@ -229,7 +234,7 @@ private:
         QPushButton* loop;
         QDoubleSpinBox* pauseAt;
     };
-    QHash<QString, NdiRow> _ndiRows; // project -> row widgets
+    QHash<QString, NdiRow> _ndiRows; // item -> row widgets
 };
 
 NATRON_NAMESPACE_EXIT

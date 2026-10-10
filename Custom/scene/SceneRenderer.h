@@ -9,39 +9,31 @@
 class SceneStore;
 class StateStore;
 
-// Live state of the project being rendered, parsed from the renderer output
+// Live state of the item being rendered, parsed from the renderer output
 // ("Write1 ==> Frame: 12, Progress: 60.0%, 14.2 Fps, Time Remaining: 3 seconds").
 struct RenderProgress
 {
-  bool active;           // this project is the one rendering
+  bool active;           // this item is the one rendering
   bool paused;
-  QString node;          // Write node currently rendering
-  double percent;        // of the current Write node, 0-100
+  QString node;          // Write node rendering
+  double percent;        // 0-100
   double fps;
   QString timeRemaining; // as printed by the renderer
   int currentFrame;      // frame just rendered (-1: none yet)
-  int firstFrame;        // lowest / highest frame rendered so far (-1: none)
-  int lastFrame;
-  int framesDone;
 
   RenderProgress()
       : active(false),
         paused(false),
         percent(0),
         fps(0),
-        currentFrame(-1),
-        firstFrame(-1),
-        lastFrame(-1),
-        framesDone(0)
+        currentFrame(-1)
   {
   }
-
-  // "1-250", or empty before the first frame.
-  QString frameRange() const;
 };
 
-// Renders scene projects one after the other with NatronRenderer:
-//   NatronRenderer -l <applyScript> <project.ntp>
+// Renders scene items (Write nodes of projects, see SceneItem) one after the
+// other with NatronRenderer:
+//   NatronRenderer -l <applyScript> -w <Write node> <project.ntp>
 // The apply script (see writeApplyScript) runs after the project is loaded
 // and, using the environment set here:
 //   NATRON_STATE_JSON    saved state store: values of the bound keys
@@ -64,20 +56,20 @@ public:
                 QObject *parent = nullptr);
   ~SceneRenderer();
 
-  // Adds projects of a scene to the queue (already queued/rendering ones
-  // are skipped).
-  void enqueue(const QString &sceneId, const QStringList &projects);
+  // Adds items of a scene to the queue (already queued/rendering ones are
+  // skipped).
+  void enqueue(const QString &sceneId, const QStringList &items);
 
-  // Renders projects again with the current values: queued like enqueue(),
-  // and a project that is rendering right now is stopped and restarted.
-  void rerender(const QString &sceneId, const QStringList &projects);
+  // Renders items again with the current values: queued like enqueue(), and
+  // an item that is rendering right now is stopped and restarted.
+  void rerender(const QString &sceneId, const QStringList &items);
 
   // Kills the current render and clears the queue.
   void stop();
 
   // Cancels one job: removes it from the queue, or kills it if it is the
   // one rendering (the queue then continues).
-  void cancel(const QString &sceneId, const QString &project);
+  void cancel(const QString &sceneId, const QString &item);
 
   // Pausing suspends the renderer process (POSIX only, see canPause()).
   bool canPause() const;
@@ -86,20 +78,20 @@ public:
   bool isPaused() const;
 
   bool isBusy() const;
-  bool isQueued(const QString &sceneId, const QString &project) const;
-  bool isCurrent(const QString &sceneId, const QString &project) const;
+  bool isQueued(const QString &sceneId, const QString &item) const;
+  bool isCurrent(const QString &sceneId, const QString &item) const;
   QString currentSceneId() const;
-  QString currentProject() const;
+  QString currentItem() const;
   int queuedCount() const;
 
   // Live progress (inactive unless this job is rendering).
-  RenderProgress progress(const QString &sceneId, const QString &project) const;
+  RenderProgress progress(const QString &sceneId, const QString &item) const;
 
   QString rendererPath() const;
 
-  // Output files a project of the scene renders to (the Write node paths,
-  // moved to the scene's output folder if it has one).
-  static QStringList sceneOutputs(const QString &outputDir, const QString &project);
+  // Output an item of the scene renders to (its Write node path, moved to
+  // the scene's output folder if it has one). Empty: no such Write node.
+  static QString itemOutput(const QString &outputDir, const QString &item);
 
   // Writes the Python script applied by NatronRenderer before rendering.
   static bool writeApplyScript(const QString &path);
@@ -109,7 +101,7 @@ Q_SIGNALS:
   void statusChanged();
 
   // New progress line for the job being rendered.
-  void progressChanged(const QString &sceneId, const QString &project);
+  void progressChanged(const QString &sceneId, const QString &item);
 
 private Q_SLOTS:
   void onFinished(int exitCode, QProcess::ExitStatus exitStatus);
@@ -120,11 +112,11 @@ private:
   struct Job
   {
     QString sceneId;
-    QString project;
+    QString item;
 
     bool operator==(const Job &other) const
     {
-      return sceneId == other.sceneId && project == other.project;
+      return sceneId == other.sceneId && item == other.item;
     }
   };
 
@@ -154,6 +146,6 @@ private:
   // Movie outputs are rendered into a staging folder and moved over their
   // final file once complete, so a channel playing the previous render never
   // reads a half-written file.
-  QString m_stagingDir;      // empty: rendering straight to the final files
-  QStringList m_finalOutputs; // where the staged files go
+  QString m_stagingDir;  // empty: rendering straight to the final file
+  QString m_finalOutput; // where the staged file goes
 };

@@ -1,5 +1,6 @@
 #include "SceneStore.h"
 
+#include "ProjectInfo.h"
 #include "../state/Json.h"
 
 #include <QDebug>
@@ -46,10 +47,48 @@ QString key(const char *k)
   return QString::fromUtf8(k);
 }
 
-// Render records are stored per "<scene id>|<project path>".
-QString recordKey(const QString &sceneId, const QString &project)
+// Render records are stored per "<scene id>|<item>".
+QString recordKey(const QString &sceneId, const QString &item)
 {
-  return sceneId + QLatin1Char('|') + project;
+  return sceneId + QLatin1Char('|') + item;
+}
+}
+
+namespace SceneItem
+{
+// Write node names are Python identifiers (dots for nodes in groups): the
+// last '#' separates them from the project path.
+QString make(const QString &project, const QString &writer)
+{
+  return project + QLatin1Char('#') + writer;
+}
+
+QString project(const QString &item)
+{
+  const int sep = item.lastIndexOf(QLatin1Char('#'));
+  return sep < 0 ? item : item.left(sep);
+}
+
+QString writer(const QString &item)
+{
+  const int sep = item.lastIndexOf(QLatin1Char('#'));
+  return sep < 0 ? QString() : item.mid(sep + 1);
+}
+
+QStringList allOf(const QString &project)
+{
+  const QString path = QFileInfo(project).absoluteFilePath();
+  const QStringList writers = readProjectInfo(path).writers;
+  QStringList items;
+  for (int i = 0; i < writers.size(); ++i)
+  {
+    items << make(path, writers.at(i));
+  }
+  if (items.isEmpty())
+  {
+    items << make(path, QString());
+  }
+  return items;
 }
 }
 
@@ -96,6 +135,10 @@ bool SceneStore::loadAndAutoSave(const QString &path)
 
   const QVariantMap root = doc.toMap();
 
+  // Files from before scenes held Write nodes list projects: each becomes
+  // all of its Write nodes, with its NDI settings and last render record.
+  QList<QPair<QString, QStringList> > migrated; // record key prefix -> items
+
   const QVariantList scenes = root.value(key("scenes")).toList();
   for (int i = 0; i < scenes.size(); ++i)
   {
@@ -103,10 +146,20 @@ bool SceneStore::loadAndAutoSave(const QString &path)
     Scene scene;
     scene.id = s.value(key("id")).toString();
     scene.name = s.value(key("name")).toString();
+    const QVariantList items = s.value(key("items")).toList();
+    for (int j = 0; j < items.size(); ++j)
+    {
+      scene.items << items.at(j).toString();
+    }
+    QHash<QString, QStringList> projectItems; // legacy project -> its items
     const QVariantList projects = s.value(key("projects")).toList();
     for (int j = 0; j < projects.size(); ++j)
     {
-      scene.projects << projects.at(j).toString();
+      const QString project = projects.at(j).toString();
+      const QStringList all = SceneItem::allOf(project);
+      projectItems.insert(project, all);
+      scene.items << all;
+      migrated << qMakePair(recordKey(scene.id, project), QStringList(all.first()));
     }
     const QVariantMap keyMap = s.value(key("keyMap")).toMap();
     for (QVariantMap::const_iterator k = keyMap.constBegin(); k != keyMap.constEnd(); ++k)
@@ -121,12 +174,20 @@ bool SceneStore::loadAndAutoSave(const QString &path)
     const QVariantMap pauseAt = ndi.value(key("pauseAt")).toMap();
     for (QVariantMap::const_iterator p = pauseAt.constBegin(); p != pauseAt.constEnd(); ++p)
     {
-      scene.ndiPauseAt.insert(p.key(), p.value().toDouble());
+      const QStringList targets = projectItems.value(p.key(), QStringList(p.key()));
+      for (int t = 0; t < targets.size(); ++t)
+      {
+        scene.ndiPauseAt.insert(targets.at(t), p.value().toDouble());
+      }
     }
     const QVariantMap loop = ndi.value(key("loop")).toMap();
     for (QVariantMap::const_iterator l = loop.constBegin(); l != loop.constEnd(); ++l)
     {
-      scene.ndiLoop.insert(l.key(), l.value().toBool());
+      const QStringList targets = projectItems.value(l.key(), QStringList(l.key()));
+      for (int t = 0; t < targets.size(); ++t)
+      {
+        scene.ndiLoop.insert(targets.at(t), l.value().toBool());
+      }
     }
     if (!scene.id.isEmpty())
     {
@@ -144,12 +205,26 @@ bool SceneStore::loadAndAutoSave(const QString &path)
     record.message = r.value(key("message")).toString();
     record.output = r.value(key("output")).toString();
     record.thumbnail = r.value(key("thumbnail")).toString();
-    record.frameRange = r.value(key("frameRange")).toString();
     // Records from before renders were per scene have no scene id: drop them.
     if (it.key().contains(QLatin1Char('|')))
     {
       m_records.insert(it.key(), record);
     }
+  }
+
+  // A project's record goes to its first Write node.
+  for (int i = 0; i < migrated.size(); ++i)
+  {
+    const QString oldKey = migrated.at(i).first;
+    if (m_records.contains(oldKey))
+    {
+      const QString sceneId = oldKey.section(QLatin1Char('|'), 0, 0);
+      m_records.insert(recordKey(sceneId, migrated.at(i).second.first()), m_records.take(oldKey));
+    }
+  }
+  if (!migrated.isEmpty())
+  {
+    changed();
   }
 
   Q_EMIT scenesChanged();
@@ -171,12 +246,12 @@ bool SceneStore::saveNow()
     QVariantMap s;
     s.insert(key("id"), m_scenes.at(i).id);
     s.insert(key("name"), m_scenes.at(i).name);
-    QVariantList projects;
-    for (int j = 0; j < m_scenes.at(i).projects.size(); ++j)
+    QVariantList items;
+    for (int j = 0; j < m_scenes.at(i).items.size(); ++j)
     {
-      projects << m_scenes.at(i).projects.at(j);
+      items << m_scenes.at(i).items.at(j);
     }
-    s.insert(key("projects"), projects);
+    s.insert(key("items"), items);
     QVariantMap keyMap;
     for (QHash<QString, QString>::const_iterator k = m_scenes.at(i).keyMap.constBegin(); k != m_scenes.at(i).keyMap.constEnd(); ++k)
     {
@@ -218,7 +293,6 @@ bool SceneStore::saveNow()
     r.insert(key("message"), record.message);
     r.insert(key("output"), record.output);
     r.insert(key("thumbnail"), record.thumbnail);
-    r.insert(key("frameRange"), record.frameRange);
     renders.insert(it.key(), r);
   }
 
@@ -343,7 +417,7 @@ void SceneStore::removeScene(const QString &id)
   Q_EMIT scenesChanged();
 }
 
-void SceneStore::addProjects(const QString &id, const QStringList &projects)
+void SceneStore::addItems(const QString &id, const QStringList &items)
 {
   const int i = indexOf(id);
   if (i < 0)
@@ -352,12 +426,13 @@ void SceneStore::addProjects(const QString &id, const QStringList &projects)
   }
 
   bool added = false;
-  for (int j = 0; j < projects.size(); ++j)
+  for (int j = 0; j < items.size(); ++j)
   {
-    const QString path = QFileInfo(projects.at(j)).absoluteFilePath();
-    if (!m_scenes.at(i).projects.contains(path))
+    const QString item = SceneItem::make(QFileInfo(SceneItem::project(items.at(j))).absoluteFilePath(),
+                                         SceneItem::writer(items.at(j)));
+    if (!m_scenes.at(i).items.contains(item))
     {
-      m_scenes[i].projects << path;
+      m_scenes[i].items << item;
       added = true;
     }
   }
@@ -369,7 +444,7 @@ void SceneStore::addProjects(const QString &id, const QStringList &projects)
   }
 }
 
-void SceneStore::removeProjects(const QString &id, const QStringList &projects)
+void SceneStore::removeItems(const QString &id, const QStringList &items)
 {
   const int i = indexOf(id);
   if (i < 0)
@@ -378,9 +453,9 @@ void SceneStore::removeProjects(const QString &id, const QStringList &projects)
   }
 
   int removed = 0;
-  for (int j = 0; j < projects.size(); ++j)
+  for (int j = 0; j < items.size(); ++j)
   {
-    removed += m_scenes[i].projects.removeAll(projects.at(j));
+    removed += m_scenes[i].items.removeAll(items.at(j));
   }
 
   if (removed > 0)
@@ -468,46 +543,46 @@ void SceneStore::setNdiLive(const QString &id, bool live)
   Q_EMIT scenesChanged();
 }
 
-void SceneStore::setNdiPauseAt(const QString &id, const QString &project, double seconds)
+void SceneStore::setNdiPauseAt(const QString &id, const QString &item, double seconds)
 {
   const int i = indexOf(id);
-  if (i < 0 || m_scenes.at(i).pauseAt(project) == seconds)
+  if (i < 0 || m_scenes.at(i).pauseAt(item) == seconds)
   {
     return;
   }
   if (seconds < 0)
   {
-    m_scenes[i].ndiPauseAt.remove(project);
+    m_scenes[i].ndiPauseAt.remove(item);
   }
   else
   {
-    m_scenes[i].ndiPauseAt.insert(project, seconds);
+    m_scenes[i].ndiPauseAt.insert(item, seconds);
   }
   changed();
-  Q_EMIT ndiSettingsChanged(id, project);
+  Q_EMIT ndiSettingsChanged(id, item);
 }
 
-void SceneStore::setNdiLoop(const QString &id, const QString &project, bool loop)
+void SceneStore::setNdiLoop(const QString &id, const QString &item, bool loop)
 {
   const int i = indexOf(id);
-  if (i < 0 || m_scenes.at(i).ndiLoop.value(project, false) == loop)
+  if (i < 0 || m_scenes.at(i).ndiLoop.value(item, false) == loop)
   {
     return;
   }
-  m_scenes[i].ndiLoop.insert(project, loop);
+  m_scenes[i].ndiLoop.insert(item, loop);
   changed();
-  Q_EMIT ndiSettingsChanged(id, project);
+  Q_EMIT ndiSettingsChanged(id, item);
 }
 
-RenderRecord SceneStore::renderRecord(const QString &sceneId, const QString &project) const
+RenderRecord SceneStore::renderRecord(const QString &sceneId, const QString &item) const
 {
-  return m_records.value(recordKey(sceneId, project));
+  return m_records.value(recordKey(sceneId, item));
 }
 
-void SceneStore::setRenderRecord(const QString &sceneId, const QString &project, const RenderRecord &record)
+void SceneStore::setRenderRecord(const QString &sceneId, const QString &item, const RenderRecord &record)
 {
-  m_records.insert(recordKey(sceneId, project), record);
+  m_records.insert(recordKey(sceneId, item), record);
 
   changed();
-  Q_EMIT renderRecordChanged(sceneId, project);
+  Q_EMIT renderRecordChanged(sceneId, item);
 }

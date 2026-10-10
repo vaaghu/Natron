@@ -28,6 +28,8 @@
 CLANG_DIAG_OFF(deprecated)
 CLANG_DIAG_OFF(uninitialized)
 #include <QBoxLayout>
+#include <QColor>
+#include <QColorDialog>
 #include <QApplication>
 #include <QDesktopServices>
 #include <QDir>
@@ -85,7 +87,20 @@ namespace KvGui {
 QIcon
 typeIcon(const QVariant& value)
 {
-    return (Kv::typeOf(value) == Kv::eTypeImage) ? natronIcon(NATRON_ENUM::NATRON_PIXMAP_READ_IMAGE) : QIcon();
+    if (Kv::typeOf(value) == Kv::eTypeImage) {
+        return natronIcon(NATRON_ENUM::NATRON_PIXMAP_READ_IMAGE);
+    }
+    double rgba[4];
+    if ( (Kv::typeOf(value) == Kv::eTypeColor) && Kv::parseColor(Kv::textValue(value), rgba) ) {
+        // A swatch of the color.
+        const int size = appPTR->adjustSizeToDPIX(kKvIconSize);
+        QPixmap swatch(size, size);
+        swatch.fill( QColor::fromRgbF(rgba[0], rgba[1], rgba[2]) );
+
+        return QIcon(swatch);
+    }
+
+    return QIcon();
 }
 
 QIcon
@@ -103,14 +118,69 @@ chooseImageIcon()
 QString
 typeLabel(const QVariant& value)
 {
-    return (Kv::typeOf(value) == Kv::eTypeImage) ? QObject::tr("Image") : QObject::tr("Text");
+    const QString name = Kv::typeName( Kv::typeOf(value) );
+
+    return typeLabelForName( name.isEmpty() ? QString::fromUtf8("text") : name );
+}
+
+QStringList
+typeNames()
+{
+    QStringList names;
+
+    names << QString::fromUtf8("text") << QString::fromUtf8("number") << QString::fromUtf8("bool")
+          << QString::fromUtf8("color") << QString::fromUtf8("image");
+
+    return names;
+}
+
+QString
+typeLabelForName(const QString& name)
+{
+    if ( name == QString::fromUtf8("number") ) {
+        return QObject::tr("Number");
+    }
+    if ( name == QString::fromUtf8("bool") ) {
+        return QObject::tr("On/Off");
+    }
+    if ( name == QString::fromUtf8("color") ) {
+        return QObject::tr("Color");
+    }
+    if ( name == QString::fromUtf8("image") ) {
+        return QObject::tr("Image");
+    }
+
+    return QObject::tr("Text");
+}
+
+QString
+chooseColor(QWidget* parent,
+            const QString& startHex)
+{
+    double rgba[4] = { 1, 1, 1, 1 };
+    Kv::parseColor(startHex, rgba);
+    const QColor start = QColor::fromRgbF(rgba[0], rgba[1], rgba[2], rgba[3]);
+    const QColor color = QColorDialog::getColor(start, parent, QObject::tr("Choose Color"), QColorDialog::ShowAlphaChannel);
+    if ( !color.isValid() ) {
+        return QString();
+    }
+    QString hex = color.name(); // #rrggbb
+    if (color.alpha() != 255) {
+        hex += QString::fromUtf8("%1").arg(color.alpha(), 2, 16, QLatin1Char('0'));
+    }
+
+    return hex;
 }
 
 QString
 tooltip(const QVariant& value)
 {
+    if (Kv::typeOf(value) == Kv::eTypeColor) {
+        // Applied to a bound Text node's text color.
+        return QObject::tr("%1<br/><i>Text nodes bound to it take it as their text color.</i>").arg( escape( Kv::textValue(value) ) );
+    }
     if (Kv::typeOf(value) != Kv::eTypeImage) {
-        return escape( Kv::textValue(value) );
+        return escape( Kv::displayText(value) );
     }
 
     const Kv::ImageInfo info = Kv::imageInfo(value);

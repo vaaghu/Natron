@@ -35,6 +35,7 @@ CLANG_DIAG_OFF(uninitialized)
 #include <QEvent>
 #include <QDir>
 #include <QFileDialog>
+#include <QFile>
 #include <QFileInfo>
 #include <QTabWidget>
 #include <QHBoxLayout>
@@ -44,16 +45,20 @@ CLANG_DIAG_OFF(uninitialized)
 #include <QLabel>
 #include <QLineEdit>
 #include <QListWidget>
+#include <QLocale>
 #include <QMenu>
 #include <QMenuBar>
+#include <QMessageBox>
 #include <QPair>
 #include <QPushButton>
 #include <QSettings>
 #include <QStringList>
 #include <QTableWidget>
+#include <QToolTip>
 #include <QUndoCommand>
 #include <QUndoStack>
 #include <QToolButton>
+#include <QVariantMap>
 #include <QVBoxLayout>
 CLANG_DIAG_ON(deprecated)
 CLANG_DIAG_ON(uninitialized)
@@ -128,6 +133,75 @@ private:
     bool _done;
 };
 
+// Values set at once (import), undone by putting back the previous ones
+// (an invalid QVariant: the key did not exist). Pushed after the values are
+// set: the first redo() does nothing.
+class KeyValuesCommand
+    : public QUndoCommand
+{
+public:
+
+    KeyValuesCommand(::StateStore* store,
+                     const QHash<QString, QVariant>& before,
+                     const QHash<QString, QVariant>& after,
+                     const QString& text)
+        : QUndoCommand(text)
+        , _store(store)
+        , _before(before)
+        , _after(after)
+        , _done(true)
+    {
+    }
+
+    virtual void undo() OVERRIDE
+    {
+        apply(_before);
+    }
+
+    virtual void redo() OVERRIDE
+    {
+        if (_done) {
+            _done = false;
+
+            return;
+        }
+        apply(_after);
+    }
+
+private:
+
+    void apply(const QHash<QString, QVariant>& values)
+    {
+        for (QHash<QString, QVariant>::const_iterator it = values.constBegin(); it != values.constEnd(); ++it) {
+            if ( it.value().isValid() ) {
+                _store->set( it.key(), it.value() );
+            } else {
+                _store->remove( it.key() );
+            }
+        }
+    }
+
+    ::StateStore* _store;
+    QHash<QString, QVariant> _before;
+    QHash<QString, QVariant> _after;
+    bool _done;
+};
+
+// Number typed by the user: "0.5" anywhere, or in the user's locale ("0,5").
+bool
+parseNumber(const QString& text,
+            double* number)
+{
+    bool ok = false;
+
+    *number = QLocale::c().toDouble(text.trimmed(), &ok);
+    if (!ok) {
+        *number = QLocale().toDouble(text.trimmed(), &ok);
+    }
+
+    return ok;
+}
+
 NATRON_NAMESPACE_ANONYMOUS_EXIT
 
 DashboardWindow::DashboardWindow(::StateStore* store,
@@ -151,6 +225,7 @@ DashboardWindow::DashboardWindow(::StateStore* store,
     , _addButton(0)
     , _removeAction(0)
     , _undoStack(0)
+    , _searchEdit(0)
     , _newProjectAction(0)
     , _openProjectAction(0)
     , _updatingTable(false)
@@ -344,6 +419,26 @@ DashboardWindow::createDataPanel()
     _serverStatusLabel->setTextInteractionFlags(Qt::TextSelectableByMouse);
     layout->addWidget(_serverStatusLabel);
 
+    // [search........][menu: import / export]
+    QHBoxLayout* header = new QHBoxLayout;
+    _searchEdit = new QLineEdit(box);
+    _searchEdit->setPlaceholderText( tr("Search keys and values (Ctrl+F)") );
+    header->addWidget(_searchEdit, 1);
+    QMenu* menu = 0;
+    QToolButton* menuButton = KvGui::panelMenuButton(box, &menu);
+    menuButton->setToolTip( tr("Data actions") );
+    menu->addAction( tr("Import Values..."), this, SLOT(onImportValues()) );
+    menu->addAction( tr("Export Values..."), this, SLOT(onExportValues()) );
+    header->addWidget(menuButton);
+    layout->addLayout(header);
+    QAction* find = new QAction(tr("Search"), box);
+    find->setShortcut(QKeySequence::Find);
+    find->setShortcutContext(Qt::WidgetWithChildrenShortcut);
+    box->addAction(find);
+    QObject::connect( find, SIGNAL(triggered()), _searchEdit, SLOT(setFocus()) );
+    QObject::connect( find, SIGNAL(triggered()), _searchEdit, SLOT(selectAll()) );
+    QObject::connect( _searchEdit, SIGNAL(textChanged(QString)), this, SLOT(onSearchTextChanged()) );
+
     _table = new QTableWidget(0, 3, box);
     QStringList headers;
     headers << tr("Key") << tr("Type") << tr("Value");
@@ -354,10 +449,10 @@ DashboardWindow::createDataPanel()
     // Double-click is handled here: edit text, open images.
     _table->setEditTriggers(QAbstractItemView::EditKeyPressed);
     _table->setContextMenuPolicy(Qt::CustomContextMenu);
-    _table->setToolTip( tr("Double-click a value to edit it, or an image to open it. Right-click for more actions.") );
+    _table->setToolTip( tr("Double-click a value to edit it (an image opens, on/off toggles). Right-click for more actions.") );
     HoverIconDelegate* valueDelegate = HoverIconDelegate::install(_table, kDashboardColumnValue);
     QList<int> hiddenColumns;
-    hiddenColumns << kDashboardColumnType; // the value shows an image icon
+    hiddenColumns << kDashboardColumnType; // the value shows an image icon or color swatch
     TableColumnMenu::install(_table, QString::fromUtf8("dashboard/columns/data"), hiddenColumns);
     EmptyViewHint::install( _table, tr("No keys. Add one below or use the HTTP API.") );
     layout->addWidget(_table);
@@ -371,14 +466,18 @@ DashboardWindow::createDataPanel()
     // New key: [type][key][value][+]
     QHBoxLayout* addRow = new QHBoxLayout;
     _newTypeCombo = new QComboBox(box);
-    _newTypeCombo->addItem( tr("Text") );
-    _newTypeCombo->addItem( KvGui::typeIcon( Kv::makeImage( QString::fromUtf8("x.png") ) ), tr("Image") );
+    const QStringList types = KvGui::typeNames();
+    for (int i = 0; i < types.size(); ++i) {
+        const QString& name = types.at(i);
+        const QVariant sample = ( name == QString::fromUtf8("image") ) ? Kv::makeImage( QString::fromUtf8("x.png") )
+                                : ( name == QString::fromUtf8("color") ) ? Kv::makeColor( QString::fromUtf8("#e6a03c") ) : QVariant();
+        _newTypeCombo->addItem(KvGui::typeIcon(sample), KvGui::typeLabelForName(name), name);
+    }
     _newTypeCombo->setToolTip( tr("Value type") );
     _newKeyEdit = new QLineEdit(box);
     _newKeyEdit->setPlaceholderText( tr("New key") );
     _newValueEdit = new HoverLineEdit(box);
     _newValueEdit->setPlaceholderText( tr("Value") );
-    _newValueEdit->setActionIcon( KvGui::chooseImageIcon(), tr("Choose an image file") );
     _addButton = new QPushButton(QString::fromUtf8("+"), box);
     _addButton->setEnabled(false);
     _addButton->setFixedWidth( _addButton->sizeHint().height() );
@@ -397,7 +496,8 @@ DashboardWindow::createDataPanel()
     QObject::connect( _newKeyEdit, SIGNAL(textChanged(QString)), this, SLOT(onNewKeyTextChanged(QString)) );
     QObject::connect( _newKeyEdit, SIGNAL(returnPressed()), this, SLOT(onAddClicked()) );
     QObject::connect( _newValueEdit, SIGNAL(returnPressed()), this, SLOT(onAddClicked()) );
-    QObject::connect( _newValueEdit, SIGNAL(actionClicked()), this, SLOT(onNewValueChooseImage()) );
+    QObject::connect( _newValueEdit, SIGNAL(actionClicked()), this, SLOT(onNewValueActionClicked()) );
+    onNewTypeChanged(0);
     QObject::connect( _addButton, SIGNAL(clicked()), this, SLOT(onAddClicked()) );
     QObject::connect( _removeAction, SIGNAL(triggered()), this, SLOT(onRemoveClicked()) );
     QObject::connect( _table, SIGNAL(customContextMenuRequested(QPoint)), this, SLOT(onDataContextMenu(QPoint)) );
@@ -539,7 +639,10 @@ void
 DashboardWindow::setRowValue(int row,
                              const QVariant& value)
 {
-    const bool image = Kv::typeOf(value) == Kv::eTypeImage;
+    const Kv::Type type = Kv::typeOf(value);
+    const bool image = type == Kv::eTypeImage;
+    // Text and numbers are edited in place; the others with a click.
+    const bool inPlace = (type == Kv::eTypeText) || (type == Kv::eTypeNumber) || (type == Kv::eTypeInvalid);
 
     QTableWidgetItem* typeItem = new QTableWidgetItem( KvGui::typeIcon(value), KvGui::typeLabel(value) );
     typeItem->setFlags(typeItem->flags() & ~Qt::ItemIsEditable);
@@ -551,12 +654,12 @@ DashboardWindow::setRowValue(int row,
         _table->setItem(row, kDashboardColumnValue, item);
     }
 
-    // Images show their file name; text is edited in place.
+    // Images show their file name, colors a swatch, on/off On or Off.
     item->setText( Kv::displayText(value) );
     item->setIcon( KvGui::typeIcon(value) );
     item->setToolTip( KvGui::tooltip(value) );
     item->setData( HoverIconDelegate::kHoverIconRole, image ? KvGui::chooseImageIcon() : KvGui::editIcon() );
-    item->setFlags( image ? (item->flags() & ~Qt::ItemIsEditable) : (item->flags() | Qt::ItemIsEditable) );
+    item->setFlags( inPlace ? (item->flags() | Qt::ItemIsEditable) : (item->flags() & ~Qt::ItemIsEditable) );
     if (image && !Kv::imageInfo(value).exists) {
         item->setForeground( QColor(230, 90, 80) );
     } else {
@@ -597,6 +700,7 @@ DashboardWindow::rebuildTable()
     }
     _updatingTable = false;
 
+    applySearch();
     onTableSelectionChanged();
 }
 
@@ -613,6 +717,7 @@ DashboardWindow::onStoreValueChanged(const QString& key)
     _updatingTable = true;
     setRowValue( row, _store->get(key) );
     _updatingTable = false;
+    applySearch();
 }
 
 void
@@ -633,9 +738,26 @@ DashboardWindow::onTableItemChanged(QTableWidgetItem* item)
         return;
     }
 
-    // Only text values are edited in place.
+    // Only text and numbers are edited in place.
     const QVariant current = _store->get( keyItem->text() );
-    if ( Kv::typeOf(current) == Kv::eTypeImage ) {
+    if ( Kv::typeOf(current) == Kv::eTypeNumber ) {
+        double number = 0;
+        if ( !parseNumber(item->text(), &number) ) {
+            QToolTip::showText( _table->viewport()->mapToGlobal( _table->visualItemRect(item).bottomLeft() ),
+                                tr("%1 is not a number: the value is unchanged.").arg( item->text() ) );
+            _updatingTable = true;
+            setRowValue(item->row(), current); // back to the stored value
+            _updatingTable = false;
+
+            return;
+        }
+        if ( Kv::textValue(current) != Kv::textValue( Kv::makeNumber(number) ) ) {
+            _store->set( keyItem->text(), Kv::makeNumber(number) );
+        }
+
+        return;
+    }
+    if ( (Kv::typeOf(current) != Kv::eTypeText) && (Kv::typeOf(current) != Kv::eTypeInvalid) ) {
         return;
     }
     if ( Kv::textValue(current) != item->text() ) {
@@ -650,24 +772,15 @@ DashboardWindow::onTableItemDoubleClicked(QTableWidgetItem* item)
         return;
     }
 
-    QTableWidgetItem* keyItem = _table->item(item->row(), kDashboardColumnKey);
-    if (!keyItem) {
-        return;
-    }
-
-    const QVariant value = _store->get( keyItem->text() );
-    if ( Kv::typeOf(value) == Kv::eTypeImage ) {
-        KvGui::openImage(value);
-    } else if ( QTableWidgetItem* valueItem = _table->item(item->row(), kDashboardColumnValue) ) {
-        _table->editItem(valueItem);
-    }
+    editValue(item->row(), true);
 }
 
 void
-DashboardWindow::onValueIconClicked(const QModelIndex& index)
+DashboardWindow::editValue(int row,
+                           bool open)
 {
-    QTableWidgetItem* keyItem = _table->item(index.row(), kDashboardColumnKey);
-    QTableWidgetItem* valueItem = _table->item(index.row(), kDashboardColumnValue);
+    QTableWidgetItem* keyItem = _table->item(row, kDashboardColumnKey);
+    QTableWidgetItem* valueItem = _table->item(row, kDashboardColumnValue);
 
     if (!keyItem || !valueItem) {
         return;
@@ -675,31 +788,232 @@ DashboardWindow::onValueIconClicked(const QModelIndex& index)
 
     const QString key = keyItem->text();
     const QVariant value = _store->get(key);
-
-    if ( Kv::typeOf(value) == Kv::eTypeImage ) {
-        const QString file = KvGui::chooseImageFile( this, Kv::imagePath(value) );
-        if ( !file.isEmpty() ) {
-            _store->set( key, Kv::makeImage(file) );
+    switch ( Kv::typeOf(value) ) {
+    case Kv::eTypeImage:
+        if (open) {
+            KvGui::openImage(value);
+        } else {
+            const QString file = KvGui::chooseImageFile( this, Kv::imagePath(value) );
+            if ( !file.isEmpty() ) {
+                _store->set( key, Kv::makeImage(file) );
+            }
         }
-    } else {
-        _table->editItem(valueItem);
+        break;
+    case Kv::eTypeBool:
+        _store->set( key, Kv::makeBool( Kv::textValue(value) != QString::fromUtf8("true") ) );
+        break;
+    case Kv::eTypeColor: {
+        const QString hex = KvGui::chooseColor( this, Kv::textValue(value) );
+        if ( !hex.isEmpty() ) {
+            _store->set( key, Kv::makeColor(hex) );
+        }
+        break;
     }
+    default:
+        _table->editItem(valueItem);
+        break;
+    }
+}
+
+void
+DashboardWindow::onValueIconClicked(const QModelIndex& index)
+{
+    editValue(index.row(), false);
 }
 
 void
 DashboardWindow::onNewTypeChanged(int index)
 {
-    _newValueEdit->setPlaceholderText( (index == 1) ? tr("Image file path") : tr("Value") );
+    Q_UNUSED(index);
+    const QString type = newTypeName();
+
+    if ( type == QString::fromUtf8("image") ) {
+        _newValueEdit->setPlaceholderText( tr("Image file path") );
+        _newValueEdit->setActionIcon( KvGui::chooseImageIcon(), tr("Choose an image file") );
+    } else if ( type == QString::fromUtf8("color") ) {
+        _newValueEdit->setPlaceholderText( tr("#rrggbb") );
+        _newValueEdit->setActionIcon( KvGui::editIcon(), tr("Choose a color") );
+    } else if ( type == QString::fromUtf8("number") ) {
+        _newValueEdit->setPlaceholderText( tr("Number") );
+        _newValueEdit->setActionIcon( QIcon(), QString() );
+    } else if ( type == QString::fromUtf8("bool") ) {
+        _newValueEdit->setPlaceholderText( tr("on or off") );
+        _newValueEdit->setActionIcon( QIcon(), QString() );
+    } else {
+        _newValueEdit->setPlaceholderText( tr("Value") );
+        _newValueEdit->setActionIcon( QIcon(), QString() );
+    }
+}
+
+QString
+DashboardWindow::newTypeName() const
+{
+    return _newTypeCombo->itemData( _newTypeCombo->currentIndex() ).toString();
+}
+
+QVariant
+DashboardWindow::newValueFromForm(QString* error) const
+{
+    const QString type = newTypeName();
+    const QString text = _newValueEdit->text();
+
+    if ( type == QString::fromUtf8("image") ) {
+        const QString path = QDir::fromNativeSeparators( text.trimmed() );
+        if ( path.isEmpty() ) {
+            *error = tr("Enter an image file path, or choose one with the icon.");
+
+            return QVariant();
+        }
+
+        return Kv::makeImage(path);
+    }
+    if ( type == QString::fromUtf8("number") ) {
+        double number = 0;
+        if ( !parseNumber(text, &number) ) {
+            *error = tr("Enter a number, e.g. 42 or 0.5.");
+
+            return QVariant();
+        }
+
+        return Kv::makeNumber(number);
+    }
+    if ( type == QString::fromUtf8("bool") ) {
+        QVariantMap map;
+        map.insert( QString::fromUtf8("type"), type );
+        map.insert( QString::fromUtf8("value"), text.trimmed().isEmpty() ? QString::fromUtf8("off") : text );
+        QString unused;
+        const QVariant value = Kv::normalize(map, true, &unused);
+        if ( !value.isValid() ) {
+            *error = tr("Enter on or off.");
+        }
+
+        return value;
+    }
+    if ( type == QString::fromUtf8("color") ) {
+        const QVariant value = Kv::makeColor(text);
+        if ( !value.isValid() ) {
+            *error = tr("Enter a color as #rrggbb, or choose one with the icon.");
+        }
+
+        return value;
+    }
+
+    return Kv::makeText(text);
 }
 
 void
-DashboardWindow::onNewValueChooseImage()
+DashboardWindow::onNewValueActionClicked()
 {
-    const QString file = KvGui::chooseImageFile( this, _newValueEdit->text() );
+    if ( newTypeName() == QString::fromUtf8("color") ) {
+        const QString hex = KvGui::chooseColor( this, _newValueEdit->text() );
+        if ( !hex.isEmpty() ) {
+            _newValueEdit->setText(hex);
+        }
 
+        return;
+    }
+
+    const QString file = KvGui::chooseImageFile( this, _newValueEdit->text() );
     if ( !file.isEmpty() ) {
-        _newTypeCombo->setCurrentIndex(1);
         _newValueEdit->setText( QDir::toNativeSeparators(file) );
+    }
+}
+
+void
+DashboardWindow::onSearchTextChanged()
+{
+    applySearch();
+}
+
+void
+DashboardWindow::applySearch()
+{
+    const QString search = _searchEdit ? _searchEdit->text().trimmed() : QString();
+
+    for (int row = 0; row < _table->rowCount(); ++row) {
+        bool match = search.isEmpty();
+        for (int column = 0; !match && column < _table->columnCount(); ++column) {
+            QTableWidgetItem* item = _table->item(row, column);
+            match = item && item->text().contains(search, Qt::CaseInsensitive);
+        }
+        _table->setRowHidden(row, !match);
+    }
+}
+
+void
+DashboardWindow::onExportValues()
+{
+    if (!_store) {
+        return;
+    }
+
+    const QString path = QFileDialog::getSaveFileName( this, tr("Export Values"), QString::fromUtf8("values.json"), tr("JSON (*.json)") );
+    if ( path.isEmpty() ) {
+        return;
+    }
+
+    // The same format the HTTP API takes: { "key": { "type": ..., ... }, ... }
+    QVariantMap values;
+    const QStringList keys = _store->keys();
+    for (int i = 0; i < keys.size(); ++i) {
+        values.insert( keys.at(i), _store->get( keys.at(i) ) );
+    }
+    QFile file(path);
+    if ( !file.open(QIODevice::WriteOnly | QIODevice::Truncate) || (file.write( Json::serialize(values) ) < 0) ) {
+        QMessageBox::warning( this, tr("Export Values"), tr("Could not write %1: %2").arg( QDir::toNativeSeparators(path) ).arg( file.errorString() ) );
+    }
+}
+
+void
+DashboardWindow::onImportValues()
+{
+    if (!_store) {
+        return;
+    }
+
+    const QString path = QFileDialog::getOpenFileName( this, tr("Import Values"), QString(), tr("JSON (*.json);;All files (*)") );
+    if ( path.isEmpty() ) {
+        return;
+    }
+
+    QFile file(path);
+    if ( !file.open(QIODevice::ReadOnly) ) {
+        QMessageBox::warning( this, tr("Import Values"), tr("Could not read %1: %2").arg( QDir::toNativeSeparators(path) ).arg( file.errorString() ) );
+
+        return;
+    }
+    bool ok = false;
+    QString parseError;
+    const QVariant parsed = Json::parse(file.readAll(), &ok, &parseError);
+    if ( !ok || (parsed.type() != QVariant::Map) ) {
+        QMessageBox::warning( this, tr("Import Values"), tr("%1 is not a JSON object of keys and values. %2")
+                              .arg( QDir::toNativeSeparators(path) ).arg(parseError) );
+
+        return;
+    }
+
+    // Set every valid value; the import can be undone as one step.
+    QHash<QString, QVariant> before;
+    QHash<QString, QVariant> after;
+    QStringList skipped;
+    const QVariantMap map = parsed.toMap();
+    for (QVariantMap::const_iterator it = map.constBegin(); it != map.constEnd(); ++it) {
+        QString error;
+        const QVariant value = Kv::normalize(it.value(), true, &error);
+        if ( it.key().trimmed().isEmpty() || !value.isValid() ) {
+            skipped << tr("%1: %2").arg( it.key() ).arg( error.isEmpty() ? tr("empty key") : error );
+            continue;
+        }
+        before.insert( it.key(), _store->has( it.key() ) ? _store->get( it.key() ) : QVariant() );
+        after.insert( it.key(), value );
+        _store->set( it.key(), value );
+    }
+    if ( !after.isEmpty() ) {
+        _undoStack->push( new KeyValuesCommand( _store, before, after, tr("Import %1 Values").arg( after.size() ) ) );
+    }
+    if ( !skipped.isEmpty() ) {
+        QMessageBox::warning( this, tr("Import Values"), tr("Imported %1 values; skipped %2:\n%3")
+                              .arg( after.size() ).arg( skipped.size() ).arg( skipped.join( QString::fromUtf8("\n") ) ) );
     }
 }
 
@@ -724,24 +1038,32 @@ DashboardWindow::onDataContextMenu(const QPoint& pos)
     }
 
     const QVariant value = _store->get( keyItem->text() );
-    const QModelIndex valueIndex = _table->model()->index(row, kDashboardColumnValue);
     QMenu menu(this);
     QAction* open = 0;
     QAction* edit = 0;
-    if ( Kv::typeOf(value) == Kv::eTypeImage ) {
+    switch ( Kv::typeOf(value) ) {
+    case Kv::eTypeImage:
         open = menu.addAction( tr("Open Image") );
         edit = menu.addAction( tr("Choose Image...") );
-    } else {
+        break;
+    case Kv::eTypeBool:
+        edit = menu.addAction( (Kv::textValue(value) == QString::fromUtf8("true")) ? tr("Turn Off") : tr("Turn On") );
+        break;
+    case Kv::eTypeColor:
+        edit = menu.addAction( tr("Choose Color...") );
+        break;
+    default:
         edit = menu.addAction( tr("Edit Value") );
+        break;
     }
     menu.addSeparator();
     menu.addAction(_removeAction);
 
     QAction* chosen = menu.exec( _table->viewport()->mapToGlobal(pos) );
     if ( chosen && (chosen == open) ) {
-        KvGui::openImage(value);
+        editValue(row, true);
     } else if ( chosen && (chosen == edit) ) {
-        onValueIconClicked(valueIndex);
+        editValue(row, false);
     }
 }
 
@@ -760,17 +1082,16 @@ DashboardWindow::onAddClicked()
         return;
     }
 
-    if (_newTypeCombo->currentIndex() == 1) {
-        const QString path = QDir::fromNativeSeparators( _newValueEdit->text().trimmed() );
-        if ( path.isEmpty() ) {
-            _newValueEdit->setFocus();
+    QString error;
+    const QVariant value = newValueFromForm(&error);
+    if ( !value.isValid() ) {
+        _newValueEdit->setFocus();
+        _newValueEdit->selectAll();
+        QToolTip::showText( _newValueEdit->mapToGlobal( QPoint( 0, _newValueEdit->height() ) ), error, _newValueEdit );
 
-            return;
-        }
-        _store->set( key, Kv::makeImage(path) );
-    } else {
-        _store->set( key, Kv::makeText( _newValueEdit->text() ) );
+        return;
     }
+    _store->set(key, value);
 
     _newKeyEdit->clear();
     _newValueEdit->clear();

@@ -352,6 +352,39 @@ private:
     QStringList _keys;
 };
 
+// A value fits every binding of a key (Text nodes: text, number, on/off,
+// color; Read nodes: image).
+bool
+fitsAll(const QVariant& value,
+        const QStringList& boundTypes)
+{
+    for (int i = 0; i < boundTypes.size(); ++i) {
+        if ( !Kv::fitsBinding( value, boundTypes.at(i) ) ) {
+            return false;
+        }
+    }
+
+    return true;
+}
+
+// "an image", "a number"... for messages.
+QString
+typeArticle(const QVariant& value)
+{
+    switch ( Kv::typeOf(value) ) {
+    case Kv::eTypeImage:
+        return QObject::tr("an image");
+    case Kv::eTypeNumber:
+        return QObject::tr("a number");
+    case Kv::eTypeBool:
+        return QObject::tr("an on/off value");
+    case Kv::eTypeColor:
+        return QObject::tr("a color");
+    default:
+        return QObject::tr("text");
+    }
+}
+
 // Value types a project binds key for ("text", "image").
 QStringList
 boundTypes(const ProjectInfo& info,
@@ -1248,7 +1281,7 @@ ScenePanel::refreshKvTable()
         }
         QStringList choices;
         for (int k = 0; k < storeKeys.size(); ++k) {
-            if ( expected.isEmpty() || expected.contains( Kv::typeName( Kv::typeOf( _state->get( storeKeys.at(k) ) ) ) ) ) {
+            if ( fitsAll( _state->get( storeKeys.at(k) ), expected ) ) {
                 choices << storeKeys.at(k);
             }
         }
@@ -1333,14 +1366,13 @@ ScenePanel::kvIssues(const QString& key,
             }
         }
     }
-    const QString actual = Kv::typeName( Kv::typeOf(value) );
     for (int t = 0; t < expected.size(); ++t) {
-        if ( expected.at(t) != actual ) {
+        if ( !Kv::fitsBinding( value, expected.at(t) ) ) {
             issues << tr("%1 is bound to a %2 node but %3 is %4: that node is left unchanged.")
                       .arg(key)
                       .arg( expected.at(t) == QString::fromUtf8("image") ? tr("Read (image)") : tr("Text") )
                       .arg(used)
-                      .arg( (actual == QString::fromUtf8("image")) ? tr("an image") : tr("text") );
+                      .arg( typeArticle(value) );
         }
     }
 
@@ -1486,17 +1518,17 @@ ScenePanel::applyKeyMapping(const QString& key,
     if ( _state && !used.isEmpty() && (used != key) && _state->has(used) ) {
         ::Scene test = scene;
         test.keyMap.insert(key, used);
-        const QString actual = Kv::typeName( Kv::typeOf( _state->get(used) ) );
+        const QVariant usedValue = _state->get(used);
         const QStringList projects = scene.projects();
         for (int i = 0; i < projects.size(); ++i) {
             const QStringList types = boundTypes( projectInfo( projects.at(i) ), key );
-            if ( !types.isEmpty() && !types.contains(actual) ) {
+            if ( !fitsAll(usedValue, types) ) {
                 QMessageBox::warning( this, tr("Uses key"),
-                                      tr("%1 is bound to %2 in the projects, but %3 is %4.\nPick a key of the same type.")
+                                      tr("%1 is bound to %2 in the projects, but %3 is %4.\nPick a key that fits.")
                                       .arg(key)
                                       .arg( types.contains( QString::fromUtf8("image") ) ? tr("an image (Read node)") : tr("text (Text node)") )
                                       .arg(used)
-                                      .arg( (actual == QString::fromUtf8("image")) ? tr("an image") : tr("text") ) );
+                                      .arg( typeArticle(usedValue) ) );
                 refreshKvTable(); // back to the previous key
 
                 return;

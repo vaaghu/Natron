@@ -32,6 +32,7 @@ CLANG_DIAG_OFF(deprecated)
 CLANG_DIAG_OFF(uninitialized)
 #include <QIcon>
 #include <QString>
+#include <QStringList>
 #include <QVariant>
 CLANG_DIAG_ON(deprecated)
 CLANG_DIAG_ON(uninitialized)
@@ -67,6 +68,13 @@ bool openImage(const QVariant& value);
 
 // File dialog for an image; empty if cancelled.
 QString chooseImageFile(QWidget* parent, const QString& startPath);
+
+// Color dialog for a color value ("#rrggbb" / "#rrggbbaa"); empty if cancelled.
+QString chooseColor(QWidget* parent, const QString& startHex);
+
+// The value types the dashboard offers, in menu order, with their labels.
+QStringList typeNames(); // "text", "number", "bool", "color", "image"
+QString typeLabelForName(const QString& name); // "Text", "Number", "On/Off", "Color", "Image"
 
 // Small icon button opening a menu of a panel's actions (like the editor
 // panes' corner button). Add the actions to *menu.

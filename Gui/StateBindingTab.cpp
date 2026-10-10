@@ -57,6 +57,8 @@ CLANG_DIAG_ON(uninitialized)
 #define kStateBindingTextPluginID "net.fxarena.openfx.Text"
 #define kStateBindingTextParamName "text"
 #define kStateBindingReadParamName "filename"
+// Text nodes bound to a color value: the parameter that takes it.
+#define kStateBindingTextColorParamName "color"
 
 // The bound key is saved in the project as a hidden user parameter on a
 // hidden page, so the binding survives reopening the project and can be read
@@ -289,7 +291,7 @@ StateBindingTab::onStoreKeysChanged()
 bool
 StateBindingTab::valueFitsNode(const QVariant& value) const
 {
-    return Kv::typeOf(value) == (_imageNode ? Kv::eTypeImage : Kv::eTypeText);
+    return Kv::fitsBinding( value, QString::fromUtf8(_imageNode ? "image" : "text") );
 }
 
 void
@@ -331,10 +333,11 @@ StateBindingTab::refreshPreview()
     } else {
         const QVariant value = _store->get(_boundKey);
         if ( !valueFitsNode(value) ) {
-            _valueLabel->setText( _imageNode ? tr("%1 is text, not an image: the file is left unchanged.").arg(_boundKey)
+            _valueLabel->setText( _imageNode ? tr("%1 is not an image: the file is left unchanged.").arg(_boundKey)
                                              : tr("%1 is an image, not text: the text is left unchanged.").arg(_boundKey) );
         } else {
-            _valueLabel->setText( Kv::displayText(value) );
+            _valueLabel->setText( (Kv::typeOf(value) == Kv::eTypeColor) ? tr("Text color %1").arg( Kv::displayText(value) )
+                                                                        : Kv::displayText(value) );
             _valueLabel->setToolTip( KvGui::tooltip(value) );
         }
     }
@@ -349,6 +352,23 @@ StateBindingTab::applyValueToNode()
 
     const QVariant value = _store->get(_boundKey);
     if ( !valueFitsNode(value) ) {
+        return;
+    }
+
+    // Text node and a color: its text color (linear, as color parameters store it).
+    double rgba[4];
+    if ( !_imageNode && Kv::linearColor(value, rgba) ) {
+        NodePtr node = _node.lock();
+        KnobColorPtr color = node ? std::dynamic_pointer_cast<KnobColor>( node->getKnobByName(kStateBindingTextColorParamName) ) : KnobColorPtr();
+        if (!color) {
+            return;
+        }
+        if (color->getDimension() >= 4) {
+            color->setValues(rgba[0], rgba[1], rgba[2], rgba[3], ViewSpec::all(), NATRON_ENUM::eValueChangedReasonNatronInternalEdited);
+        } else {
+            color->setValues(rgba[0], rgba[1], rgba[2], ViewSpec::all(), NATRON_ENUM::eValueChangedReasonNatronInternalEdited);
+        }
+
         return;
     }
 

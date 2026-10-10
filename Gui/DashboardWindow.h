@@ -115,7 +115,10 @@ private Q_SLOTS:
     void onTableItemDoubleClicked(QTableWidgetItem* item);
     void onValueIconClicked(const QModelIndex& index);
     void onNewTypeChanged(int index);
-    void onNewValueChooseImage();
+    void onNewValueActionClicked(); // image: choose a file; color: choose a color
+    void onSearchTextChanged();
+    void onImportValues();
+    void onExportValues();
     void onTableSelectionChanged();
     void onDataContextMenu(const QPoint& pos);
     void onNewKeyTextChanged(const QString& text);
@@ -142,6 +145,14 @@ private:
     void rebuildTable();
     int findRow(const QString& key) const;
     void setRowValue(int row, const QVariant& value);
+    // Edits the value of row: opens an image (open) or chooses another one,
+    // toggles on/off, picks a color, or edits text / numbers in place.
+    void editValue(int row, bool open);
+    // The value typed in the add form, or an invalid QVariant (*error set).
+    QVariant newValueFromForm(QString* error) const;
+    QString newTypeName() const;
+    // Hides the rows not matching the search.
+    void applySearch();
 
 
     ::StateStore* _store;
@@ -161,6 +172,7 @@ private:
     QPushButton* _addButton;
     QAction* _removeAction;
     QUndoStack* _undoStack; // scene and data changes (Edit menu)
+    QLineEdit* _searchEdit; // filters the Data table (Ctrl+F)
     QAction* _newProjectAction;  // Ctrl+Shift+N in the Projects panel
     QAction* _openProjectAction; // Ctrl+O in the Projects panel
 

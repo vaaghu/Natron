@@ -42,6 +42,7 @@ CLANG_DIAG_ON(uninitialized)
 #include "Custom/scene/SceneStore.h"
 
 class QAction;
+class QFileSystemWatcher;
 class QCheckBox;
 class QComboBox;
 class QDoubleSpinBox;
@@ -136,6 +137,11 @@ private Q_SLOTS:
     void onRenderProgressChanged(const QString& sceneId, const QString& item);
     void onStateChanged();
 
+    // A project file of the opened scene changed (saved from the editor):
+    // re-read it, then refresh the scene (coalesced by _projectReloadTimer).
+    void onProjectFileChanged(const QString& path);
+    void onProjectReloadTimeout();
+
     void onStateValueChanged();
     void onKeyMappingEdited();
     void onKvCellDoubleClicked(int row, int column);
@@ -192,6 +198,8 @@ private:
 
     QString _currentSceneId;
     QHash<QString, ProjectInfo> _infos; // per project, read from the .ntp
+    QFileSystemWatcher* _projectWatcher; // the opened scene's project files
+    QTimer _projectReloadTimer;
 
     // Widgets of an item row (created once per showScene()).
     struct RowWidgets

@@ -40,6 +40,7 @@ CLANG_DIAG_OFF(uninitialized)
 #include <QDir>
 #include <QFileDialog>
 #include <QFileInfo>
+#include <QFileSystemWatcher>
 #include <QFont>
 #include <QHBoxLayout>
 #include <QHeaderView>
@@ -234,6 +235,8 @@ ScenePanel::ScenePanel(::SceneStore* scenes,
     , _state(state)
     , _currentSceneId()
     , _infos()
+    , _projectWatcher(0)
+    , _projectReloadTimer()
     , _rows()
     , _sceneList(0)
     , _sceneListPart(0)
@@ -278,12 +281,39 @@ ScenePanel::ScenePanel(::SceneStore* scenes,
         QObject::connect( _state, SIGNAL(keysChanged()), this, SLOT(onStateChanged()) );
     }
 
+    // Saving a project (renamed nodes, new bindings, Write nodes) updates the
+    // opened scene. A save can touch the file several times: refresh once.
+    _projectWatcher = new QFileSystemWatcher(this);
+    _projectReloadTimer.setSingleShot(true);
+    _projectReloadTimer.setInterval(300);
+    QObject::connect( _projectWatcher, SIGNAL(fileChanged(QString)), this, SLOT(onProjectFileChanged(QString)) );
+    QObject::connect( &_projectReloadTimer, SIGNAL(timeout()), this, SLOT(onProjectReloadTimeout()) );
+
     refreshSceneList();
     showScene();
 }
 
 ScenePanel::~ScenePanel()
 {
+}
+
+void
+ScenePanel::onProjectFileChanged(const QString& path)
+{
+    _infos.remove(path);
+    // Saved by writing a new file over the old one: the watch is lost, add it again.
+    if ( QFileInfo(path).exists() && !_projectWatcher->files().contains(path) ) {
+        _projectWatcher->addPath(path);
+    }
+    _projectReloadTimer.start();
+}
+
+void
+ScenePanel::onProjectReloadTimeout()
+{
+    if ( hasCurrentScene() ) {
+        showScene();
+    }
 }
 
 QWidget*
@@ -643,6 +673,21 @@ ScenePanel::showScene()
     }
 
     _detailStack->setCurrentIndex(1);
+
+    // Watch the scene's project files (and only those).
+    const QStringList projects = scene.projects();
+    const QStringList watched = _projectWatcher->files();
+    for (int i = 0; i < watched.size(); ++i) {
+        if ( !projects.contains( watched.at(i) ) ) {
+            _projectWatcher->removePath( watched.at(i) );
+        }
+    }
+    for (int i = 0; i < projects.size(); ++i) {
+        if ( !watched.contains( projects.at(i) ) && QFileInfo( projects.at(i) ).exists() ) {
+            _projectWatcher->addPath( projects.at(i) );
+        }
+    }
+
     _sceneTitle->setText(scene.name);
     const int writers = scene.items.size();
     const int projectCount = scene.projects().size();

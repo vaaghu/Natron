@@ -264,6 +264,18 @@ DockTitleBar::DockTitleBar(QDockWidget* dock)
     QObject::connect( _dock, SIGNAL(topLevelChanged(bool)), this, SLOT(onTopLevelChanged(bool)) );
 }
 
+QSize
+DockTitleBar::sizeHint() const
+{
+    return QSize( fontMetrics().boundingRect( _dock->windowTitle() ).width() + 2 * height(), height() );
+}
+
+QSize
+DockTitleBar::minimumSizeHint() const
+{
+    return QSize( 2 * height(), height() );
+}
+
 DockTitleBar*
 DockTitleBar::install(QDockWidget* dock)
 {

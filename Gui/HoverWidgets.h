@@ -165,6 +165,11 @@ public:
 
     static DockTitleBar* install(QDockWidget* dock);
 
+    // The dock lays its content out from these: always the bar's full height,
+    // also while the buttons are hidden.
+    virtual QSize sizeHint() const OVERRIDE;
+    virtual QSize minimumSizeHint() const OVERRIDE;
+
 protected:
 
     virtual bool eventFilter(QObject* watched, QEvent* e) OVERRIDE;

@@ -25,7 +25,8 @@
 #   --no-portable  installer only, no portable .tar.xz archive (saves a few minutes)
 #   --rebuild      compile even if the cache holds a build of this source
 #   --committed    refuse to build with uncommitted changes (build = HEAD)
-#   --qt4, --qt5   Qt to build against (default: 5)
+#   --qt4, --qt5   Qt to build against (default: 4; the natron-sdk image has no
+#                  shiboken2 generator, which Qt 5 builds need for the Python bindings)
 #
 # Platforms: the build scripts (tools/jenkins) build for the machine they run
 # on; they cannot cross-compile. Each platform is built on its own host:
@@ -132,7 +133,7 @@ fi
 
 if [ "$PLATFORM" = "linux" ]; then
     CACHE="${NATRON_BUILD_CACHE:-$(dirname "$SRC")/natron-build-cache}"
-    QT="${QT:-5}" # the scripts would otherwise pick it from the branch name
+    QT="${QT:-4}" # the scripts would otherwise pick it from the branch name
 else
     CACHE="${NATRON_BUILD_CACHE:-$(dirname "$SRC")/natron-build-cache-$PLATFORM}"
 fi

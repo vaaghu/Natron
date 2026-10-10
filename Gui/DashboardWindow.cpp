@@ -75,6 +75,7 @@ CLANG_DIAG_ON(uninitialized)
 #include "Custom/server/HttpServer.h"
 #include "Custom/state/Json.h"
 #include "Custom/state/KvValue.h"
+#include "Custom/scene/SceneRenderer.h"
 #include "Custom/scene/SceneStore.h"
 #include "Custom/state/StateStore.h"
 

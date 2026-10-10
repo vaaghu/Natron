@@ -287,6 +287,14 @@ export DEBUG_SCRIPTS=1
 export SKIP_NATRON_TESTS="$([ "$TESTS" = "1" ] && echo 0 || echo 1)"
 [ -n "$QT" ] && export QT_VERSION_MAJOR="$QT"
 
+# Prefixes each line with the time, so slow steps show in the log.
+timestamp() {
+    local line
+    while IFS= read -r line || [ -n "$line" ]; do
+        printf '%(%H:%M:%S)T %s\n' -1 "$line"
+    done
+}
+
 START=$(date +%s)
 STATUS=0
 
@@ -316,7 +324,7 @@ prepare_and_build /src /home $NATRON_BIN"
         echo "Started. Follow with: docker logs -f $CONTAINER"
         exit 0
     fi
-    docker run --rm "${RUN_OPTS[@]}" "$IMAGE" /bin/bash -c "$INNER" 2>&1 | tee "$LOG" || STATUS=$? # pipefail: docker's status
+    docker run --rm "${RUN_OPTS[@]}" "$IMAGE" /bin/bash -c "$INNER" 2>&1 | timestamp | tee "$LOG" || STATUS=$? # pipefail: docker's status
 else
     # Directly on this machine. The scripts update themselves from the
     # checkout, so they run from a copy in the cache, not from tools/.
@@ -330,7 +338,7 @@ else
         esac
     fi
     LAUNCH=(bash launchBuildMain.sh)
-    (cd "$CACHE/scripts" && prepare_and_build "$SRC" "$CACHE" "$NATRON_BIN") 2>&1 | tee "$LOG" || STATUS=$?
+    (cd "$CACHE/scripts" && prepare_and_build "$SRC" "$CACHE" "$NATRON_BIN") 2>&1 | timestamp | tee "$LOG" || STATUS=$?
     # The scripts write to <cache>/builds_archive: move the result to the output directory.
     if [ -d "$CACHE/builds_archive/$NAME/$NUMBER" ]; then
         mkdir -p "$OUT/$NAME"

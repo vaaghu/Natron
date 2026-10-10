@@ -36,6 +36,12 @@ CLANG_DIAG_OFF(uninitialized)
 CLANG_DIAG_ON(deprecated)
 CLANG_DIAG_ON(uninitialized)
 
+class QBoxLayout;
+class QLabel;
+class QListView;
+class QMenu;
+class QTableView;
+class QToolButton;
 class QWidget;
 
 NATRON_NAMESPACE_ENTER
@@ -61,6 +67,18 @@ bool openImage(const QVariant& value);
 
 // File dialog for an image; empty if cancelled.
 QString chooseImageFile(QWidget* parent, const QString& startPath);
+
+// Small icon button opening a menu of a panel's actions (like the editor
+// panes' corner button). Add the actions to *menu.
+QToolButton* panelMenuButton(QWidget* parent, QMenu** menu);
+
+// Dashboard look, shared by every panel: margins and spacing of a panel's
+// layout; tables and lists without grid or focus box, with alternating
+// rows and left-aligned headers; grey secondary text.
+void setPanelLayout(QBoxLayout* layout);
+void styleTable(QTableView* table);
+void styleList(QListView* list);
+QLabel* secondaryLabel(QWidget* parent);
 }
 
 NATRON_NAMESPACE_EXIT

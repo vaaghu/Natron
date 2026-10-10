@@ -45,7 +45,9 @@ class QEvent;
 class QLabel;
 class QLineEdit;
 class QListWidget;
+class QAction;
 class QListWidgetItem;
+class QPoint;
 class QPushButton;
 class QTableWidget;
 class QTableWidgetItem;
@@ -104,7 +106,7 @@ private Q_SLOTS:
     void onOpenRecentClicked();
     void onAddToSceneClicked();
     void onRecentItemActivated(QListWidgetItem* item);
-    void onRecentSelectionChanged();
+    void onRecentContextMenu(const QPoint& pos);
 
     void onStoreValueChanged(const QString& key);
     void onStoreKeysChanged();
@@ -114,6 +116,7 @@ private Q_SLOTS:
     void onNewTypeChanged(int index);
     void onNewValueChooseImage();
     void onTableSelectionChanged();
+    void onDataContextMenu(const QPoint& pos);
     void onNewKeyTextChanged(const QString& text);
     void onAddClicked();
     void onRemoveClicked();
@@ -146,8 +149,6 @@ private:
     ::SceneRenderer* _sceneRenderer;
 
     QListWidget* _recentList;
-    QPushButton* _openRecentButton;
-    QPushButton* _addToSceneButton;
     ScenePanel* _scenePanel;
     QByteArray _defaultLayout; // dock layout before the saved one is restored
 
@@ -157,7 +158,7 @@ private:
     QLineEdit* _newKeyEdit;
     HoverLineEdit* _newValueEdit;
     QPushButton* _addButton;
-    QPushButton* _removeButton;
+    QAction* _removeAction;
 
     // Set while the table is filled from the store, so the resulting
     // itemChanged signals are not written back to the store.

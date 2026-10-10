@@ -27,22 +27,33 @@
 
 CLANG_DIAG_OFF(deprecated)
 CLANG_DIAG_OFF(uninitialized)
+#include <QBoxLayout>
+#include <QApplication>
 #include <QDesktopServices>
 #include <QDir>
 #include <QFileDialog>
 #include <QFileInfo>
+#include <QHeaderView>
+#include <QLabel>
+#include <QListView>
+#include <QMenu>
 #include <QPixmap>
+#include <QTableView>
 #include <QTextDocument>
+#include <QToolButton>
 #include <QUrl>
 CLANG_DIAG_ON(deprecated)
 CLANG_DIAG_ON(uninitialized)
 
 #include "Gui/GuiApplicationManager.h" // appPTR
+#include "Gui/HoverWidgets.h"
 
 #include "Custom/state/KvValue.h"
 
 #define kKvIconSize 16
 #define kKvTooltipPreviewWidth 200
+#define kPanelMargin 6
+#define kPanelSpacing 4
 
 NATRON_NAMESPACE_ENTER
 
@@ -146,6 +157,78 @@ chooseImageFile(QWidget* parent,
     return QFileDialog::getOpenFileName(parent, QObject::tr("Choose Image"),
                                         startPath.isEmpty() ? QString() : QFileInfo(startPath).absolutePath(),
                                         filter);
+}
+
+QToolButton*
+panelMenuButton(QWidget* parent,
+                QMenu** menu)
+{
+    QToolButton* button = new QToolButton(parent);
+
+    button->setIcon( natronIcon(NATRON_ENUM::NATRON_PIXMAP_TAB_WIDGET_LAYOUT_BUTTON) );
+    button->setAutoRaise(true);
+    button->setFocusPolicy(Qt::NoFocus);
+    button->setPopupMode(QToolButton::InstantPopup);
+    button->setStyleSheet( QString::fromUtf8("QToolButton::menu-indicator { image: none; }") );
+    *menu = new QMenu(button);
+    button->setMenu(*menu);
+
+    return button;
+}
+
+void
+setPanelLayout(QBoxLayout* layout)
+{
+    layout->setContentsMargins(kPanelMargin, kPanelMargin, kPanelMargin, kPanelMargin);
+    layout->setSpacing(kPanelSpacing);
+}
+
+// Alternate rows: a shade lighter than the views' background (the style
+// sheet's soft background, the palette's Light).
+static QString
+alternateRowStyle(const char* viewClass)
+{
+    const QColor alternate = QApplication::palette().color(QPalette::Light).lighter(112);
+
+    return QString::fromUtf8("%1 { alternate-background-color: %2; }").arg( QString::fromUtf8(viewClass) ).arg( alternate.name() );
+}
+
+void
+styleTable(QTableView* table)
+{
+    table->setShowGrid(false);
+    table->setAlternatingRowColors(true);
+    table->setStyleSheet( alternateRowStyle("QTableView") );
+    table->setSelectionBehavior(QAbstractItemView::SelectRows);
+    table->setItemDelegate( new PlainItemDelegate(table) );
+    table->setHorizontalScrollMode(QAbstractItemView::ScrollPerPixel);
+    table->setVerticalScrollMode(QAbstractItemView::ScrollPerPixel);
+    table->verticalHeader()->setVisible(false);
+    table->verticalHeader()->setDefaultSectionSize(table->fontMetrics().height() + 10);
+    table->horizontalHeader()->setDefaultAlignment(Qt::AlignLeft | Qt::AlignVCenter);
+    table->horizontalHeader()->setHighlightSections(false);
+    table->horizontalHeader()->setStretchLastSection(true);
+}
+
+void
+styleList(QListView* list)
+{
+    list->setAlternatingRowColors(true);
+    list->setStyleSheet( alternateRowStyle("QListView") );
+    list->setItemDelegate( new PlainItemDelegate(list) );
+}
+
+QLabel*
+secondaryLabel(QWidget* parent)
+{
+    QLabel* label = new QLabel(parent);
+    // The application style sheet sets label colors: dim the text color there.
+    const QColor text = QApplication::palette().color(QPalette::Text);
+
+    label->setStyleSheet( QString::fromUtf8("QLabel { color: rgba(%1, %2, %3, 60%); }").arg( text.red() ).arg( text.green() ).arg( text.blue() ) );
+    label->setTextFormat(Qt::PlainText);
+
+    return label;
 }
 } // namespace KvGui
 

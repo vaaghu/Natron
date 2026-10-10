@@ -33,6 +33,7 @@ CLANG_DIAG_OFF(uninitialized)
 #include <QDoubleSpinBox>
 #include <QStyle>
 #include <QComboBox>
+#include <QDate>
 #include <QDesktopServices>
 #include <QDialog>
 #include <QDialogButtonBox>
@@ -46,13 +47,17 @@ CLANG_DIAG_OFF(uninitialized)
 #include <QLabel>
 #include <QLineEdit>
 #include <QListWidget>
+#include <QMenu>
 #include <QMessageBox>
 #include <QIcon>
+#include <QItemSelectionModel>
 #include <QPixmap>
 #include <QProgressBar>
 #include <QPushButton>
 #include <QStackedWidget>
+#include <QStandardItemModel>
 #include <QTableWidget>
+#include <QToolButton>
 #include <QTreeWidget>
 #include <QUrl>
 #include <QVBoxLayout>
@@ -68,16 +73,15 @@ CLANG_DIAG_ON(uninitialized)
 #include "Custom/scene/SceneStore.h"
 #include "Custom/state/KvValue.h"
 #include "Custom/state/StateStore.h"
+#include "Gui/HoverWidgets.h"
 #include "Gui/KvGuiUtils.h"
 
 #define kSceneColumnPreview 0
 #define kSceneColumnProject 1
-#define kSceneColumnWriter 2
-#define kSceneColumnProgress 3
-#define kSceneColumnStatus 4
-#define kSceneColumnControls 5
-#define kSceneColumnRemaining 6
-#define kSceneColumnCount 7
+#define kSceneColumnProgress 2
+#define kSceneColumnStatus 3
+#define kSceneColumnControls 4
+#define kSceneColumnCount 5
 
 #define kSceneControlButtonSize 22
 #define kSceneControlIconSize 20
@@ -125,6 +129,82 @@ makeControlButton(const QIcon& icon,
     return button;
 }
 
+// Keys matching typed text, best first: starts with it, contains it, then
+// has its letters in order (fuzzy). Case-insensitive.
+QStringList
+fuzzyMatches(const QStringList& keys,
+             const QString& typed)
+{
+    const QString query = typed.toLower();
+    QStringList ranked[3];
+
+    for (int i = 0; i < keys.size(); ++i) {
+        const QString key = keys.at(i).toLower();
+        if ( key.startsWith(query) ) {
+            ranked[0] << keys.at(i);
+        } else if ( key.contains(query) ) {
+            ranked[1] << keys.at(i);
+        } else {
+            int at = 0;
+            for (int c = 0; c < query.size() && at >= 0; ++c) {
+                at = key.indexOf(query.at(c), at);
+                if (at >= 0) {
+                    ++at;
+                }
+            }
+            if (at >= 0) {
+                ranked[2] << keys.at(i);
+            }
+        }
+    }
+
+    return ranked[0] + ranked[1] + ranked[2];
+}
+
+// "Uses key" combo: opening the list with part of a key typed shows only the
+// keys matching it.
+class KeyComboBox
+    : public QComboBox
+{
+public:
+
+    explicit KeyComboBox(const QStringList& keys)
+        : QComboBox()
+        , _keys(keys)
+    {
+        setEditable(true);
+        setInsertPolicy(QComboBox::NoInsert);
+        addItems(keys);
+    }
+
+    virtual void showPopup() OVERRIDE
+    {
+        const QString typed = currentText().trimmed();
+        const QStringList shown = ( typed.isEmpty() || _keys.contains(typed) ) ? _keys : fuzzyMatches(_keys, typed);
+        const bool wasBlocked = blockSignals(true);
+
+        clear();
+        if ( shown.isEmpty() ) {
+            addItem( QObject::tr("No matching key") );
+            QStandardItemModel* items = qobject_cast<QStandardItemModel*>( model() );
+            if (items) {
+                items->item(0)->setEnabled(false);
+            }
+        } else {
+            addItems(shown);
+        }
+        setCurrentIndex( shown.indexOf(typed) );
+        setEditText(typed);
+        blockSignals(wasBlocked);
+
+        QComboBox::showPopup();
+    }
+
+private:
+
+    QStringList _keys;
+};
+
 // Value types a project binds key for ("text", "image").
 QStringList
 boundTypes(const ProjectInfo& info,
@@ -156,19 +236,14 @@ ScenePanel::ScenePanel(::SceneStore* scenes,
     , _infos()
     , _rows()
     , _sceneList(0)
-    , _renameSceneButton(0)
-    , _deleteSceneButton(0)
     , _sceneListPart(0)
     , _kvPart(0)
     , _ndiPart(0)
     , _detailStack(0)
     , _sceneTitle(0)
-    , _outputDirLabel(0)
-    , _clearOutputDirButton(0)
-    , _removeProjectsButton(0)
-    , _openInEditorButton(0)
-    , _renderAllButton(0)
-    , _renderSelectedButton(0)
+    , _sceneSummary(0)
+    , _clearOutputDirAction(0)
+    , _renderButton(0)
     , _stopButton(0)
     , _projectTable(0)
     , _kvTable(0)
@@ -216,26 +291,17 @@ ScenePanel::createSceneList()
 {
     QWidget* w = new QWidget(this);
     QVBoxLayout* layout = new QVBoxLayout(w);
-    layout->setContentsMargins(4, 4, 4, 4);
+    KvGui::setPanelLayout(layout);
 
     _sceneList = new QListWidget(w);
     _sceneList->setSelectionMode(QAbstractItemView::SingleSelection);
+    KvGui::styleList(_sceneList);
+    EmptyViewHint::install( _sceneList, tr("Right-click to create a scene.") );
+    _sceneList->setContextMenuPolicy(Qt::CustomContextMenu);
+    _sceneList->setToolTip( tr("Right-click to create, rename or delete scenes.") );
     layout->addWidget(_sceneList);
 
-    QHBoxLayout* buttons = new QHBoxLayout;
-    QPushButton* newButton = new QPushButton(tr("New"), w);
-    newButton->setToolTip( tr("Create a scene: a named group of projects rendered together.") );
-    _renameSceneButton = new QPushButton(tr("Rename"), w);
-    _deleteSceneButton = new QPushButton(tr("Delete"), w);
-    _deleteSceneButton->setToolTip( tr("Delete the scene. The project files are not touched.") );
-    buttons->addWidget(newButton);
-    buttons->addWidget(_renameSceneButton);
-    buttons->addWidget(_deleteSceneButton);
-    layout->addLayout(buttons);
-
-    QObject::connect( newButton, SIGNAL(clicked()), this, SLOT(onNewSceneClicked()) );
-    QObject::connect( _renameSceneButton, SIGNAL(clicked()), this, SLOT(onRenameSceneClicked()) );
-    QObject::connect( _deleteSceneButton, SIGNAL(clicked()), this, SLOT(onDeleteSceneClicked()) );
+    QObject::connect( _sceneList, SIGNAL(customContextMenuRequested(QPoint)), this, SLOT(onSceneListContextMenu(QPoint)) );
     QObject::connect( _sceneList, SIGNAL(itemSelectionChanged()), this, SLOT(onSceneSelectionChanged()) );
 
     return w;
@@ -246,99 +312,83 @@ ScenePanel::createSceneDetail()
 {
     _detailStack = new QStackedWidget(this);
 
-    QLabel* empty = new QLabel(tr("Create a scene, or select one to see its projects."), _detailStack);
+    QLabel* empty = KvGui::secondaryLabel(_detailStack);
+    empty->setText( tr("Select a scene, or right-click the scene list to create one.") );
     empty->setAlignment(Qt::AlignCenter);
     empty->setWordWrap(true);
     _detailStack->addWidget(empty);
 
     QWidget* detail = new QWidget(_detailStack);
     QVBoxLayout* layout = new QVBoxLayout(detail);
-    layout->setContentsMargins(4, 4, 4, 4);
+    KvGui::setPanelLayout(layout);
 
     _sceneTitle = new QLabel(detail);
+    _sceneTitle->setTextFormat(Qt::PlainText);
     QFont titleFont = _sceneTitle->font();
     titleFont.setBold(true);
-    titleFont.setPointSizeF(titleFont.pointSizeF() * 1.2);
     _sceneTitle->setFont(titleFont);
-    layout->addWidget(_sceneTitle);
+    _sceneSummary = KvGui::secondaryLabel(detail); // "1 Write node · 1 project · Output: ..."
 
-    QHBoxLayout* outputRow = new QHBoxLayout;
-    outputRow->addWidget( new QLabel(tr("Output folder:"), detail) );
-    _outputDirLabel = new QLabel(detail);
-    _outputDirLabel->setTextFormat(Qt::PlainText);
-    _outputDirLabel->setTextInteractionFlags(Qt::TextSelectableByMouse);
-    outputRow->addWidget(_outputDirLabel, 1);
-    QPushButton* browseOutput = new QPushButton(tr("Choose..."), detail);
-    browseOutput->setToolTip( tr("Write this scene's renders to a folder of their own (same file names as the projects' Write nodes), "
-                                 "so the same project rendered in another scene is not overwritten.") );
-    _clearOutputDirButton = new QPushButton(tr("Use project paths"), detail);
-    _clearOutputDirButton->setToolTip( tr("Write where each project's Write node says.") );
-    outputRow->addWidget(browseOutput);
-    outputRow->addWidget(_clearOutputDirButton);
-    layout->addLayout(outputRow);
-    QObject::connect( browseOutput, SIGNAL(clicked()), this, SLOT(onChooseOutputDirClicked()) );
-    QObject::connect( _clearOutputDirButton, SIGNAL(clicked()), this, SLOT(onClearOutputDirClicked()) );
-
-    QHBoxLayout* buttons = new QHBoxLayout;
-    QPushButton* addButton = new QPushButton(tr("Add Projects..."), detail);
-    addButton->setToolTip( tr("Add the Write nodes of project files to this scene (for projects with several Write nodes, "
-                              "you pick which). You can also select a recent project and use \"Add to Scene\".") );
-    _removeProjectsButton = new QPushButton(tr("Remove"), detail);
-    _removeProjectsButton->setToolTip( tr("Remove the selected Write nodes from the scene (files are not touched).") );
-    _openInEditorButton = new QPushButton(tr("Open in Editor"), detail);
-    _renderAllButton = new QPushButton(tr("Render All"), detail);
-    _renderAllButton->setToolTip( tr("Render every Write node of the scene with the current KV values, one after the other.") );
-    _renderSelectedButton = new QPushButton(tr("Render Selected"), detail);
-    _stopButton = new QPushButton(tr("Stop All"), detail);
-    _stopButton->setToolTip( tr("Stop the current render and clear the queue.") );
-    buttons->addWidget(addButton);
-    buttons->addWidget(_removeProjectsButton);
-    buttons->addWidget(_openInEditorButton);
-    buttons->addStretch();
-    buttons->addWidget(_renderAllButton);
-    buttons->addWidget(_renderSelectedButton);
-    buttons->addWidget(_stopButton);
-    layout->addLayout(buttons);
+    // Name, summary, the render buttons, and the scene's other actions under the menu icon.
+    QHBoxLayout* header = new QHBoxLayout;
+    header->addWidget(_sceneTitle);
+    header->addSpacing(8);
+    header->addWidget(_sceneSummary, 1);
+    _renderButton = makeControlButton( playerIcon(NATRON_ENUM::NATRON_PIXMAP_PLAYER_PLAY_DISABLED, NATRON_ENUM::NATRON_PIXMAP_PLAYER_PLAY_DISABLED),
+                                       tr("Render all Write nodes"), detail );
+    _stopButton = makeControlButton( playerIcon(NATRON_ENUM::NATRON_PIXMAP_PLAYER_STOP_DISABLED, NATRON_ENUM::NATRON_PIXMAP_PLAYER_STOP_DISABLED),
+                                     tr("Stop rendering and clear the queue"), detail );
+    header->addWidget(_renderButton);
+    header->addWidget(_stopButton);
+    QMenu* menu = 0;
+    QToolButton* menuButton = KvGui::panelMenuButton(detail, &menu);
+    menuButton->setToolTip( tr("Scene actions") );
+    QAction* addProjects = menu->addAction( tr("Add Projects..."), this, SLOT(onAddProjectsClicked()) );
+    addProjects->setToolTip( tr("Add the Write nodes of one or more projects to this scene.") );
+    menu->addSeparator();
+    menu->addAction( tr("Choose Output Folder..."), this, SLOT(onChooseOutputDirClicked()) );
+    _clearOutputDirAction = menu->addAction( tr("Use Project Output Paths"), this, SLOT(onClearOutputDirClicked()) );
+    header->addWidget(menuButton);
+    layout->addLayout(header);
 
     _projectTable = new QTableWidget(0, kSceneColumnCount, detail);
     QStringList headers;
-    headers << tr("Preview") << tr("Project") << tr("Writer") << tr("Progress") << tr("Status") << tr("Controls") << tr("Time remaining");
+    headers << tr("Preview") << tr("Project") << tr("Progress") << tr("Status") << tr("Controls");
     _projectTable->setHorizontalHeaderLabels(headers);
-    _projectTable->verticalHeader()->setVisible(false);
+    KvGui::styleTable(_projectTable);
     _projectTable->verticalHeader()->setDefaultSectionSize(kSceneThumbnailHeight + 8);
     _projectTable->setIconSize( QSize(kSceneThumbnailWidth, kSceneThumbnailHeight) );
-    _projectTable->setSelectionBehavior(QAbstractItemView::SelectRows);
     _projectTable->setEditTriggers(QAbstractItemView::NoEditTriggers);
-    _projectTable->setWordWrap(true);
-    _projectTable->horizontalHeader()->setStretchLastSection(true);
+    _projectTable->setContextMenuPolicy(Qt::CustomContextMenu);
     _projectTable->setColumnWidth(kSceneColumnPreview, kSceneThumbnailWidth + 12);
-    _projectTable->setColumnWidth(kSceneColumnProject, 160);
-    _projectTable->setColumnWidth(kSceneColumnWriter, 110);
+    _projectTable->setColumnWidth(kSceneColumnProject, 170);
     _projectTable->setColumnWidth(kSceneColumnProgress, 110);
-    _projectTable->setColumnWidth(kSceneColumnStatus, 190);
-    _projectTable->setColumnWidth(kSceneColumnControls, 100);
-    _projectTable->setColumnWidth(kSceneColumnRemaining, 120);
-    _projectTable->setToolTip( tr("Double-click a preview to open the rendered output, or a project to open it in the editor.") );
+    _projectTable->setColumnWidth(kSceneColumnStatus, 220);
+    _projectTable->setToolTip( tr("Double-click a preview to view the output, or a project to open it. Right-click for more actions.") );
+    TableColumnMenu::install( _projectTable, QString::fromUtf8("dashboard/columns/scene"), QList<int>() );
+    EmptyViewHint::install( _projectTable, tr("No Write nodes. Right-click to add projects.") );
     layout->addWidget(_projectTable, 1);
 
     QWidget* kvBox = new QWidget(this);
     QVBoxLayout* kvLayout = new QVBoxLayout(kvBox);
-    kvLayout->setContentsMargins(4, 4, 4, 4);
+    KvGui::setPanelLayout(kvLayout);
     _kvTable = new QTableWidget(0, 5, kvBox);
     QStringList kvHeaders;
-    kvHeaders << tr("Key in projects") << tr("Uses key") << tr("Type") << tr("Value") << tr("Used by");
+    kvHeaders << tr("Component") << tr("Uses key") << tr("Type") << tr("Value") << tr("Used by");
     _kvTable->setHorizontalHeaderLabels(kvHeaders);
-    _kvTable->verticalHeader()->setVisible(false);
+    KvGui::styleTable(_kvTable);
+    _kvTable->verticalHeader()->setDefaultSectionSize( _kvTable->fontMetrics().height() + 14 ); // fits the key combo
     _kvTable->setEditTriggers(QAbstractItemView::NoEditTriggers);
-    _kvTable->setSelectionBehavior(QAbstractItemView::SelectRows);
-    _kvTable->horizontalHeader()->setStretchLastSection(true);
     _kvTable->setColumnWidth(0, 150);
     _kvTable->setColumnWidth(1, 170);
     _kvTable->setColumnWidth(2, 70);
     _kvTable->setColumnWidth(3, 240);
-    _kvTable->setToolTip( tr("\"Uses key\": which store key this scene reads for each key bound in its projects "
-                             "(e.g. PlayerName1 -> PlayerName2). The project files are not changed. "
-                             "Double-click an image to open it. Edit values in the Data panel, then re-render.") );
+    QList<int> kvHidden;
+    kvHidden << 2 << 4; // Type (the value shows an image icon), Used by (in the component tooltip)
+    TableColumnMenu::install(_kvTable, QString::fromUtf8("dashboard/columns/kvs"), kvHidden);
+    EmptyViewHint::install( _kvTable, tr("No keys are bound in this scene's projects.") );
+    _kvTable->setToolTip( tr("The keys bound in this scene's projects and the store key each one reads. "
+                             "Values are edited in the Data panel.") );
     QObject::connect( _kvTable, SIGNAL(cellDoubleClicked(int,int)), this, SLOT(onKvCellDoubleClicked(int,int)) );
     kvLayout->addWidget(_kvTable);
     _kvPart = kvBox;
@@ -351,14 +401,11 @@ ScenePanel::createSceneDetail()
 
     _detailStack->addWidget(detail);
 
-    QObject::connect( addButton, SIGNAL(clicked()), this, SLOT(onAddProjectsClicked()) );
-    QObject::connect( _removeProjectsButton, SIGNAL(clicked()), this, SLOT(onRemoveProjectsClicked()) );
-    QObject::connect( _openInEditorButton, SIGNAL(clicked()), this, SLOT(onOpenInEditorClicked()) );
-    QObject::connect( _renderAllButton, SIGNAL(clicked()), this, SLOT(onRenderAllClicked()) );
-    QObject::connect( _renderSelectedButton, SIGNAL(clicked()), this, SLOT(onRenderSelectedClicked()) );
+    QObject::connect( _renderButton, SIGNAL(clicked()), this, SLOT(onRenderClicked()) );
     QObject::connect( _stopButton, SIGNAL(clicked()), this, SLOT(onStopClicked()) );
     QObject::connect( _projectTable, SIGNAL(itemSelectionChanged()), this, SLOT(onProjectSelectionChanged()) );
     QObject::connect( _projectTable, SIGNAL(cellDoubleClicked(int,int)), this, SLOT(onProjectCellDoubleClicked(int,int)) );
+    QObject::connect( _projectTable, SIGNAL(customContextMenuRequested(QPoint)), this, SLOT(onProjectTableContextMenu(QPoint)) );
 
     return _detailStack;
 }
@@ -415,9 +462,6 @@ ScenePanel::refreshSceneList()
     }
 
     _sceneList->blockSignals(wasBlocked);
-
-    _renameSceneButton->setEnabled( hasCurrentScene() );
-    _deleteSceneButton->setEnabled( hasCurrentScene() );
 }
 
 void
@@ -432,8 +476,6 @@ ScenePanel::onSceneSelectionChanged()
 
     _currentSceneId = id;
     _infos.clear(); // re-read the projects when a scene is opened
-    _renameSceneButton->setEnabled( hasCurrentScene() );
-    _deleteSceneButton->setEnabled( hasCurrentScene() );
     showScene();
 
     Q_EMIT currentSceneChanged();
@@ -493,6 +535,24 @@ ScenePanel::onDeleteSceneClicked()
     _scenes->removeScene(scene.id);
 
     Q_EMIT currentSceneChanged();
+}
+
+void
+ScenePanel::onSceneListContextMenu(const QPoint& pos)
+{
+    QListWidgetItem* item = _sceneList->itemAt(pos);
+    QMenu menu(this);
+
+    if (item) {
+        _sceneList->setCurrentItem(item); // opens it: the actions apply to the opened scene
+        menu.addAction( tr("New Scene..."), this, SLOT(onNewSceneClicked()) );
+        menu.addAction( tr("Rename..."), this, SLOT(onRenameSceneClicked()) );
+        menu.addSeparator();
+        menu.addAction( tr("Delete"), this, SLOT(onDeleteSceneClicked()) );
+    } else {
+        menu.addAction( tr("New Scene..."), this, SLOT(onNewSceneClicked()) );
+    }
+    menu.exec( _sceneList->viewport()->mapToGlobal(pos) );
 }
 
 void
@@ -583,9 +643,17 @@ ScenePanel::showScene()
     }
 
     _detailStack->setCurrentIndex(1);
-    _sceneTitle->setText( tr("%1 - %2 Write node(s) of %3 project(s)").arg(scene.name).arg( scene.items.size() ).arg( scene.projects().size() ) );
-    _outputDirLabel->setText( scene.outputDir.isEmpty() ? tr("(each project's own Write node path)") : QDir::toNativeSeparators(scene.outputDir) );
-    _clearOutputDirButton->setEnabled( !scene.outputDir.isEmpty() );
+    _sceneTitle->setText(scene.name);
+    const int writers = scene.items.size();
+    const int projectCount = scene.projects().size();
+    const QString separator = QString::fromUtf8("  \xC2\xB7  "); // middle dot
+    _sceneSummary->setText( ( (writers == 1) ? tr("1 Write node") : tr("%1 Write nodes").arg(writers) ) + separator +
+                              ( (projectCount == 1) ? tr("1 project") : tr("%1 projects").arg(projectCount) ) + separator +
+                              ( scene.outputDir.isEmpty() ? tr("Output: project paths")
+                                                          : tr("Output: %1").arg( QFileInfo(scene.outputDir).fileName() ) ) );
+    _sceneSummary->setToolTip( scene.outputDir.isEmpty() ? tr("Output: each project's Write node path. Change it from the scene menu.")
+                                                           : tr("Output folder: %1. Change it from the scene menu.").arg( QDir::toNativeSeparators(scene.outputDir) ) );
+    _clearOutputDirAction->setEnabled( !scene.outputDir.isEmpty() );
 
     const QStringList keepSelected = selectedItems();
 
@@ -600,10 +668,18 @@ ScenePanel::showScene()
 
         RowWidgets widgets;
         widgets.row = row;
-        widgets.progress = new QProgressBar;
+        // A slim bar, centred in the (thumbnail-high) row.
+        QWidget* progressCell = new QWidget;
+        QVBoxLayout* progressLayout = new QVBoxLayout(progressCell);
+        progressLayout->setContentsMargins(4, 0, 4, 0);
+        widgets.progress = new QProgressBar(progressCell);
         widgets.progress->setRange(0, 100);
         widgets.progress->setAlignment(Qt::AlignCenter);
-        _projectTable->setCellWidget(row, kSceneColumnProgress, widgets.progress);
+        widgets.progress->setFixedHeight( progressCell->fontMetrics().height() + 4 );
+        progressLayout->addStretch();
+        progressLayout->addWidget(widgets.progress);
+        progressLayout->addStretch();
+        _projectTable->setCellWidget(row, kSceneColumnProgress, progressCell);
         QWidget* controls = createRowControls(item);
         _projectTable->setCellWidget(row, kSceneColumnControls, controls);
         widgets.pause = controls->findChild<QPushButton*>( QString::fromUtf8("pause") );
@@ -631,14 +707,14 @@ ScenePanel::createRowControls(const QString& item)
     layout->setSpacing(2);
 
     QPushButton* pause = makeControlButton( playerIcon(NATRON_ENUM::NATRON_PIXMAP_PLAYER_PAUSE_DISABLED, NATRON_ENUM::NATRON_PIXMAP_PLAYER_PAUSE_ENABLED),
-                                            tr("Pause / resume the render."), w );
+                                            tr("Pause or resume rendering"), w );
     pause->setObjectName( QString::fromUtf8("pause") );
     pause->setCheckable(true);
     QPushButton* render = makeControlButton( playerIcon(NATRON_ENUM::NATRON_PIXMAP_PLAYER_PLAY_DISABLED, NATRON_ENUM::NATRON_PIXMAP_PLAYER_PLAY_DISABLED),
-                                             tr("Render this Write node (again) with the current KV values."), w );
+                                             tr("Render this Write node"), w );
     render->setObjectName( QString::fromUtf8("render") );
     QPushButton* stop = makeControlButton( playerIcon(NATRON_ENUM::NATRON_PIXMAP_PLAYER_STOP_DISABLED, NATRON_ENUM::NATRON_PIXMAP_PLAYER_STOP_DISABLED),
-                                           tr("Stop this render, or remove it from the queue."), w );
+                                           tr("Stop or dequeue this render"), w );
     stop->setObjectName( QString::fromUtf8("stop") );
 
     pause->setProperty("item", item);
@@ -679,21 +755,21 @@ ScenePanel::refreshProjectRow(int row)
         name.chop( ext.size() );
     }
     projectItem->setText( fi.exists() ? name : tr("%1 (missing)").arg(name) );
-    projectItem->setToolTip( QDir::toNativeSeparators(path) );
-    if ( !fi.exists() ) {
+
+    // The Write node, in grey under the project name (its output in the tooltip)
+    const ProjectInfo& info = projectInfo(path);
+    QString writerText = writer.isEmpty() ? tr("(no Write node)") : writer;
+    const bool writerMissing = !writer.isEmpty() && fi.exists() && !info.writers.contains(writer);
+    if (writerMissing) {
+        writerText = tr("%1 (missing)").arg(writer);
+    }
+    projectItem->setData(PlainItemDelegate::kSecondaryTextRole, writerText);
+    if ( !fi.exists() || writerMissing ) {
         projectItem->setForeground( QColor(230, 90, 80) );
     }
-
-    // Writer: the Write node (its output in the tooltip)
-    const ProjectInfo& info = projectInfo(path);
-    QTableWidgetItem* writerItem = new QTableWidgetItem( writer.isEmpty() ? tr("(no Write node)") : writer );
-    if ( !writer.isEmpty() && fi.exists() && !info.writers.contains(writer) ) {
-        writerItem->setText( tr("%1 (missing)").arg(writer) );
-        writerItem->setForeground( QColor(230, 90, 80) );
-    }
     const QString output = info.writerOutputs.value(writer);
-    writerItem->setToolTip( output.isEmpty() ? tr("No output file") : tr("Output: %1").arg( QDir::toNativeSeparators(output) ) );
-    _projectTable->setItem(row, kSceneColumnWriter, writerItem);
+    projectItem->setToolTip( tr("%1\nWrite node: %2\n%3").arg( QDir::toNativeSeparators(path) ).arg(writerText)
+                             .arg( output.isEmpty() ? tr("No output file") : tr("Output: %1").arg( QDir::toNativeSeparators(output) ) ) );
 
     // Preview: thumbnail of the last rendered output
     QTableWidgetItem* previewItem = new QTableWidgetItem;
@@ -703,8 +779,8 @@ ScenePanel::refreshProjectRow(int row)
     } else {
         previewItem->setText( record.output.isEmpty() ? tr("no output yet") : tr("no preview") );
     }
-    previewItem->setToolTip( record.output.isEmpty() ? tr("Render the Write node to get a preview.")
-                                                     : tr("Output: %1\nDouble-click to open it.").arg( QDir::toNativeSeparators(record.output) ) );
+    previewItem->setToolTip( record.output.isEmpty() ? tr("Not rendered yet.")
+                                                     : tr("Output: %1\nDouble-click to open.").arg( QDir::toNativeSeparators(record.output) ) );
     _projectTable->setItem(row, kSceneColumnPreview, previewItem);
 
     refreshRowRenderState(item);
@@ -723,23 +799,28 @@ ScenePanel::refreshRowRenderState(const QString& item)
     const ::RenderRecord record = _scenes->renderRecord(_currentSceneId, item);
     const ::RenderProgress progress = _renderer ? _renderer->progress(_currentSceneId, item) : ::RenderProgress();
     const bool queued = _renderer && _renderer->isQueued(_currentSceneId, item);
-    const QString timeFormat = QString::fromUtf8("yyyy-MM-dd hh:mm");
+    // Today: time only.
+    const QString timeFormat = (record.time.date() == QDate::currentDate()) ? QString::fromUtf8("hh:mm") : QString::fromUtf8("yyyy-MM-dd hh:mm");
+    const QString separator = QString::fromUtf8(" \xC2\xB7 "); // middle dot
 
     QString status;
-    QString remaining = tr("N/A");
+    QString detail; // grey second line
     int percent = 0;
 
     if (progress.active) {
         percent = int(progress.percent + 0.5);
         if (progress.paused) {
             status = tr("Paused");
-            remaining = tr("Paused");
         } else if ( progress.node.isEmpty() ) {
             status = tr("Starting...");
         } else {
-            status = (progress.fps > 0) ? tr("Rendering %1 (%2 fps)").arg(progress.node).arg(progress.fps, 0, 'f', 1)
-                                        : tr("Rendering %1").arg(progress.node);
-            remaining = progress.timeRemaining.isEmpty() ? tr("...") : progress.timeRemaining;
+            status = tr("Rendering");
+            if (progress.fps > 0) {
+                status += separator + tr("%1 fps").arg(progress.fps, 0, 'f', 1);
+            }
+            if ( !progress.timeRemaining.isEmpty() ) {
+                status += separator + tr("%1 left").arg(progress.timeRemaining);
+            }
         }
     } else if (queued) {
         status = tr("Queued");
@@ -757,17 +838,17 @@ ScenePanel::refreshRowRenderState(const QString& item)
             break;
         }
         if ( !record.message.isEmpty() && (record.status == ::RenderRecord::eDone || record.status == ::RenderRecord::eFailed) ) {
-            status += QString::fromUtf8("\n") + record.message.section(QLatin1Char('\n'), 0, 0);
+            detail = record.message.section(QLatin1Char('\n'), 0, 0);
         }
     }
 
     QTableWidgetItem* statusItem = new QTableWidgetItem(status);
+    statusItem->setData(PlainItemDelegate::kSecondaryTextRole, detail);
     statusItem->setToolTip( record.message.isEmpty() || progress.active ? status : record.message );
     if ( !progress.active && !queued && (record.status == ::RenderRecord::eFailed) ) {
         statusItem->setForeground( QColor(230, 90, 80) );
     }
     _projectTable->setItem(w.row, kSceneColumnStatus, statusItem);
-    _projectTable->setItem( w.row, kSceneColumnRemaining, new QTableWidgetItem(remaining) );
 
     w.progress->setValue(percent);
     w.progress->setFormat( progress.active && !progress.node.isEmpty() ? tr("%1: %p%").arg(progress.node) : tr("%p%") );
@@ -834,16 +915,27 @@ ScenePanel::refreshKvTable()
     // key -> projects using it, in order of first appearance
     QStringList keys;
     QHash<QString, QStringList> usedBy;
+    QHash<QString, QStringList> components; // key -> node labels
+    QHash<QString, QStringList> componentTips; // key -> "project: label (script name)"
     const QStringList projects = scene.projects();
 
     for (int i = 0; i < projects.size(); ++i) {
         const ProjectInfo& info = projectInfo( projects.at(i) );
+        const QString fileName = QFileInfo( projects.at(i) ).fileName();
         for (int k = 0; k < info.stateKeys.size(); ++k) {
             const QString& key = info.stateKeys.at(k);
             if ( !keys.contains(key) ) {
                 keys << key;
             }
-            usedBy[key] << QFileInfo( projects.at(i) ).fileName();
+            usedBy[key] << fileName;
+            const QList<ProjectInfo::BoundNode> nodes = info.keyNodes.value(key);
+            for (int n = 0; n < nodes.size(); ++n) {
+                if ( !components[key].contains(nodes.at(n).label) ) {
+                    components[key] << nodes.at(n).label;
+                }
+                componentTips[key] << ( (nodes.at(n).label == nodes.at(n).name) ? tr("%1: %2").arg(fileName).arg(nodes.at(n).label)
+                                        : tr("%1: %2 (%3)").arg(fileName).arg(nodes.at(n).label).arg(nodes.at(n).name) );
+            }
         }
     }
 
@@ -856,18 +948,39 @@ ScenePanel::refreshKvTable()
         const QString& key = keys.at(row);
         const QString used = scene.mappedKey(key);
 
-        _kvTable->setItem( row, 0, new QTableWidgetItem(key) );
+        // Component: the bound nodes as labelled in the projects (the key if unknown).
+        QTableWidgetItem* componentItem = new QTableWidgetItem( components.value(key).isEmpty() ? key
+                                                                : components.value(key).join( QString::fromUtf8(", ") ) );
+        componentItem->setData(Qt::UserRole, key);
+        componentItem->setToolTip( tr("Key: %1").arg(key) +
+                                   ( componentTips.value(key).isEmpty() ? QString()
+                                     : QString::fromUtf8("\n") + componentTips.value(key).join( QString::fromUtf8("\n") ) ) );
+        _kvTable->setItem(row, 0, componentItem);
+
+        // Types the projects bind this key for: only store keys of those are offered.
+        QStringList expected;
+        for (int i = 0; i < projects.size(); ++i) {
+            const QStringList types = boundTypes( projectInfo( projects.at(i) ), key );
+            for (int t = 0; t < types.size(); ++t) {
+                if ( !expected.contains( types.at(t) ) ) {
+                    expected << types.at(t);
+                }
+            }
+        }
+        QStringList choices;
+        for (int k = 0; k < storeKeys.size(); ++k) {
+            if ( expected.isEmpty() || expected.contains( Kv::typeName( Kv::typeOf( _state->get( storeKeys.at(k) ) ) ) ) ) {
+                choices << storeKeys.at(k);
+            }
+        }
 
         // Editable combo: which store key the scene uses for this key.
-        QComboBox* combo = new QComboBox;
-        combo->setEditable(true);
-        combo->setInsertPolicy(QComboBox::NoInsert);
-        combo->addItems(storeKeys);
+        QComboBox* combo = new KeyComboBox(choices);
         combo->setEditText(used);
         combo->setProperty("key", key);
         combo->setProperty("applied", used); // ignore repeated signals for the same edit
-        combo->setToolTip( (used == key) ? tr("Uses %1 as bound in the projects. Pick or type another key to rename it for this scene.").arg(key)
-                                         : tr("This scene uses %1 instead of %2.").arg(used).arg(key) );
+        combo->setToolTip( (used == key) ? tr("Reads %1. Select or type another key to override it for this scene.").arg(key)
+                                         : tr("Reads %1 instead of %2.").arg(used).arg(key) );
         QObject::connect( combo->lineEdit(), SIGNAL(editingFinished()), this, SLOT(onKeyMappingEdited()) );
         QObject::connect( combo, SIGNAL(activated(int)), this, SLOT(onKeyMappingEdited()) );
         _kvTable->setCellWidget(row, 1, combo);
@@ -887,7 +1000,7 @@ ScenePanel::refreshKvRow(int row,
         return;
     }
 
-    const QString key = keyItem->text();
+    const QString key = keyItem->data(Qt::UserRole).toString();
     const QString used = scene.mappedKey(key);
     const bool known = _state && _state->has(used);
     const QVariant value = known ? _state->get(used) : QVariant();
@@ -898,6 +1011,9 @@ ScenePanel::refreshKvRow(int row,
 
     QTableWidgetItem* valueItem = new QTableWidgetItem( known ? Kv::displayText(value) : tr("(missing: set it in the Data panel or via the API)") );
     QString tip = known ? KvGui::tooltip(value) : valueItem->text();
+    if (known) {
+        valueItem->setIcon( KvGui::typeIcon(value) ); // the Type column is hidden by default
+    }
 
     const QStringList issues = kvIssues(key, scene);
     if ( !issues.isEmpty() ) {
@@ -1019,7 +1135,7 @@ ScenePanel::onKvCellDoubleClicked(int row,
         return;
     }
 
-    const QString used = scene.mappedKey( keyItem->text() );
+    const QString used = scene.mappedKey( keyItem->data(Qt::UserRole).toString() );
     if ( _state->has(used) ) {
         KvGui::openImage( _state->get(used) );
     }
@@ -1078,8 +1194,16 @@ ScenePanel::applyKeyMapping(const QString& key,
         return;
     }
 
-    // Refuse a key of another type (text for an image binding, or the reverse).
+    // Refuse a key the store does not have, or of another type (text for an
+    // image binding, or the reverse).
     const QString used = usedKey.trimmed();
+    if ( _state && !used.isEmpty() && (used != key) && !_state->has(used) ) {
+        QMessageBox::warning( this, tr("Uses key"),
+                              tr("There is no key %1 in the store.\nPick one from the list, or add it in the Data panel first.").arg(used) );
+        refreshKvTable(); // back to the previous key
+
+        return;
+    }
     if ( _state && !used.isEmpty() && (used != key) && _state->has(used) ) {
         ::Scene test = scene;
         test.keyMap.insert(key, used);
@@ -1130,13 +1254,12 @@ ScenePanel::refreshButtons()
 {
     const bool scene = hasCurrentScene();
     const bool hasProjects = scene && !currentItems().isEmpty();
-    const bool hasSelection = scene && !selectedItems().isEmpty();
     const bool busy = _renderer && _renderer->isBusy();
 
-    _removeProjectsButton->setEnabled(hasSelection);
-    _openInEditorButton->setEnabled(hasSelection);
-    _renderAllButton->setEnabled(_renderer && hasProjects);
-    _renderSelectedButton->setEnabled(_renderer && hasSelection);
+    const bool hasSelection = scene && !selectedItems().isEmpty();
+    _renderButton->setEnabled(_renderer && hasProjects);
+    _renderButton->setToolTip( hasSelection ? tr("Render selected Write nodes")
+                                            : tr("Render all Write nodes") );
     _stopButton->setEnabled(busy);
 
     if (!_renderer) {
@@ -1150,9 +1273,9 @@ ScenePanel::refreshButtons()
                                 .arg(renderingScene.name)
                                 .arg( _renderer->queuedCount() ) );
     } else {
-        _renderStatus->setText( tr("Renders use the KV values at the time of the render (renderer: %1).")
-                                .arg( QDir::toNativeSeparators( _renderer->rendererPath() ) ) );
+        _renderStatus->clear();
     }
+    _renderStatus->setVisible( !_renderStatus->text().isEmpty() ); // only while rendering or on a problem
 }
 
 void
@@ -1268,10 +1391,12 @@ ScenePanel::onOpenInEditorClicked()
 }
 
 void
-ScenePanel::onRenderAllClicked()
+ScenePanel::onRenderClicked()
 {
+    const QStringList selected = selectedItems();
+
     if ( _renderer && confirmRender() ) {
-        _renderer->enqueue( _currentSceneId, currentItems() );
+        _renderer->enqueue( _currentSceneId, selected.isEmpty() ? currentItems() : selected );
     }
 }
 
@@ -1318,6 +1443,28 @@ ScenePanel::onProjectCellDoubleClicked(int row,
     }
 
     appPTR->openProjectWindow( ::SceneItem::project(item) );
+}
+
+void
+ScenePanel::onProjectTableContextMenu(const QPoint& pos)
+{
+    const int row = _projectTable->indexAt(pos).row();
+    QMenu menu(this);
+
+    if (row >= 0) {
+        // Right-clicking outside the selection acts on the clicked row only.
+        if ( !_projectTable->selectionModel()->isRowSelected( row, QModelIndex() ) ) {
+            _projectTable->selectRow(row);
+        }
+        QAction* render = menu.addAction( tr("Render"), this, SLOT(onRenderSelectedClicked()) );
+        render->setEnabled(_renderer != 0);
+        menu.addAction( tr("Open in Editor"), this, SLOT(onOpenInEditorClicked()) );
+        menu.addSeparator();
+        menu.addAction( tr("Remove from Scene"), this, SLOT(onRemoveProjectsClicked()) );
+    } else {
+        menu.addAction( tr("Add Projects..."), this, SLOT(onAddProjectsClicked()) );
+    }
+    menu.exec( _projectTable->viewport()->mapToGlobal(pos) );
 }
 
 void
@@ -1373,43 +1520,45 @@ ScenePanel::createNdiTab(QWidget* parent)
 {
     QWidget* tab = new QWidget(parent);
     QVBoxLayout* layout = new QVBoxLayout(tab);
-    layout->setContentsMargins(4, 4, 4, 4);
+    KvGui::setPanelLayout(layout);
 
+    // [NDI on] [Alpha] Source: [mode]          runtime
     QHBoxLayout* settings = new QHBoxLayout;
-    _ndiEnabledCheck = new QCheckBox(tr("NDI output"), tab);
-    _ndiEnabledCheck->setToolTip( tr("Send every Write node of this scene as its own NDI source \"<scene> - <project>\" "
-                                     "(\"<scene> - <project> - <Write node>\" for projects with several Write nodes).") );
-    _ndiAlphaCheck = new QCheckBox(tr("Transparent (alpha)"), tab);
-    _ndiAlphaCheck->setToolTip( tr("Send with transparency, for overlays (lower thirds...). "
-                                   "The projects must render with alpha: PNG sequence, ProRes 4444 or QuickTime Animation, not MP4/H.264.") );
+    _ndiEnabledCheck = new QCheckBox(tr("Enabled"), tab);
+    _ndiEnabledCheck->setToolTip( tr("Send each Write node of this scene as an NDI source.") );
+    _ndiAlphaCheck = new QCheckBox(tr("Alpha"), tab);
+    _ndiAlphaCheck->setToolTip( tr("Send with transparency. Requires an output format with alpha, "
+                                   "such as PNG, ProRes 4444 or QuickTime Animation.") );
     _ndiModeCombo = new QComboBox(tab);
     _ndiModeCombo->addItem( tr("Rendered playout") );
     _ndiModeCombo->addItem( tr("Live render") );
-    _ndiModeCombo->setToolTip( tr("Rendered playout: play the last render at its frame rate (smooth).\n"
-                                  "Live render: send frames while the scene renders (frame rate = render speed; "
-                                  "needs an image-sequence output such as frame_####.png). When a value the scene "
-                                  "uses changes, the render restarts with the new value.") );
+    // Each entry explains itself in the list; the combo shows the selected one's.
+    _ndiModeCombo->setItemData( 0, tr("Plays the last render at its frame rate."), Qt::ToolTipRole );
+    _ndiModeCombo->setItemData( 1, tr("Sends frames as they render; requires an image-sequence output. "
+                                      "Restarts when a value in use changes."), Qt::ToolTipRole );
     settings->addWidget(_ndiEnabledCheck);
     settings->addWidget(_ndiAlphaCheck);
     settings->addWidget( new QLabel(tr("Source:"), tab) );
     settings->addWidget(_ndiModeCombo);
     settings->addStretch();
-    _ndiRuntimeLabel = new QLabel(tab);
-    _ndiRuntimeLabel->setTextFormat(Qt::PlainText);
+    _ndiRuntimeLabel = KvGui::secondaryLabel(tab);
     settings->addWidget(_ndiRuntimeLabel);
     layout->addLayout(settings);
 
+    // Cue / Continue (text: not obvious as icons), then the all-sources transport as icons.
     QHBoxLayout* transport = new QHBoxLayout;
-    _ndiCueButton = new QPushButton(tr("Cue (play to pause points)"), tab);
-    _ndiCueButton->setToolTip( tr("Start every source from the beginning; each stops at its own pause point. Then use Continue.") );
+    _ndiCueButton = new QPushButton(tr("Cue"), tab);
+    _ndiCueButton->setToolTip( tr("Play each source from the start to its pause point") );
     _ndiContinueButton = new QPushButton(tr("Continue"), tab);
-    _ndiContinueButton->setToolTip( tr("Resume every paused source (past its pause point).") );
-    _ndiPlayAllButton = new QPushButton(tr("Play all"), tab);
-    _ndiPauseAllButton = new QPushButton(tr("Pause all"), tab);
-    _ndiStopAllButton = new QPushButton(tr("Stop all"), tab);
-    _ndiStopAllButton->setToolTip( tr("Stop and clear every source of the scene.") );
-    _ndiReplayAllButton = new QPushButton(tr("Replay all"), tab);
-    _ndiReplayAllButton->setToolTip( tr("Play every source from the start, without stopping at the pause points.") );
+    _ndiContinueButton->setToolTip( tr("Resume each source past its pause point") );
+    _ndiPlayAllButton = makeControlButton( playerIcon(NATRON_ENUM::NATRON_PIXMAP_PLAYER_PLAY_DISABLED, NATRON_ENUM::NATRON_PIXMAP_PLAYER_PLAY_DISABLED),
+                                           tr("Play all sources"), tab );
+    _ndiPauseAllButton = makeControlButton( playerIcon(NATRON_ENUM::NATRON_PIXMAP_PLAYER_PAUSE_DISABLED, NATRON_ENUM::NATRON_PIXMAP_PLAYER_PAUSE_DISABLED),
+                                            tr("Pause all sources"), tab );
+    _ndiStopAllButton = makeControlButton( playerIcon(NATRON_ENUM::NATRON_PIXMAP_PLAYER_STOP_DISABLED, NATRON_ENUM::NATRON_PIXMAP_PLAYER_STOP_DISABLED),
+                                           tr("Stop all sources"), tab );
+    _ndiReplayAllButton = makeControlButton( playerIcon(NATRON_ENUM::NATRON_PIXMAP_PLAYER_FIRST_FRAME, NATRON_ENUM::NATRON_PIXMAP_PLAYER_FIRST_FRAME),
+                                             tr("Replay all sources from the start, ignoring pause points"), tab );
     transport->addWidget(_ndiCueButton);
     transport->addWidget(_ndiContinueButton);
     transport->addSpacing(12);
@@ -1422,17 +1571,20 @@ ScenePanel::createNdiTab(QWidget* parent)
 
     _ndiTable = new QTableWidget(0, 6, tab);
     QStringList headers;
-    headers << tr("NDI source") << tr("State") << tr("Position") << tr("Controls") << tr("Pause at (s)") << tr("Receivers");
+    headers << tr("NDI source") << tr("State") << tr("Position") << tr("Controls") << tr("Pause at") << tr("Receivers");
     _ndiTable->setHorizontalHeaderLabels(headers);
-    _ndiTable->verticalHeader()->setVisible(false);
+    KvGui::styleTable(_ndiTable);
+    _ndiTable->verticalHeader()->setDefaultSectionSize( _ndiTable->fontMetrics().height() + 14 ); // fits the controls
     _ndiTable->setEditTriggers(QAbstractItemView::NoEditTriggers);
-    _ndiTable->setSelectionBehavior(QAbstractItemView::SelectRows);
-    _ndiTable->horizontalHeader()->setStretchLastSection(true);
     _ndiTable->setColumnWidth(0, 200);
     _ndiTable->setColumnWidth(1, 150);
     _ndiTable->setColumnWidth(2, 170);
     _ndiTable->setColumnWidth(3, 130);
     _ndiTable->setColumnWidth(4, 100);
+    QList<int> ndiHidden;
+    ndiHidden << 5; // Receivers
+    TableColumnMenu::install(_ndiTable, QString::fromUtf8("dashboard/columns/ndi"), ndiHidden);
+    EmptyViewHint::install( _ndiTable, QString() ); // text set by refreshNdiTab()
     layout->addWidget(_ndiTable);
 
     _ndiRefreshTimer.setInterval(100);
@@ -1480,6 +1632,7 @@ ScenePanel::refreshNdiTab()
     _ndiEnabledCheck->setChecked(hasScene && scene.ndiEnabled);
     _ndiAlphaCheck->setChecked(hasScene && scene.ndiAlpha);
     _ndiModeCombo->setCurrentIndex( (hasScene && scene.ndiLive) ? 1 : 0 );
+    _ndiModeCombo->setToolTip( _ndiModeCombo->itemData(_ndiModeCombo->currentIndex(), Qt::ToolTipRole).toString() );
     _ndiEnabledCheck->blockSignals(blocked);
     _ndiAlphaCheck->blockSignals(blocked);
     _ndiModeCombo->blockSignals(blocked);
@@ -1498,6 +1651,10 @@ ScenePanel::refreshNdiTab()
     // One row per item / NDI source.
     _ndiRows.clear();
     _ndiTable->setRowCount(0);
+    EmptyViewHint::install( _ndiTable, !hasScene ? tr("Select a scene.")
+                            : !_ndi ? tr("NDI is not available.")
+                            : !scene.ndiEnabled ? tr("Enable NDI output to list this scene's sources.")
+                            : tr("This scene has no Write nodes.") );
     if (!active) {
         return;
     }
@@ -1520,7 +1677,7 @@ ScenePanel::refreshNdiTab()
         QHBoxLayout* cl = new QHBoxLayout(controls);
         cl->setContentsMargins(2, 0, 2, 0);
         cl->setSpacing(2);
-        r.play = makeControlButton( playerIcon(NATRON_ENUM::NATRON_PIXMAP_PLAYER_PLAY_DISABLED, NATRON_ENUM::NATRON_PIXMAP_PLAYER_PLAY_DISABLED), tr("Play (continues after a pause point)"), controls );
+        r.play = makeControlButton( playerIcon(NATRON_ENUM::NATRON_PIXMAP_PLAYER_PLAY_DISABLED, NATRON_ENUM::NATRON_PIXMAP_PLAYER_PLAY_DISABLED), tr("Play, continuing past the pause point"), controls );
         r.pause = makeControlButton( playerIcon(NATRON_ENUM::NATRON_PIXMAP_PLAYER_PAUSE_DISABLED, NATRON_ENUM::NATRON_PIXMAP_PLAYER_PAUSE_ENABLED), tr("Pause"), controls );
         r.stop = makeControlButton( playerIcon(NATRON_ENUM::NATRON_PIXMAP_PLAYER_STOP_DISABLED, NATRON_ENUM::NATRON_PIXMAP_PLAYER_STOP_DISABLED), tr("Stop and clear the output"), controls );
         r.replay = makeControlButton( playerIcon(NATRON_ENUM::NATRON_PIXMAP_PLAYER_FIRST_FRAME, NATRON_ENUM::NATRON_PIXMAP_PLAYER_FIRST_FRAME), tr("Replay from the start"), controls );
@@ -1547,7 +1704,7 @@ ScenePanel::refreshNdiTab()
         r.pauseAt->setSingleStep(0.5);
         r.pauseAt->setSpecialValueText( tr("none") ); // shown at the minimum (-1)
         r.pauseAt->setSuffix( tr(" s") );
-        r.pauseAt->setToolTip( tr("Cue / Play stop here (seconds from the start); Continue goes on. \"none\": no pause point.") );
+        r.pauseAt->setToolTip( tr("Time, in seconds, at which Cue and Play stop. \"none\" disables the pause point.") );
         r.pauseAt->setValue( scene.pauseAt(item) );
         r.pauseAt->setProperty("item", item);
         r.pauseAt->setKeyboardTracking(false);
@@ -1648,6 +1805,7 @@ ScenePanel::onNdiAlphaToggled(bool alpha)
 void
 ScenePanel::onNdiModeChanged(int index)
 {
+    _ndiModeCombo->setToolTip( _ndiModeCombo->itemData(index, Qt::ToolTipRole).toString() );
     _scenes->setNdiLive(_currentSceneId, index == 1);
 }
 

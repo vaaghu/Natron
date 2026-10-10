@@ -29,14 +29,20 @@ CLANG_DIAG_OFF(deprecated)
 CLANG_DIAG_OFF(uninitialized)
 #include <QAbstractItemView>
 #include <QApplication>
+#include <QBrush>
 #include <QDockWidget>
 #include <QEvent>
 #include <QHBoxLayout>
+#include <QHeaderView>
+#include <QLabel>
+#include <QMenu>
 #include <QMouseEvent>
 #include <QPainter>
 #include <QResizeEvent>
+#include <QSettings>
 #include <QStyle>
 #include <QStyleOptionDockWidget>
+#include <QTableView>
 #include <QToolButton>
 CLANG_DIAG_ON(deprecated)
 CLANG_DIAG_ON(uninitialized)
@@ -46,8 +52,73 @@ CLANG_DIAG_ON(uninitialized)
 
 NATRON_NAMESPACE_ENTER
 
-HoverIconDelegate::HoverIconDelegate(QObject* parent)
+PlainItemDelegate::PlainItemDelegate(QObject* parent)
     : QStyledItemDelegate(parent)
+{
+}
+
+void
+PlainItemDelegate::paint(QPainter* painter,
+                         const QStyleOptionViewItem& option,
+                         const QModelIndex& index) const
+{
+#if QT_VERSION < QT_VERSION_CHECK(5, 0, 0)
+    QStyleOptionViewItemV4 opt(option); // text and widget are in V4 with Qt 4
+#else
+    QStyleOptionViewItem opt(option);
+#endif
+
+    opt.state &= ~QStyle::State_HasFocus;
+
+    const QString secondary = index.data(kSecondaryTextRole).toString();
+    if ( secondary.isEmpty() ) {
+        QStyledItemDelegate::paint(painter, opt, index);
+
+        return;
+    }
+
+    // Background, selection and icon from the style; the two lines here.
+    initStyleOption(&opt, index);
+    const QString text = opt.text;
+    opt.text.clear();
+    const QWidget* widget = opt.widget;
+    QStyle* style = widget ? widget->style() : QApplication::style();
+    style->drawControl(QStyle::CE_ItemViewItem, &opt, painter, widget);
+
+    const QRect textRect = style->subElementRect(QStyle::SE_ItemViewItemText, &opt, widget).adjusted(2, 0, -2, 0);
+    const int lineHeight = opt.fontMetrics.height();
+    const int top = textRect.top() + (textRect.height() - 2 * lineHeight) / 2;
+    const bool selected = opt.state & QStyle::State_Selected;
+    QColor dim = opt.palette.color(selected ? QPalette::HighlightedText : QPalette::Text);
+    dim.setAlphaF(0.55);
+
+    painter->save();
+    painter->setFont(opt.font);
+    painter->setPen( index.data(Qt::ForegroundRole).isValid() ? index.data(Qt::ForegroundRole).value<QBrush>().color()
+                     : opt.palette.color(selected ? QPalette::HighlightedText : QPalette::Text) );
+    painter->drawText(QRect(textRect.left(), top, textRect.width(), lineHeight), Qt::AlignLeft | Qt::AlignVCenter,
+                      opt.fontMetrics.elidedText(text, Qt::ElideRight, textRect.width()));
+    painter->setPen(dim);
+    painter->drawText(QRect(textRect.left(), top + lineHeight, textRect.width(), lineHeight), Qt::AlignLeft | Qt::AlignVCenter,
+                      opt.fontMetrics.elidedText(secondary, Qt::ElideRight, textRect.width()));
+    painter->restore();
+}
+
+QSize
+PlainItemDelegate::sizeHint(const QStyleOptionViewItem& option,
+                            const QModelIndex& index) const
+{
+    QSize size = QStyledItemDelegate::sizeHint(option, index);
+
+    if ( !index.data(kSecondaryTextRole).toString().isEmpty() ) {
+        size.setHeight( qMax(size.height(), 2 * option.fontMetrics.height() + 6) );
+    }
+
+    return size;
+}
+
+HoverIconDelegate::HoverIconDelegate(QObject* parent)
+    : PlainItemDelegate(parent)
 {
 }
 
@@ -77,7 +148,7 @@ HoverIconDelegate::paint(QPainter* painter,
                          const QStyleOptionViewItem& option,
                          const QModelIndex& index) const
 {
-    QStyledItemDelegate::paint(painter, option, index);
+    PlainItemDelegate::paint(painter, option, index);
 
     const QVariant iconData = index.data(kHoverIconRole);
     if ( (option.state & QStyle::State_MouseOver) && iconData.isValid() ) {
@@ -107,7 +178,7 @@ HoverIconDelegate::editorEvent(QEvent* event,
         }
     }
 
-    return QStyledItemDelegate::editorEvent(event, model, option, index);
+    return PlainItemDelegate::editorEvent(event, model, option, index);
 }
 
 HoverLineEdit::HoverLineEdit(QWidget* parent)
@@ -294,6 +365,183 @@ DockTitleBar::setButtonsVisible(bool visible)
 
     _floatButton->setVisible( visible && (features & QDockWidget::DockWidgetFloatable) );
     _closeButton->setVisible( visible && (features & QDockWidget::DockWidgetClosable) );
+}
+
+EmptyViewHint::EmptyViewHint(QAbstractItemView* view,
+                             const QString& text)
+    : QObject(view)
+    , _view(view)
+    , _label(0)
+{
+    _label = new QLabel(text, view->viewport());
+    _label->setAlignment(Qt::AlignCenter);
+    _label->setWordWrap(true);
+    _label->setAttribute(Qt::WA_TransparentForMouseEvents); // right-click menus still work
+    // The application style sheet sets label colors: dim the text color there.
+    const QColor textColor = QApplication::palette().color(QPalette::Text);
+    _label->setStyleSheet( QString::fromUtf8("QLabel { color: rgba(%1, %2, %3, 45%); }")
+                           .arg( textColor.red() ).arg( textColor.green() ).arg( textColor.blue() ) );
+
+    view->viewport()->installEventFilter(this);
+    QAbstractItemModel* model = view->model();
+    QObject::connect( model, SIGNAL(rowsInserted(QModelIndex,int,int)), this, SLOT(refresh()) );
+    QObject::connect( model, SIGNAL(rowsRemoved(QModelIndex,int,int)), this, SLOT(refresh()) );
+    QObject::connect( model, SIGNAL(modelReset()), this, SLOT(refresh()) );
+    QObject::connect( model, SIGNAL(layoutChanged()), this, SLOT(refresh()) );
+    refresh();
+}
+
+EmptyViewHint*
+EmptyViewHint::install(QAbstractItemView* view,
+                       const QString& text)
+{
+    EmptyViewHint* hint = view->findChild<EmptyViewHint*>();
+
+    if (hint) {
+        hint->setText(text);
+    } else {
+        hint = new EmptyViewHint(view, text);
+    }
+
+    return hint;
+}
+
+void
+EmptyViewHint::setText(const QString& text)
+{
+    _label->setText(text);
+}
+
+bool
+EmptyViewHint::eventFilter(QObject* watched,
+                           QEvent* e)
+{
+    if ( (watched == _view->viewport()) && (e->type() == QEvent::Resize) ) {
+        _label->setGeometry( _view->viewport()->rect().adjusted(12, 12, -12, -12) );
+    }
+
+    return QObject::eventFilter(watched, e);
+}
+
+void
+EmptyViewHint::refresh()
+{
+    _label->setVisible( _view->model()->rowCount( _view->rootIndex() ) == 0 );
+}
+
+TableColumnMenu::TableColumnMenu(QTableView* table,
+                                 const QString& settingsKey,
+                                 const QList<int>& hiddenByDefault)
+    : QObject(table)
+    , _table(table)
+    , _settingsKey(settingsKey)
+    , _button(0)
+    , _menu(0)
+{
+    QHeaderView* header = table->horizontalHeader();
+
+    _menu = new QMenu(table);
+    _button = new QToolButton(header);
+    _button->setIcon( table->style()->standardIcon(QStyle::SP_FileDialogDetailedView) );
+    _button->setToolTip( tr("Show or hide columns") );
+    _button->setAutoRaise(true);
+    _button->setFocusPolicy(Qt::NoFocus);
+    _button->setPopupMode(QToolButton::InstantPopup);
+    _button->setStyleSheet( QString::fromUtf8("QToolButton::menu-indicator { image: none; }") );
+    _button->setMenu(_menu);
+
+    header->setContextMenuPolicy(Qt::CustomContextMenu);
+    header->installEventFilter(this);
+    QObject::connect( header, SIGNAL(customContextMenuRequested(QPoint)), this, SLOT(onHeaderContextMenu(QPoint)) );
+    QObject::connect( _menu, SIGNAL(aboutToShow()), this, SLOT(onAboutToShow()) );
+    QObject::connect( _menu, SIGNAL(triggered(QAction*)), this, SLOT(onActionTriggered(QAction*)) );
+
+    // Hidden columns are saved by their header label.
+    QSettings settings;
+    const bool saved = settings.contains(_settingsKey);
+    const QStringList hidden = settings.value(_settingsKey).toStringList();
+    for (int column = 0; column < _table->model()->columnCount(); ++column) {
+        _table->setColumnHidden( column, saved ? hidden.contains( columnLabel(column) ) : hiddenByDefault.contains(column) );
+    }
+    placeButton();
+}
+
+TableColumnMenu*
+TableColumnMenu::install(QTableView* table,
+                         const QString& settingsKey,
+                         const QList<int>& hiddenByDefault)
+{
+    return new TableColumnMenu(table, settingsKey, hiddenByDefault);
+}
+
+QString
+TableColumnMenu::columnLabel(int column) const
+{
+    return _table->model()->headerData(column, Qt::Horizontal).toString();
+}
+
+void
+TableColumnMenu::placeButton()
+{
+    QHeaderView* header = _table->horizontalHeader();
+    const int size = header->height();
+
+    _button->setGeometry(header->width() - size, 0, size, size);
+    _button->raise();
+}
+
+bool
+TableColumnMenu::eventFilter(QObject* watched,
+                             QEvent* e)
+{
+    if ( (watched == _table->horizontalHeader()) && ( (e->type() == QEvent::Resize) || (e->type() == QEvent::Show) ) ) {
+        placeButton();
+    }
+
+    return QObject::eventFilter(watched, e);
+}
+
+void
+TableColumnMenu::onAboutToShow()
+{
+    _menu->clear();
+
+    int visible = 0;
+    for (int column = 0; column < _table->model()->columnCount(); ++column) {
+        if ( !_table->isColumnHidden(column) ) {
+            ++visible;
+        }
+    }
+    for (int column = 0; column < _table->model()->columnCount(); ++column) {
+        QAction* action = _menu->addAction( columnLabel(column) );
+        action->setCheckable(true);
+        action->setChecked( !_table->isColumnHidden(column) );
+        action->setEnabled( _table->isColumnHidden(column) || (visible > 1) ); // keep one column
+        action->setData(column);
+    }
+}
+
+void
+TableColumnMenu::onActionTriggered(QAction* action)
+{
+    const int column = action->data().toInt();
+
+    _table->setColumnHidden( column, !action->isChecked() );
+
+    QStringList hidden;
+    for (int c = 0; c < _table->model()->columnCount(); ++c) {
+        if ( _table->isColumnHidden(c) ) {
+            hidden << columnLabel(c);
+        }
+    }
+    QSettings settings;
+    settings.setValue(_settingsKey, hidden);
+}
+
+void
+TableColumnMenu::onHeaderContextMenu(const QPoint& pos)
+{
+    _menu->exec( _table->horizontalHeader()->mapToGlobal(pos) );
 }
 
 NATRON_NAMESPACE_EXIT

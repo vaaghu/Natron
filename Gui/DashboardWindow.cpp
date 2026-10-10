@@ -27,6 +27,7 @@
 
 CLANG_DIAG_OFF(deprecated)
 CLANG_DIAG_OFF(uninitialized)
+#include <QAction>
 #include <QCloseEvent>
 #include <QColor>
 #include <QComboBox>
@@ -38,6 +39,8 @@ CLANG_DIAG_OFF(uninitialized)
 #include <QTabWidget>
 #include <QHBoxLayout>
 #include <QHeaderView>
+#include <QItemSelectionModel>
+#include <QKeySequence>
 #include <QLabel>
 #include <QLineEdit>
 #include <QListWidget>
@@ -47,6 +50,7 @@ CLANG_DIAG_OFF(uninitialized)
 #include <QSettings>
 #include <QStringList>
 #include <QTableWidget>
+#include <QToolButton>
 #include <QVBoxLayout>
 CLANG_DIAG_ON(deprecated)
 CLANG_DIAG_ON(uninitialized)
@@ -84,8 +88,6 @@ DashboardWindow::DashboardWindow(::StateStore* store,
     , _sceneStore(scenes)
     , _sceneRenderer(renderer)
     , _recentList(0)
-    , _openRecentButton(0)
-    , _addToSceneButton(0)
     , _scenePanel(0)
     , _defaultLayout()
     , _serverStatusLabel(0)
@@ -94,7 +96,7 @@ DashboardWindow::DashboardWindow(::StateStore* store,
     , _newKeyEdit(0)
     , _newValueEdit(0)
     , _addButton(0)
-    , _removeButton(0)
+    , _removeAction(0)
     , _updatingTable(false)
 {
     setWindowTitle( tr("%1 - Dashboard").arg( QString::fromUtf8(NATRON_APPLICATION_NAME) ) );
@@ -154,7 +156,6 @@ DashboardWindow::createPanels()
 
     if (_sceneStore) {
         _scenePanel = new ScenePanel(_sceneStore, _sceneRenderer, _store, this);
-        QObject::connect( _scenePanel, SIGNAL(currentSceneChanged()), this, SLOT(onRecentSelectionChanged()) );
     }
 
     // Default layout:
@@ -222,38 +223,31 @@ DashboardWindow::createProjectsPanel()
 {
     QWidget* recent = new QWidget(this);
     QVBoxLayout* recentLayout = new QVBoxLayout(recent);
-    recentLayout->setContentsMargins(4, 4, 4, 4);
+    KvGui::setPanelLayout(recentLayout);
 
-    QHBoxLayout* buttons = new QHBoxLayout;
-    QPushButton* newButton = new QPushButton(tr("New Project"), recent);
-    newButton->setToolTip( tr("Open a new, empty project in a new window.") );
-    QPushButton* openButton = new QPushButton(tr("Open Project..."), recent);
-    openButton->setToolTip( tr("Choose a project file and open it in a new window.") );
-    _openRecentButton = new QPushButton(tr("Open"), recent);
-    _openRecentButton->setEnabled(false);
-    _openRecentButton->setToolTip( tr("Open the selected recent projects.") );
-    _addToSceneButton = new QPushButton(tr("Add to Scene"), recent);
-    _addToSceneButton->setEnabled(false);
-    _addToSceneButton->setToolTip( tr("Link the selected recent projects to the opened scene.") );
-    buttons->addWidget(newButton);
-    buttons->addWidget(openButton);
-    buttons->addStretch();
-    buttons->addWidget(_openRecentButton);
-    buttons->addWidget(_addToSceneButton);
-    recentLayout->addLayout(buttons);
-
-    recentLayout->addWidget( new QLabel(tr("Recent projects"), recent) );
+    QHBoxLayout* header = new QHBoxLayout;
+    QLabel* caption = KvGui::secondaryLabel(recent);
+    caption->setText( tr("Recent") );
+    header->addWidget(caption);
+    header->addStretch();
+    QMenu* menu = 0;
+    QToolButton* menuButton = KvGui::panelMenuButton(recent, &menu);
+    menuButton->setToolTip( tr("Project actions") );
+    menu->addAction( tr("New Project"), this, SLOT(onNewProjectClicked()) );
+    menu->addAction( tr("Open Project..."), this, SLOT(onOpenProjectClicked()) );
+    header->addWidget(menuButton);
+    recentLayout->addLayout(header);
 
     _recentList = new QListWidget(recent);
     _recentList->setSelectionMode(QAbstractItemView::ExtendedSelection);
+    KvGui::styleList(_recentList);
+    EmptyViewHint::install( _recentList, tr("No recent projects") );
+    _recentList->setContextMenuPolicy(Qt::CustomContextMenu);
+    _recentList->setToolTip( tr("Double-click a project to open it. Right-click for more actions.") );
     recentLayout->addWidget(_recentList);
 
-    QObject::connect( newButton, SIGNAL(clicked()), this, SLOT(onNewProjectClicked()) );
-    QObject::connect( openButton, SIGNAL(clicked()), this, SLOT(onOpenProjectClicked()) );
-    QObject::connect( _openRecentButton, SIGNAL(clicked()), this, SLOT(onOpenRecentClicked()) );
-    QObject::connect( _addToSceneButton, SIGNAL(clicked()), this, SLOT(onAddToSceneClicked()) );
     QObject::connect( _recentList, SIGNAL(itemActivated(QListWidgetItem*)), this, SLOT(onRecentItemActivated(QListWidgetItem*)) );
-    QObject::connect( _recentList, SIGNAL(itemSelectionChanged()), this, SLOT(onRecentSelectionChanged()) );
+    QObject::connect( _recentList, SIGNAL(customContextMenuRequested(QPoint)), this, SLOT(onRecentContextMenu(QPoint)) );
 
     return recent;
 }
@@ -263,7 +257,7 @@ DashboardWindow::createDataPanel()
 {
     QWidget* box = new QWidget(this);
     QVBoxLayout* layout = new QVBoxLayout(box);
-    layout->setContentsMargins(4, 4, 4, 4);
+    KvGui::setPanelLayout(layout);
 
     _serverStatusLabel = new QLabel(box);
     _serverStatusLabel->setTextFormat(Qt::PlainText);
@@ -275,43 +269,46 @@ DashboardWindow::createDataPanel()
     QStringList headers;
     headers << tr("Key") << tr("Type") << tr("Value");
     _table->setHorizontalHeaderLabels(headers);
-    _table->horizontalHeader()->setStretchLastSection(true);
-    _table->verticalHeader()->setVisible(false);
-    _table->setColumnWidth(kDashboardColumnKey, 110);
+    KvGui::styleTable(_table);
+    _table->setColumnWidth(kDashboardColumnKey, 120);
     _table->setColumnWidth(kDashboardColumnType, 70);
-    _table->setSelectionBehavior(QAbstractItemView::SelectRows);
     // Double-click is handled here: edit text, open images.
     _table->setEditTriggers(QAbstractItemView::EditKeyPressed);
-    _table->setToolTip( tr("Double-click a text value to edit it, an image to open it. "
-                           "Hover a value for its edit / choose-image icon.") );
+    _table->setContextMenuPolicy(Qt::CustomContextMenu);
+    _table->setToolTip( tr("Double-click a value to edit it, or an image to open it. Right-click for more actions.") );
     HoverIconDelegate* valueDelegate = HoverIconDelegate::install(_table, kDashboardColumnValue);
+    QList<int> hiddenColumns;
+    hiddenColumns << kDashboardColumnType; // the value shows an image icon
+    TableColumnMenu::install(_table, QString::fromUtf8("dashboard/columns/data"), hiddenColumns);
+    EmptyViewHint::install( _table, tr("No keys. Add one below or use the HTTP API.") );
     layout->addWidget(_table);
 
+    _removeAction = new QAction(tr("Remove"), _table);
+    _removeAction->setShortcut(QKeySequence::Delete);
+    _removeAction->setShortcutContext(Qt::WidgetShortcut);
+    _removeAction->setEnabled(false);
+    _table->addAction(_removeAction);
+
+    // New key: [type][key][value][+]
     QHBoxLayout* addRow = new QHBoxLayout;
     _newTypeCombo = new QComboBox(box);
     _newTypeCombo->addItem( tr("Text") );
     _newTypeCombo->addItem( KvGui::typeIcon( Kv::makeImage( QString::fromUtf8("x.png") ) ), tr("Image") );
-    _newTypeCombo->setToolTip( tr("Type of the new value: text, or an image file.") );
+    _newTypeCombo->setToolTip( tr("Value type") );
     _newKeyEdit = new QLineEdit(box);
     _newKeyEdit->setPlaceholderText( tr("New key") );
     _newValueEdit = new HoverLineEdit(box);
     _newValueEdit->setPlaceholderText( tr("Value") );
-    _newValueEdit->setActionIcon( KvGui::chooseImageIcon(), tr("Choose an image (makes this an image value)") );
-    _addButton = new QPushButton(tr("Add"), box);
+    _newValueEdit->setActionIcon( KvGui::chooseImageIcon(), tr("Choose an image file") );
+    _addButton = new QPushButton(QString::fromUtf8("+"), box);
     _addButton->setEnabled(false);
-    _addButton->setToolTip( tr("Add the key, or overwrite it if it already exists.") );
-    _removeButton = new QPushButton(tr("Remove"), box);
-    _removeButton->setEnabled(false);
-    _removeButton->setToolTip( tr("Remove the selected keys.") );
+    _addButton->setFixedWidth( _addButton->sizeHint().height() );
+    _addButton->setToolTip( tr("Add the key, replacing any existing value") );
     addRow->addWidget(_newTypeCombo);
     addRow->addWidget(_newKeyEdit, 1);
+    addRow->addWidget(_newValueEdit, 2);
+    addRow->addWidget(_addButton);
     layout->addLayout(addRow);
-    layout->addWidget(_newValueEdit);
-    QHBoxLayout* buttonRow = new QHBoxLayout;
-    buttonRow->addStretch();
-    buttonRow->addWidget(_addButton);
-    buttonRow->addWidget(_removeButton);
-    layout->addLayout(buttonRow);
 
     QObject::connect( _table, SIGNAL(itemChanged(QTableWidgetItem*)), this, SLOT(onTableItemChanged(QTableWidgetItem*)) );
     QObject::connect( _table, SIGNAL(itemDoubleClicked(QTableWidgetItem*)), this, SLOT(onTableItemDoubleClicked(QTableWidgetItem*)) );
@@ -323,7 +320,8 @@ DashboardWindow::createDataPanel()
     QObject::connect( _newValueEdit, SIGNAL(returnPressed()), this, SLOT(onAddClicked()) );
     QObject::connect( _newValueEdit, SIGNAL(actionClicked()), this, SLOT(onNewValueChooseImage()) );
     QObject::connect( _addButton, SIGNAL(clicked()), this, SLOT(onAddClicked()) );
-    QObject::connect( _removeButton, SIGNAL(clicked()), this, SLOT(onRemoveClicked()) );
+    QObject::connect( _removeAction, SIGNAL(triggered()), this, SLOT(onRemoveClicked()) );
+    QObject::connect( _table, SIGNAL(customContextMenuRequested(QPoint)), this, SLOT(onDataContextMenu(QPoint)) );
 
     if (!_store) {
         box->setEnabled(false);
@@ -349,20 +347,12 @@ DashboardWindow::refreshRecentProjects()
             continue;
         }
 
-        QListWidgetItem* item = new QListWidgetItem( tr("%1    (%2)").arg( fi.fileName() ).arg( QDir::toNativeSeparators( fi.absolutePath() ) ) );
+        QListWidgetItem* item = new QListWidgetItem( fi.fileName() ); // the folder is in the tooltip
         item->setData( Qt::UserRole, fi.absoluteFilePath() );
         item->setToolTip( QDir::toNativeSeparators( fi.absoluteFilePath() ) );
         _recentList->addItem(item);
         ++count;
     }
-
-    if (count == 0) {
-        QListWidgetItem* item = new QListWidgetItem( tr("No recent projects") );
-        item->setFlags(Qt::NoItemFlags);
-        _recentList->addItem(item);
-    }
-
-    onRecentSelectionChanged();
 }
 
 void
@@ -430,12 +420,25 @@ DashboardWindow::onRecentItemActivated(QListWidgetItem* item)
 }
 
 void
-DashboardWindow::onRecentSelectionChanged()
+DashboardWindow::onRecentContextMenu(const QPoint& pos)
 {
-    const bool hasSelection = !selectedRecentProjects().isEmpty();
+    QListWidgetItem* item = _recentList->itemAt(pos);
+    QMenu menu(this);
 
-    _openRecentButton->setEnabled(hasSelection);
-    _addToSceneButton->setEnabled( hasSelection && _scenePanel && _scenePanel->hasCurrentScene() );
+    if (item) {
+        // Right-clicking outside the selection acts on the clicked project only.
+        if ( !item->isSelected() ) {
+            _recentList->clearSelection();
+            item->setSelected(true);
+        }
+        menu.addAction( tr("Open"), this, SLOT(onOpenRecentClicked()) );
+        QAction* addToScene = menu.addAction( tr("Add to Scene"), this, SLOT(onAddToSceneClicked()) );
+        addToScene->setEnabled( _scenePanel && _scenePanel->hasCurrentScene() );
+        menu.addSeparator();
+    }
+    menu.addAction( tr("New Project"), this, SLOT(onNewProjectClicked()) );
+    menu.addAction( tr("Open Project..."), this, SLOT(onOpenProjectClicked()) );
+    menu.exec( _recentList->viewport()->mapToGlobal(pos) );
 }
 
 // ----- Data -----
@@ -471,6 +474,7 @@ DashboardWindow::setRowValue(int row,
 
     // Images show their file name; text is edited in place.
     item->setText( Kv::displayText(value) );
+    item->setIcon( KvGui::typeIcon(value) );
     item->setToolTip( KvGui::tooltip(value) );
     item->setData( HoverIconDelegate::kHoverIconRole, image ? KvGui::chooseImageIcon() : KvGui::editIcon() );
     item->setFlags( image ? (item->flags() & ~Qt::ItemIsEditable) : (item->flags() | Qt::ItemIsEditable) );
@@ -623,7 +627,43 @@ DashboardWindow::onNewValueChooseImage()
 void
 DashboardWindow::onTableSelectionChanged()
 {
-    _removeButton->setEnabled( !_table->selectedItems().isEmpty() );
+    _removeAction->setEnabled( !_table->selectedItems().isEmpty() );
+}
+
+void
+DashboardWindow::onDataContextMenu(const QPoint& pos)
+{
+    const int row = _table->indexAt(pos).row();
+    QTableWidgetItem* keyItem = (row < 0) ? 0 : _table->item(row, kDashboardColumnKey);
+
+    if (!keyItem) {
+        return;
+    }
+    // Right-clicking outside the selection acts on the clicked key only.
+    if ( !_table->selectionModel()->isRowSelected( row, QModelIndex() ) ) {
+        _table->selectRow(row);
+    }
+
+    const QVariant value = _store->get( keyItem->text() );
+    const QModelIndex valueIndex = _table->model()->index(row, kDashboardColumnValue);
+    QMenu menu(this);
+    QAction* open = 0;
+    QAction* edit = 0;
+    if ( Kv::typeOf(value) == Kv::eTypeImage ) {
+        open = menu.addAction( tr("Open Image") );
+        edit = menu.addAction( tr("Choose Image...") );
+    } else {
+        edit = menu.addAction( tr("Edit Value") );
+    }
+    menu.addSeparator();
+    menu.addAction(_removeAction);
+
+    QAction* chosen = menu.exec( _table->viewport()->mapToGlobal(pos) );
+    if ( chosen && (chosen == open) ) {
+        KvGui::openImage(value);
+    } else if ( chosen && (chosen == edit) ) {
+        onValueIconClicked(valueIndex);
+    }
 }
 
 void
@@ -693,8 +733,10 @@ DashboardWindow::onServerStatusChanged()
 
     const QString url = QString::fromUtf8("http://localhost:%1").arg( _server->port() );
 
+    // Only shown when something is wrong or pending.
+    _serverStatusLabel->setVisible( !_server->isListening() );
     if ( _server->isListening() ) {
-        _serverStatusLabel->setText( tr("HTTP server: listening on %1  (POST %1/state)").arg(url) );
+        _serverStatusLabel->clear();
     } else if ( !_server->lastError().isEmpty() ) {
         _serverStatusLabel->setText( tr("HTTP server: NOT running on %1: %2. Retrying every few seconds; "
                                         "close whatever uses the port, or start Natron with NATRON_HTTP_PORT=<port>.")

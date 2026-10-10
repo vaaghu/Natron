@@ -32,16 +32,44 @@ CLANG_DIAG_OFF(deprecated)
 CLANG_DIAG_OFF(uninitialized)
 #include <QIcon>
 #include <QLineEdit>
+#include <QList>
 #include <QModelIndex>
 #include <QStyledItemDelegate>
 #include <QWidget>
 CLANG_DIAG_ON(deprecated)
 CLANG_DIAG_ON(uninitialized)
 
+class QAbstractItemView;
+class QAction;
 class QDockWidget;
+class QLabel;
+class QMenu;
+class QPoint;
+class QTableView;
 class QToolButton;
 
 NATRON_NAMESPACE_ENTER
+
+/**
+ * @brief Item delegate for the dashboard's tables and lists: no dotted focus
+ * box around the current cell (rows are selected whole), and an optional
+ * second line in grey (the item's kSecondaryTextRole data).
+ **/
+class PlainItemDelegate
+    : public QStyledItemDelegate
+{
+public:
+
+    enum
+    {
+        kSecondaryTextRole = Qt::UserRole + 101
+    };
+
+    explicit PlainItemDelegate(QObject* parent = 0);
+
+    virtual void paint(QPainter* painter, const QStyleOptionViewItem& option, const QModelIndex& index) const OVERRIDE;
+    virtual QSize sizeHint(const QStyleOptionViewItem& option, const QModelIndex& index) const OVERRIDE;
+};
 
 /**
  * @brief Item delegate showing a small action icon at the right of a cell
@@ -50,7 +78,7 @@ NATRON_NAMESPACE_ENTER
  * Install with HoverIconDelegate::install(view, column).
  **/
 class HoverIconDelegate
-    : public QStyledItemDelegate
+    : public PlainItemDelegate
 {
 GCC_DIAG_SUGGEST_OVERRIDE_OFF
     Q_OBJECT
@@ -158,6 +186,79 @@ private:
     QToolButton* _floatButton;
     QToolButton* _closeButton;
     bool _dockHovered;
+};
+
+/**
+ * @brief Grey message in the middle of an empty list or table ("No recent
+ * projects"), instead of a fake row. Mouse clicks go through to the view.
+ **/
+class EmptyViewHint
+    : public QObject
+{
+GCC_DIAG_SUGGEST_OVERRIDE_OFF
+    Q_OBJECT
+GCC_DIAG_SUGGEST_OVERRIDE_ON
+
+public:
+
+    static EmptyViewHint* install(QAbstractItemView* view, const QString& text);
+
+    void setText(const QString& text);
+
+protected:
+
+    virtual bool eventFilter(QObject* watched, QEvent* e) OVERRIDE;
+
+private Q_SLOTS:
+
+    void refresh();
+
+private:
+
+    EmptyViewHint(QAbstractItemView* view, const QString& text);
+
+    QAbstractItemView* _view;
+    QLabel* _label;
+};
+
+/**
+ * @brief Column chooser of a table: an icon at the right end of the header
+ * (and a right-click on the header) opens a menu to show or hide each
+ * column. The hidden columns are saved under settingsKey; until the user
+ * changes them, hiddenByDefault are hidden.
+ **/
+class TableColumnMenu
+    : public QObject
+{
+GCC_DIAG_SUGGEST_OVERRIDE_OFF
+    Q_OBJECT
+GCC_DIAG_SUGGEST_OVERRIDE_ON
+
+public:
+
+    static TableColumnMenu* install(QTableView* table, const QString& settingsKey, const QList<int>& hiddenByDefault);
+
+protected:
+
+    virtual bool eventFilter(QObject* watched, QEvent* e) OVERRIDE;
+
+private Q_SLOTS:
+
+    void onAboutToShow();
+    void onActionTriggered(QAction* action);
+    void onHeaderContextMenu(const QPoint& pos);
+
+private:
+
+    TableColumnMenu(QTableView* table, const QString& settingsKey, const QList<int>& hiddenByDefault);
+
+    QString columnLabel(int column) const;
+    void placeButton();
+
+    QTableView* _table;
+    QString _settingsKey;
+    QToolButton* _button;
+    QMenu* _menu;
 };
 
 NATRON_NAMESPACE_EXIT

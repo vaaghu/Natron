@@ -41,11 +41,13 @@ CLANG_DIAG_ON(uninitialized)
 #include "Custom/scene/ProjectInfo.h"
 #include "Custom/scene/SceneStore.h"
 
+class QAction;
 class QCheckBox;
 class QComboBox;
 class QDoubleSpinBox;
 class QLabel;
 class QListWidget;
+class QPoint;
 class QProgressBar;
 class QPushButton;
 class QStackedWidget;
@@ -111,15 +113,17 @@ private Q_SLOTS:
     void onRenameSceneClicked();
     void onDeleteSceneClicked();
     void onSceneSelectionChanged();
+    void onSceneListContextMenu(const QPoint& pos);
 
     void onAddProjectsClicked();
     void onRemoveProjectsClicked();
     void onOpenInEditorClicked();
-    void onRenderAllClicked();
+    void onRenderClicked(); // the selected Write nodes, or all
     void onRenderSelectedClicked();
     void onStopClicked();
     void onProjectSelectionChanged();
     void onProjectCellDoubleClicked(int row, int column);
+    void onProjectTableContextMenu(const QPoint& pos);
 
     // Per-row render controls (the item is the sender's "item" property).
     void onRowPauseToggled(bool paused);
@@ -205,17 +209,12 @@ private:
     QWidget* _ndiPart;
 
     QListWidget* _sceneList;
-    QPushButton* _renameSceneButton;
-    QPushButton* _deleteSceneButton;
 
     QStackedWidget* _detailStack;
     QLabel* _sceneTitle;
-    QLabel* _outputDirLabel;
-    QPushButton* _clearOutputDirButton;
-    QPushButton* _removeProjectsButton;
-    QPushButton* _openInEditorButton;
-    QPushButton* _renderAllButton;
-    QPushButton* _renderSelectedButton;
+    QLabel* _sceneSummary;
+    QAction* _clearOutputDirAction;
+    QPushButton* _renderButton;
     QPushButton* _stopButton;
     QTableWidget* _projectTable;
     QTableWidget* _kvTable;

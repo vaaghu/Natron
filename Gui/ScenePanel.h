@@ -43,6 +43,7 @@ CLANG_DIAG_ON(uninitialized)
 
 class QAction;
 class QFileSystemWatcher;
+class QUndoStack;
 class QCheckBox;
 class QComboBox;
 class QDoubleSpinBox;
@@ -97,6 +98,10 @@ public:
     // Adds Write nodes of projects to the opened scene (asks which ones when
     // a project has several).
     void addProjectsToCurrentScene(const QStringList& projects);
+
+    // Scene changes made here (delete, rename, add or remove projects, key
+    // renaming) go on this stack so they can be undone.
+    void setUndoStack(QUndoStack* stack);
 
     // Re-reads the projects of the opened scene (bindings may have changed).
     void refresh();
@@ -173,6 +178,8 @@ private:
 
     void refreshSceneList();
     void showScene();
+    // Puts the change from before to now on the undo stack.
+    void pushSceneChange(const ::SceneSnapshot& before, const QString& text);
     void refreshProjectRow(int row);
     void refreshRowRenderState(const QString& item);
     QWidget* createRowControls(const QString& item);
@@ -201,6 +208,7 @@ private:
 
     QString _currentSceneId;
     QHash<QString, ProjectInfo> _infos; // per project, read from the .ntp
+    QUndoStack* _undoStack;
     QFileSystemWatcher* _projectWatcher; // the opened scene's project files
     QTimer _projectReloadTimer;
     QTimer _openProjectsTimer;

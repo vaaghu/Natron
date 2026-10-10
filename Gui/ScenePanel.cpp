@@ -61,6 +61,8 @@ CLANG_DIAG_OFF(uninitialized)
 #include <QTableWidget>
 #include <QToolButton>
 #include <QTreeWidget>
+#include <QUndoCommand>
+#include <QUndoStack>
 #include <QUrl>
 #include <QVBoxLayout>
 CLANG_DIAG_ON(deprecated)
@@ -137,6 +139,48 @@ makeControlButton(const QIcon& icon,
 
     return button;
 }
+
+// A change to one scene, undone and redone by putting back its snapshots.
+// Pushed after the change is made: the first redo() does nothing.
+class SceneChangeCommand
+    : public QUndoCommand
+{
+public:
+
+    SceneChangeCommand(::SceneStore* store,
+                       const ::SceneSnapshot& before,
+                       const ::SceneSnapshot& after,
+                       const QString& text)
+        : QUndoCommand(text)
+        , _store(store)
+        , _before(before)
+        , _after(after)
+        , _done(true)
+    {
+    }
+
+    virtual void undo() OVERRIDE
+    {
+        _store->restore(_before);
+    }
+
+    virtual void redo() OVERRIDE
+    {
+        if (_done) {
+            _done = false;
+
+            return;
+        }
+        _store->restore(_after);
+    }
+
+private:
+
+    ::SceneStore* _store;
+    ::SceneSnapshot _before;
+    ::SceneSnapshot _after;
+    bool _done;
+};
 
 // An action with a shortcut working while the focus is in owner (one of the
 // dashboard panels), so it does not clash with the editor windows' own.
@@ -337,6 +381,7 @@ ScenePanel::ScenePanel(::SceneStore* scenes,
     , _state(state)
     , _currentSceneId()
     , _infos()
+    , _undoStack(0)
     , _projectWatcher(0)
     , _projectReloadTimer()
     , _rows()
@@ -417,6 +462,21 @@ ScenePanel::onProjectFileChanged(const QString& path)
         _projectWatcher->addPath(path);
     }
     _projectReloadTimer.start();
+}
+
+void
+ScenePanel::setUndoStack(QUndoStack* stack)
+{
+    _undoStack = stack;
+}
+
+void
+ScenePanel::pushSceneChange(const ::SceneSnapshot& before,
+                            const QString& text)
+{
+    if (_undoStack) {
+        _undoStack->push( new SceneChangeCommand( _scenes, before, _scenes->snapshot(before.id), text ) );
+    }
 }
 
 void
@@ -673,6 +733,9 @@ ScenePanel::onNewSceneClicked()
     }
 
     _currentSceneId = _scenes->createScene(name);
+    ::SceneSnapshot before; // no scene before
+    before.id = _currentSceneId;
+    pushSceneChange( before, tr("New Scene") );
     _infos.clear();
     refreshSceneList();
     showScene();
@@ -691,8 +754,10 @@ ScenePanel::onRenameSceneClicked()
 
     bool ok = false;
     const QString name = QInputDialog::getText(this, tr("Rename Scene"), tr("Scene name:"), QLineEdit::Normal, scene.name, &ok).trimmed();
-    if ( ok && !name.isEmpty() ) {
+    if ( ok && !name.isEmpty() && (name != scene.name) ) {
+        const ::SceneSnapshot before = _scenes->snapshot(_currentSceneId);
         _scenes->renameScene(_currentSceneId, name);
+        pushSceneChange( before, tr("Rename Scene") );
     }
 }
 
@@ -711,8 +776,10 @@ ScenePanel::onDeleteSceneClicked()
         return;
     }
 
+    const ::SceneSnapshot before = _scenes->snapshot(scene.id);
     _currentSceneId.clear();
     _scenes->removeScene(scene.id);
+    pushSceneChange( before, tr("Delete Scene \"%1\"").arg(scene.name) );
 
     Q_EMIT currentSceneChanged();
 }
@@ -1437,7 +1504,11 @@ ScenePanel::applyKeyMapping(const QString& key,
         }
     }
 
+    const ::SceneSnapshot before = _scenes->snapshot(_currentSceneId);
     _scenes->setKeyMapping(_currentSceneId, key, used);
+    if ( _scenes->snapshot(_currentSceneId).scene.keyMap != before.scene.keyMap ) {
+        pushSceneChange( before, tr("Change Key of %1").arg(key) );
+    }
 }
 
 void
@@ -1496,7 +1567,13 @@ ScenePanel::addProjectsToCurrentScene(const QStringList& projects)
     if ( !hasCurrentScene() ) {
         return;
     }
-    _scenes->addItems( _currentSceneId, chooseItems(projects) );
+    const QStringList items = chooseItems(projects);
+    if ( items.isEmpty() ) {
+        return;
+    }
+    const ::SceneSnapshot before = _scenes->snapshot(_currentSceneId);
+    _scenes->addItems(_currentSceneId, items);
+    pushSceneChange( before, tr("Add to Scene") );
 }
 
 QStringList
@@ -1584,7 +1661,14 @@ ScenePanel::onAddProjectsClicked()
 void
 ScenePanel::onRemoveProjectsClicked()
 {
-    _scenes->removeItems( _currentSceneId, selectedItems() );
+    const QStringList items = selectedItems();
+
+    if ( items.isEmpty() ) {
+        return;
+    }
+    const ::SceneSnapshot before = _scenes->snapshot(_currentSceneId);
+    _scenes->removeItems(_currentSceneId, items);
+    pushSceneChange( before, (items.size() == 1) ? tr("Remove from Scene") : tr("Remove %1 from Scene").arg( items.size() ) );
 }
 
 void

@@ -46,10 +46,13 @@ CLANG_DIAG_OFF(uninitialized)
 #include <QListWidget>
 #include <QMenu>
 #include <QMenuBar>
+#include <QPair>
 #include <QPushButton>
 #include <QSettings>
 #include <QStringList>
 #include <QTableWidget>
+#include <QUndoCommand>
+#include <QUndoStack>
 #include <QToolButton>
 #include <QVBoxLayout>
 CLANG_DIAG_ON(deprecated)
@@ -80,6 +83,53 @@ CLANG_DIAG_ON(uninitialized)
 
 NATRON_NAMESPACE_ENTER
 
+NATRON_NAMESPACE_ANONYMOUS_ENTER
+
+// Removal of state store keys, undone by setting them back. Pushed after
+// the keys are removed: the first redo() does nothing.
+class KeyRemovalCommand
+    : public QUndoCommand
+{
+public:
+
+    KeyRemovalCommand(::StateStore* store,
+                      const QList<QPair<QString, QVariant> >& removed)
+        : QUndoCommand( (removed.size() == 1) ? QObject::tr("Remove Key %1").arg(removed.first().first)
+                                              : QObject::tr("Remove %1 Keys").arg( removed.size() ) )
+        , _store(store)
+        , _removed(removed)
+        , _done(true)
+    {
+    }
+
+    virtual void undo() OVERRIDE
+    {
+        for (int i = 0; i < _removed.size(); ++i) {
+            _store->set(_removed.at(i).first, _removed.at(i).second);
+        }
+    }
+
+    virtual void redo() OVERRIDE
+    {
+        if (_done) {
+            _done = false;
+
+            return;
+        }
+        for (int i = 0; i < _removed.size(); ++i) {
+            _store->remove(_removed.at(i).first);
+        }
+    }
+
+private:
+
+    ::StateStore* _store;
+    QList<QPair<QString, QVariant> > _removed;
+    bool _done;
+};
+
+NATRON_NAMESPACE_ANONYMOUS_EXIT
+
 DashboardWindow::DashboardWindow(::StateStore* store,
                                  ::HttpServer* server,
                                  ::SceneStore* scenes,
@@ -100,6 +150,7 @@ DashboardWindow::DashboardWindow(::StateStore* store,
     , _newValueEdit(0)
     , _addButton(0)
     , _removeAction(0)
+    , _undoStack(0)
     , _newProjectAction(0)
     , _openProjectAction(0)
     , _updatingTable(false)
@@ -160,8 +211,19 @@ DashboardWindow::createPanels()
     setDockOptions(QMainWindow::AnimatedDocks | QMainWindow::AllowNestedDocks | QMainWindow::AllowTabbedDocks);
     setTabPosition(Qt::AllDockWidgetAreas, QTabWidget::North);
 
+    // Edit: undo / redo of scene and data changes.
+    _undoStack = new QUndoStack(this);
+    QMenu* editMenu = menuBar()->addMenu( tr("&Edit") );
+    QAction* undo = _undoStack->createUndoAction( this, tr("&Undo") );
+    undo->setShortcut(QKeySequence::Undo);
+    QAction* redo = _undoStack->createRedoAction( this, tr("&Redo") );
+    redo->setShortcut(QKeySequence::Redo);
+    editMenu->addAction(undo);
+    editMenu->addAction(redo);
+
     if (_sceneStore) {
         _scenePanel = new ScenePanel(_sceneStore, _sceneRenderer, _store, this);
+        _scenePanel->setUndoStack(_undoStack);
     }
 
     // Default layout:
@@ -734,8 +796,13 @@ DashboardWindow::onRemoveClicked()
         }
     }
 
+    QList<QPair<QString, QVariant> > removed;
     for (int i = 0; i < keys.size(); ++i) {
+        removed << qMakePair( keys.at(i), _store->get( keys.at(i) ) );
         _store->remove( keys.at(i) );
+    }
+    if ( !removed.isEmpty() ) {
+        _undoStack->push( new KeyRemovalCommand(_store, removed) );
     }
 }
 

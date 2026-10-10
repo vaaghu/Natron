@@ -51,6 +51,7 @@ class QPoint;
 class QPushButton;
 class QTableWidget;
 class QTableWidgetItem;
+class QUndoStack;
 class StateStore; // Custom/state/StateStore.h
 class HttpServer; // Custom/server/HttpServer.h
 class SceneRenderer; // Custom/scene/SceneRenderer.h
@@ -159,6 +160,7 @@ private:
     HoverLineEdit* _newValueEdit;
     QPushButton* _addButton;
     QAction* _removeAction;
+    QUndoStack* _undoStack; // scene and data changes (Edit menu)
     QAction* _newProjectAction;  // Ctrl+Shift+N in the Projects panel
     QAction* _openProjectAction; // Ctrl+O in the Projects panel
 

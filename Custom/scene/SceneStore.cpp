@@ -390,6 +390,68 @@ void SceneStore::renameScene(const QString &id, const QString &name)
   Q_EMIT scenesChanged();
 }
 
+SceneSnapshot SceneStore::snapshot(const QString &id) const
+{
+  SceneSnapshot snap;
+  snap.id = id;
+  snap.index = indexOf(id);
+  if (snap.index < 0)
+  {
+    return snap;
+  }
+  snap.valid = true;
+  snap.scene = m_scenes.at(snap.index);
+  const QString prefix = id + QLatin1Char('|');
+  for (QHash<QString, RenderRecord>::const_iterator it = m_records.constBegin(); it != m_records.constEnd(); ++it)
+  {
+    if (it.key().startsWith(prefix))
+    {
+      snap.records.insert(it.key(), it.value());
+    }
+  }
+  return snap;
+}
+
+void SceneStore::restore(const SceneSnapshot &snap)
+{
+  if (!snap.valid)
+  {
+    removeScene(snap.id);
+    return;
+  }
+
+  const int i = indexOf(snap.id);
+  if (i >= 0)
+  {
+    m_scenes[i] = snap.scene;
+  }
+  else
+  {
+    m_scenes.insert(qBound(0, snap.index, m_scenes.size()), snap.scene);
+  }
+
+  const QString prefix = snap.id + QLatin1Char('|');
+  QHash<QString, RenderRecord>::iterator it = m_records.begin();
+  while (it != m_records.end())
+  {
+    if (it.key().startsWith(prefix))
+    {
+      it = m_records.erase(it);
+    }
+    else
+    {
+      ++it;
+    }
+  }
+  for (QHash<QString, RenderRecord>::const_iterator r = snap.records.constBegin(); r != snap.records.constEnd(); ++r)
+  {
+    m_records.insert(r.key(), r.value());
+  }
+
+  changed();
+  Q_EMIT scenesChanged();
+}
+
 void SceneStore::removeScene(const QString &id)
 {
   const int i = indexOf(id);

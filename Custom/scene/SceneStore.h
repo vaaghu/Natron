@@ -103,6 +103,23 @@ struct RenderRecord
 };
 
 // Scenes and per-item render records, saved to a JSON file.
+// A scene and its render records at one moment, to put it back (undo).
+// valid is false for "no such scene" (e.g. before it was created).
+struct SceneSnapshot
+{
+  bool valid;
+  QString id;
+  int index; // position in the scene list
+  Scene scene;
+  QHash<QString, RenderRecord> records; // "<scene id>|<item>" -> record
+
+  SceneSnapshot()
+      : valid(false),
+        index(-1)
+  {
+  }
+};
+
 class SceneStore : public QObject
 {
   Q_OBJECT
@@ -138,6 +155,11 @@ public:
 
   // Renders are per scene: the same item renders differently (other keys,
   // other output folder) in another scene.
+  // Undo support: the scene as it is now, and putting a snapshot back
+  // (replacing the scene, re-creating it, or removing it if not valid).
+  SceneSnapshot snapshot(const QString &id) const;
+  void restore(const SceneSnapshot &snapshot);
+
   RenderRecord renderRecord(const QString &sceneId, const QString &item) const;
   void setRenderRecord(const QString &sceneId, const QString &item, const RenderRecord &record);
 

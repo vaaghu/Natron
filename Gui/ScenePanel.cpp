@@ -67,6 +67,13 @@ CLANG_DIAG_ON(uninitialized)
 
 #include "Gui/GuiApplicationManager.h" // appPTR
 
+#include "Engine/AppInstance.h"
+#include "Engine/EffectInstance.h" // PLUGINID_NATRON_READ
+#include "Engine/KnobTypes.h"
+#include "Engine/Node.h"
+#include "Engine/NodeGroup.h" // NodeCollection::getNodes_recursive
+#include "Engine/Project.h"
+
 #include "Custom/ndi/NdiManager.h"
 #include "Custom/ndi/NdiOutput.h"
 #include "Custom/ndi/PlayoutChannel.h"
@@ -128,6 +135,81 @@ makeControlButton(const QIcon& icon,
     button->setToolTip(tooltip);
 
     return button;
+}
+
+// The project at path if it is open in an editor window.
+ProjectPtr
+openProject(const QString& path)
+{
+    const QString wanted = QFileInfo(path).absoluteFilePath();
+    const AppInstanceVec& apps = appPTR->getAppInstances();
+
+    for (AppInstanceVec::const_iterator it = apps.begin(); it != apps.end(); ++it) {
+        ProjectPtr project = *it ? (*it)->getProject() : ProjectPtr();
+        if ( !project || project->getProjectFilename().isEmpty() ) {
+            continue;
+        }
+        const QString file = QDir( project->getProjectPath() ).absoluteFilePath( project->getProjectFilename() );
+        if (QFileInfo(file).absoluteFilePath() == wanted) {
+            return project;
+        }
+    }
+
+    return ProjectPtr();
+}
+
+// Replaces the bindings of info (read from the saved file) with those of the
+// project as it is in the editor, saved or not.
+void
+readOpenProjectBindings(const ProjectPtr& project,
+                        ProjectInfo* info)
+{
+    NodesList nodes;
+    project->getNodes_recursive(nodes, true);
+
+    info->stateKeys.clear();
+    info->keyTypes.clear();
+    info->keyNodes.clear();
+    for (NodesList::const_iterator it = nodes.begin(); it != nodes.end(); ++it) {
+        KnobStringPtr keyKnob = std::dynamic_pointer_cast<KnobString>( (*it)->getKnobByName(kProjectInfoStateKeyParam) );
+        const QString key = keyKnob ? QString::fromUtf8( keyKnob->getValue().c_str() ).trimmed() : QString();
+        if ( key.isEmpty() ) {
+            continue;
+        }
+        // As in readProjectInfo(): Read nodes bind an image, the others text.
+        const QString type = ( (*it)->getPluginID() == PLUGINID_NATRON_READ ) ? QString::fromUtf8("image") : QString::fromUtf8("text");
+        ProjectInfo::BoundNode bound;
+        bound.name = QString::fromUtf8( (*it)->getFullyQualifiedName().c_str() );
+        bound.label = QString::fromUtf8( (*it)->getLabel_mt_safe().c_str() );
+        if ( bound.label.isEmpty() ) {
+            bound.label = bound.name;
+        }
+        info->keyNodes[key] << bound;
+        if ( !info->stateKeys.contains(key) ) {
+            info->stateKeys << key;
+            info->keyTypes.insert(key, type);
+        } else if ( !info->keyTypes.value(key).split( QLatin1Char(',') ).contains(type) ) {
+            info->keyTypes[key] += QLatin1Char(',') + type;
+        }
+    }
+}
+
+// The bindings of info as one string, to compare them.
+QString
+bindingsSignature(const ProjectInfo& info)
+{
+    QStringList parts;
+
+    for (int k = 0; k < info.stateKeys.size(); ++k) {
+        const QString& key = info.stateKeys.at(k);
+        const QList<ProjectInfo::BoundNode> nodes = info.keyNodes.value(key);
+        for (int n = 0; n < nodes.size(); ++n) {
+            parts << key + QLatin1Char('=') + nodes.at(n).name + QLatin1Char('/') + nodes.at(n).label;
+        }
+    }
+    parts.sort();
+
+    return parts.join( QString::fromUtf8("\n") );
 }
 
 // Keys matching typed text, best first: starts with it, contains it, then
@@ -286,6 +368,9 @@ ScenePanel::ScenePanel(::SceneStore* scenes,
     _projectWatcher = new QFileSystemWatcher(this);
     _projectReloadTimer.setSingleShot(true);
     _projectReloadTimer.setInterval(300);
+    _openProjectsTimer.setInterval(1500);
+    QObject::connect( &_openProjectsTimer, SIGNAL(timeout()), this, SLOT(onOpenProjectsTimer()) );
+    _openProjectsTimer.start();
     QObject::connect( _projectWatcher, SIGNAL(fileChanged(QString)), this, SLOT(onProjectFileChanged(QString)) );
     QObject::connect( &_projectReloadTimer, SIGNAL(timeout()), this, SLOT(onProjectReloadTimeout()) );
 
@@ -306,6 +391,38 @@ ScenePanel::onProjectFileChanged(const QString& path)
         _projectWatcher->addPath(path);
     }
     _projectReloadTimer.start();
+}
+
+void
+ScenePanel::onOpenProjectsTimer()
+{
+    ::Scene scene;
+
+    if ( !_scenes->scene(_currentSceneId, &scene) ) {
+        return;
+    }
+
+    // Re-read a project when its bindings in the editor changed (or it was
+    // opened or closed there).
+    bool changed = false;
+    const QStringList projects = scene.projects();
+    for (int i = 0; i < projects.size(); ++i) {
+        QString state;
+        ProjectPtr open = openProject( projects.at(i) );
+        if (open) {
+            ProjectInfo info;
+            readOpenProjectBindings(open, &info);
+            state = QString::fromUtf8("open\n") + bindingsSignature(info);
+        }
+        if ( state != _openProjectStates.value( projects.at(i) ) ) {
+            _openProjectStates.insert(projects.at(i), state);
+            _infos.remove( projects.at(i) );
+            changed = true;
+        }
+    }
+    if (changed) {
+        _projectReloadTimer.start();
+    }
 }
 
 void
@@ -636,7 +753,18 @@ ScenePanel::projectInfo(const QString& project)
     QHash<QString, ProjectInfo>::iterator it = _infos.find(project);
 
     if ( it == _infos.end() ) {
-        it = _infos.insert( project, readProjectInfo(project) );
+        ProjectInfo info = readProjectInfo(project);
+        // Open in an editor: show its labels and bindings as they are now.
+        // Renders use the saved file: mark the project when they differ.
+        bool unsaved = false;
+        ProjectPtr open = openProject(project);
+        if (open) {
+            const QString saved = bindingsSignature(info);
+            readOpenProjectBindings(open, &info);
+            unsaved = bindingsSignature(info) != saved;
+        }
+        _unsavedBindings.insert(project, unsaved);
+        it = _infos.insert(project, info);
     }
 
     return it.value();
@@ -800,6 +928,11 @@ ScenePanel::refreshProjectRow(int row)
         name.chop( ext.size() );
     }
     projectItem->setText( fi.exists() ? name : tr("%1 (missing)").arg(name) );
+    projectInfo(path); // fills _unsavedBindings
+    const bool unsaved = _unsavedBindings.value(path);
+    if (unsaved) {
+        projectItem->setText( projectItem->text() + QString::fromUtf8(" *") );
+    }
 
     // The Write node, in grey under the project name (its output in the tooltip)
     const ProjectInfo& info = projectInfo(path);
@@ -813,7 +946,8 @@ ScenePanel::refreshProjectRow(int row)
         projectItem->setForeground( QColor(230, 90, 80) );
     }
     const QString output = info.writerOutputs.value(writer);
-    projectItem->setToolTip( tr("%1\nWrite node: %2\n%3").arg( QDir::toNativeSeparators(path) ).arg(writerText)
+    projectItem->setToolTip( ( unsaved ? tr("* Unsaved changes in the editor: renders use the saved file. Save to include them.\n") : QString() ) +
+                             tr("%1\nWrite node: %2\n%3").arg( QDir::toNativeSeparators(path) ).arg(writerText)
                              .arg( output.isEmpty() ? tr("No output file") : tr("Output: %1").arg( QDir::toNativeSeparators(output) ) ) );
 
     // Preview: thumbnail of the last rendered output

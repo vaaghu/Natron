@@ -142,6 +142,9 @@ private Q_SLOTS:
     void onProjectFileChanged(const QString& path);
     void onProjectReloadTimeout();
 
+    // Projects open in an editor: picks up unsaved label and binding changes.
+    void onOpenProjectsTimer();
+
     void onStateValueChanged();
     void onKeyMappingEdited();
     void onKvCellDoubleClicked(int row, int column);
@@ -200,6 +203,9 @@ private:
     QHash<QString, ProjectInfo> _infos; // per project, read from the .ntp
     QFileSystemWatcher* _projectWatcher; // the opened scene's project files
     QTimer _projectReloadTimer;
+    QTimer _openProjectsTimer;
+    QHash<QString, QString> _openProjectStates; // project -> its bindings in the editor (empty: not open)
+    QHash<QString, bool> _unsavedBindings; // project -> its bindings in the editor differ from the file
 
     // Widgets of an item row (created once per showScene()).
     struct RowWidgets

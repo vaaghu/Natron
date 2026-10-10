@@ -34,9 +34,11 @@ CLANG_DIAG_OFF(uninitialized)
 #include <QLineEdit>
 #include <QModelIndex>
 #include <QStyledItemDelegate>
+#include <QWidget>
 CLANG_DIAG_ON(deprecated)
 CLANG_DIAG_ON(uninitialized)
 
+class QDockWidget;
 class QToolButton;
 
 NATRON_NAMESPACE_ENTER
@@ -111,6 +113,51 @@ protected:
 private:
 
     QToolButton* _button;
+};
+
+/**
+ * @brief Title bar for a dock panel, drawn only while the mouse is over the
+ * panel; its float and close buttons show only while the mouse is over the
+ * title bar itself. Keeps its height when hidden so the panel content does
+ * not move. Dragging and double-clicking it work as with the default one.
+ * A floated panel becomes a normal window (system title bar, taskbar entry);
+ * the float button or a double-click on this title bar docks it back.
+ * Install with DockTitleBar::install(dock).
+ **/
+class DockTitleBar
+    : public QWidget
+{
+GCC_DIAG_SUGGEST_OVERRIDE_OFF
+    Q_OBJECT
+GCC_DIAG_SUGGEST_OVERRIDE_ON
+
+public:
+
+    explicit DockTitleBar(QDockWidget* dock);
+
+    static DockTitleBar* install(QDockWidget* dock);
+
+protected:
+
+    virtual bool eventFilter(QObject* watched, QEvent* e) OVERRIDE;
+    virtual void enterEvent(QEvent* e) OVERRIDE;
+    virtual void leaveEvent(QEvent* e) OVERRIDE;
+    virtual void paintEvent(QPaintEvent* e) OVERRIDE;
+
+private Q_SLOTS:
+
+    void onFloatClicked();
+    void onTopLevelChanged(bool floating);
+
+private:
+
+    void setButtonsVisible(bool visible);
+    void makeWindow();
+
+    QDockWidget* _dock;
+    QToolButton* _floatButton;
+    QToolButton* _closeButton;
+    bool _dockHovered;
 };
 
 NATRON_NAMESPACE_EXIT

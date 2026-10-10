@@ -28,11 +28,15 @@
 CLANG_DIAG_OFF(deprecated)
 CLANG_DIAG_OFF(uninitialized)
 #include <QAbstractItemView>
+#include <QApplication>
+#include <QDockWidget>
 #include <QEvent>
+#include <QHBoxLayout>
 #include <QMouseEvent>
 #include <QPainter>
 #include <QResizeEvent>
 #include <QStyle>
+#include <QStyleOptionDockWidget>
 #include <QToolButton>
 CLANG_DIAG_ON(deprecated)
 CLANG_DIAG_ON(uninitialized)
@@ -152,6 +156,144 @@ HoverLineEdit::resizeEvent(QResizeEvent* e)
 
     const int size = kHoverIconSize + kHoverIconMargin;
     _button->setGeometry(width() - size - kHoverIconMargin / 2, (height() - size) / 2, size, size);
+}
+
+DockTitleBar::DockTitleBar(QDockWidget* dock)
+    : QWidget(dock)
+    , _dock(dock)
+    , _floatButton(0)
+    , _closeButton(0)
+    , _dockHovered(false)
+{
+    _floatButton = new QToolButton(this);
+    _floatButton->setIcon( style()->standardIcon(QStyle::SP_TitleBarNormalButton) );
+    _floatButton->setToolTip( tr("Float") );
+    _closeButton = new QToolButton(this);
+    _closeButton->setIcon( style()->standardIcon(QStyle::SP_TitleBarCloseButton) );
+    _closeButton->setToolTip( tr("Close") );
+
+    QHBoxLayout* layout = new QHBoxLayout(this);
+    layout->setContentsMargins(0, 0, 0, 0);
+    layout->setSpacing(0);
+    layout->addStretch();
+    QToolButton* buttons[] = { _floatButton, _closeButton };
+    for (int i = 0; i < 2; ++i) {
+        buttons[i]->setAutoRaise(true);
+        buttons[i]->setFocusPolicy(Qt::NoFocus);
+        buttons[i]->setIconSize( QSize(kHoverIconSize, kHoverIconSize) );
+        layout->addWidget(buttons[i]);
+    }
+    // Same height whether the buttons show or not.
+    setFixedHeight( qMax( _closeButton->sizeHint().height(), fontMetrics().height() + 4 ) );
+    setButtonsVisible(false);
+
+    _dock->installEventFilter(this);
+    QObject::connect( _floatButton, SIGNAL(clicked()), this, SLOT(onFloatClicked()) );
+    QObject::connect( _closeButton, SIGNAL(clicked()), _dock, SLOT(close()) );
+    QObject::connect( _dock, SIGNAL(topLevelChanged(bool)), this, SLOT(onTopLevelChanged(bool)) );
+}
+
+DockTitleBar*
+DockTitleBar::install(QDockWidget* dock)
+{
+    DockTitleBar* bar = new DockTitleBar(dock);
+
+    dock->setTitleBarWidget(bar);
+
+    return bar;
+}
+
+bool
+DockTitleBar::eventFilter(QObject* watched,
+                          QEvent* e)
+{
+    if (watched == _dock) {
+        if (e->type() == QEvent::Enter) {
+            _dockHovered = true;
+            update();
+        } else if (e->type() == QEvent::Leave) {
+            _dockHovered = false;
+            setButtonsVisible(false);
+            update();
+        } else if (e->type() == QEvent::WindowTitleChange) {
+            update();
+        } else if ( (e->type() == QEvent::MouseButtonRelease) && _dock->isFloating() ) {
+            makeWindow(); // dragged out: now that the drag is over
+        }
+    }
+
+    return QWidget::eventFilter(watched, e);
+}
+
+void
+DockTitleBar::enterEvent(QEvent* e)
+{
+    QWidget::enterEvent(e);
+    _dockHovered = true; // the dock may not have seen its Enter yet
+    setButtonsVisible(true);
+    update();
+}
+
+void
+DockTitleBar::leaveEvent(QEvent* e)
+{
+    QWidget::leaveEvent(e);
+    setButtonsVisible(false);
+}
+
+void
+DockTitleBar::paintEvent(QPaintEvent* /*e*/)
+{
+    if (!_dockHovered) {
+        return;
+    }
+
+    QPainter painter(this);
+    QStyleOptionDockWidget option;
+    option.initFrom(this);
+    option.rect = rect();
+    option.title = _dock->windowTitle();
+    style()->drawControl(QStyle::CE_DockWidgetTitle, &option, &painter, this);
+}
+
+void
+DockTitleBar::onFloatClicked()
+{
+    _dock->setFloating( !_dock->isFloating() );
+}
+
+void
+DockTitleBar::onTopLevelChanged(bool floating)
+{
+    _floatButton->setToolTip( floating ? tr("Dock") : tr("Float") );
+    // While dragged out, changing the window would end the drag: wait for the
+    // mouse release.
+    if ( floating && (QApplication::mouseButtons() == Qt::NoButton) ) {
+        makeWindow();
+    }
+}
+
+void
+DockTitleBar::makeWindow()
+{
+    if ( (_dock->windowFlags() & Qt::WindowType_Mask) == Qt::Window ) {
+        return; // already one
+    }
+
+    const QRect geometry = _dock->geometry();
+    _dock->setWindowFlags(Qt::Window | Qt::WindowTitleHint | Qt::WindowSystemMenuHint |
+                          Qt::WindowMinMaxButtonsHint | Qt::WindowCloseButtonHint);
+    _dock->setGeometry(geometry);
+    _dock->show();
+}
+
+void
+DockTitleBar::setButtonsVisible(bool visible)
+{
+    const QDockWidget::DockWidgetFeatures features = _dock->features();
+
+    _floatButton->setVisible( visible && (features & QDockWidget::DockWidgetFloatable) );
+    _closeButton->setVisible( visible && (features & QDockWidget::DockWidgetClosable) );
 }
 
 NATRON_NAMESPACE_EXIT

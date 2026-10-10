@@ -139,6 +139,7 @@ DashboardWindow::addPanel(const QString& objectName,
     dock->setObjectName(objectName); // saved layout
     dock->setWidget(content);
     dock->setFeatures(QDockWidget::DockWidgetClosable | QDockWidget::DockWidgetMovable | QDockWidget::DockWidgetFloatable);
+    DockTitleBar::install(dock); // shown on hover only
 
     return dock;
 }

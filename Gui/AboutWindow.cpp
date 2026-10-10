@@ -45,6 +45,7 @@ CLANG_DIAG_ON(deprecated)
 #include <qhttpserver.h>
 
 #include "Global/GlobalDefines.h"
+#include "Global/BuildInfo.h"
 #include "Global/GitVersion.h"
 
 #include "Engine/AppManager.h"
@@ -134,6 +135,14 @@ AboutWindow::AboutWindow(QWidget* parent)
 #endif
 #endif
         }
+        // Packaged builds: "Build temp2 #3, 2026-10-11 14:02, commit 7c93c40"
+        if ( !QString::fromUtf8(NATRON_BUILD_NUMBER).isEmpty() ) {
+            aboutText.append( QString::fromUtf8("<p>%1</p>").arg( tr("Build %1 #%2, %3, commit %4")
+                                                                   .arg( QString::fromUtf8(NATRON_BUILD_NAME) )
+                                                                   .arg( QString::fromUtf8(NATRON_BUILD_NUMBER) )
+                                                                   .arg( QString::fromUtf8(NATRON_BUILD_DATE) )
+                                                                   .arg( QString::fromUtf8(GIT_COMMIT).mid(0, 7) ) ) );
+        }
     }
     {
         QString licenseStr;
@@ -150,7 +159,7 @@ AboutWindow::AboutWindow(QWidget* parent)
         aboutText.append(endAbout);
     }
     {
-        QString argStr = ( QString::fromUtf8("<a href=\"https://github.com/NatronGitHub/Natron/tree/" GIT_COMMIT "\">")
+        QString argStr = ( QString::fromUtf8("<a href=\"" NATRON_BUILD_REPO_URL "/tree/" GIT_COMMIT "\">")
                            + QString::fromUtf8(GIT_COMMIT).mid(0, 7)
                            + QString::fromUtf8("</a>") );
 #ifdef _OPENMP
@@ -367,7 +376,7 @@ AboutWindow::AboutWindow(QWidget* parent)
         }
         QString gitStr = QString::fromUtf8("<p>%1</p>").arg(tr("This software was compiled from the source "
                                                                "code branch %1 at version %2 using %3 targeting %4 for %5.")
-                                                            .arg( QString::fromUtf8("<a href=\"https://github.com/NatronGitHub/Natron/tree/" GIT_BRANCH "\">" GIT_BRANCH "</a>") ) // %1
+                                                            .arg( QString::fromUtf8("<a href=\"" NATRON_BUILD_REPO_URL "/tree/" GIT_BRANCH "\">" GIT_BRANCH "</a>") ) // %1
                                                             .arg(argStr) // %2
                                                             .arg( QString::fromUtf8(BOOST_COMPILER OPENMP_STRING) ) // %3
                                                             .arg( QString::fromUtf8(BOOST_ARCH_NAME) ) // %4

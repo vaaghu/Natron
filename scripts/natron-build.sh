@@ -269,6 +269,18 @@ mkdir -p "$CACHE/tmp" "$CACHE/src" "$CACHE/logs" "$CACHE/build-numbers" "$OUT"
 if [ -z "$NUMBER" ]; then
     NUMBER="$(next_build_number)"
 fi
+
+# The About window shows the build name and number (Global/BuildInfo.h, see
+# write_build_info). Packaging under another number than the cached build
+# was compiled with: rebuild that file and relink first (quick).
+RELINK=0
+BUILD_INFO="$CACHE/tmp/Natron/Global/BuildInfo.h"
+if [ "$MODE" = "installer" ] &&
+   { ! grep -qs "NATRON_BUILD_NUMBER \"$NUMBER\"" "$BUILD_INFO" || ! grep -qs "NATRON_BUILD_NAME \"$NAME\"" "$BUILD_INFO"; }; then
+    RELINK=1
+    STEPS="BUILD_FROM=3 BUILD_TO=4"
+    echo "The cached build is numbered differently: relinking it as $NAME #$NUMBER first."
+fi
 COUNTER="$CACHE/build-numbers/$NAME"
 PREVIOUS_COUNT="$(cat "$COUNTER" 2>/dev/null || true)"
 case "$NUMBER" in
@@ -296,6 +308,21 @@ prepare_and_build() {
     local src="$1" workspace="$2" natron_bin="$3"
     local tmp="$workspace/tmp" status=0
 
+    # Global/BuildInfo.h of the compiled copy: what the About window shows.
+    write_build_info() {
+        local repo="${GIT_URL%.git}"
+        cat > "$tmp/Natron/Global/BuildInfo.h" <<INFO
+#ifndef NATRON_BUILDINFO_H_
+#define NATRON_BUILDINFO_H_
+// Written by scripts/natron-build.sh.
+#define NATRON_BUILD_NAME "$BUILD_NAME"
+#define NATRON_BUILD_NUMBER "$BUILD_NUMBER"
+#define NATRON_BUILD_DATE "$(date '+%Y-%m-%d %H:%M')"
+#define NATRON_BUILD_REPO_URL "$repo"
+#endif
+INFO
+    }
+
     case "$MODE" in
     all|build)
         rm -f "$tmp/.built-source" # until this build succeeds
@@ -310,11 +337,18 @@ prepare_and_build() {
             --exclude=/Engine/Qt5/ --exclude=/Gui/Qt5/ \
             $(awk '$1 == "path" {print "--exclude=/" $3 "/"}' "$src/.gitmodules") \
             "$src/" "$tmp/Natron/"
+        write_build_info
         # With DEBUG_SCRIPTS=1, an existing binary means "already built".
         rm -f "$tmp/$natron_bin"
         # An interrupted build can leave empty object files that make takes
         # as up to date (then the link fails): remove them.
         find "$tmp" \( -name '*.o' -o -name '*.obj' -o -name '*.a' \) -size 0 -delete
+        ;;
+    installer)
+        if [ "${RELINK:-0}" = "1" ]; then
+            write_build_info
+            rm -f "$tmp/$natron_bin" # so make runs: only the About window recompiles
+        fi
         ;;
     plugins)
         rm -rf "$tmp"/openfx-* "$tmp/tmp_deploy/OFX/Plugins" "$tmp/tmp_deploy/Natron.app/Contents/Plugins/OFX/Natron"
@@ -336,7 +370,7 @@ prepare_and_build() {
     return $status
 }
 
-export MODE STEPS SOURCE_STAMP
+export MODE STEPS SOURCE_STAMP RELINK
 export GIT_URL=https://github.com/vaaghu/Natron.git
 export GIT_URL_IS_NATRON=1
 export GIT_BRANCH="$BRANCH"
@@ -383,7 +417,7 @@ prepare_and_build /src /home $NATRON_BIN"
         --mount type=bind,src="$CACHE/tmp",target=/home/tmp
         --mount type=bind,src="$CACHE/src",target=/home/src
         --mount type=bind,src="$OUT",target=/home/builds_archive)
-    for v in MODE STEPS SOURCE_STAMP GIT_URL GIT_URL_IS_NATRON GIT_BRANCH GIT_COMMIT BUILD_NAME BUILD_NUMBER MKJOBS \
+    for v in MODE STEPS SOURCE_STAMP RELINK GIT_URL GIT_URL_IS_NATRON GIT_BRANCH GIT_COMMIT BUILD_NAME BUILD_NUMBER MKJOBS \
              UNIT_TESTS DEBUG_SCRIPTS SKIP_NATRON_TESTS DISABLE_PORTABLE_ARCHIVE XZ_OPT QT_VERSION_MAJOR; do
         [ -n "${!v+x}" ] && RUN_OPTS+=(--env "$v=${!v}")
     done

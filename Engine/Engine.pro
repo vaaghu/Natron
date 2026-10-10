@@ -399,6 +399,7 @@ HEADERS += \
     fstream_mingw.h \
     ../Global/Enums.h \
     ../Global/FStreamsSupport.h \
+    ../Global/BuildInfo.h \
     ../Global/GitVersion.h \
     ../Global/GLIncludes.h \
     ../Global/GlobalDefines.h \

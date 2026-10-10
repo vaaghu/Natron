@@ -30,20 +30,21 @@ CLANG_DIAG_OFF(uninitialized)
 #include <QCloseEvent>
 #include <QColor>
 #include <QComboBox>
+#include <QDockWidget>
 #include <QEvent>
-#include <QShowEvent>
 #include <QDir>
 #include <QFileDialog>
 #include <QFileInfo>
-#include <QGroupBox>
+#include <QTabWidget>
 #include <QHBoxLayout>
 #include <QHeaderView>
 #include <QLabel>
 #include <QLineEdit>
 #include <QListWidget>
+#include <QMenu>
+#include <QMenuBar>
 #include <QPushButton>
 #include <QSettings>
-#include <QSplitter>
 #include <QStringList>
 #include <QTableWidget>
 #include <QVBoxLayout>
@@ -65,6 +66,11 @@ CLANG_DIAG_ON(uninitialized)
 #define kDashboardColumnType 1
 #define kDashboardColumnValue 2
 
+// QSettings keys of the dashboard window layout.
+#define kDashboardSettingsGeometry "dashboard/geometry"
+#define kDashboardSettingsState "dashboard/dockState"
+#define kDashboardLayoutVersion 1
+
 NATRON_NAMESPACE_ENTER
 
 DashboardWindow::DashboardWindow(::StateStore* store,
@@ -72,7 +78,7 @@ DashboardWindow::DashboardWindow(::StateStore* store,
                                  ::SceneStore* scenes,
                                  ::SceneRenderer* renderer,
                                  QWidget* parent)
-    : QWidget(parent)
+    : QMainWindow(parent)
     , _store(store)
     , _server(server)
     , _sceneStore(scenes)
@@ -81,8 +87,7 @@ DashboardWindow::DashboardWindow(::StateStore* store,
     , _openRecentButton(0)
     , _addToSceneButton(0)
     , _scenePanel(0)
-    , _mainSplitter(0)
-    , _initialSplitDone(false)
+    , _defaultLayout()
     , _serverStatusLabel(0)
     , _table(0)
     , _newTypeCombo(0)
@@ -95,16 +100,7 @@ DashboardWindow::DashboardWindow(::StateStore* store,
     setWindowTitle( tr("%1 - Dashboard").arg( QString::fromUtf8(NATRON_APPLICATION_NAME) ) );
     resize(1400, 800);
 
-    QHBoxLayout* mainLayout = new QHBoxLayout(this);
-    mainLayout->setContentsMargins(8, 8, 8, 8);
-
-    // Projects 75%, Data 25% (also when the window is resized).
-    _mainSplitter = new QSplitter(Qt::Horizontal, this);
-    _mainSplitter->addWidget( createProjectsPanel() );
-    _mainSplitter->addWidget( createDataPanel() );
-    _mainSplitter->setStretchFactor(0, 3);
-    _mainSplitter->setStretchFactor(1, 1);
-    mainLayout->addWidget(_mainSplitter);
+    createPanels();
 
     if (_store) {
         QObject::connect( _store, SIGNAL(valueChanged(QString)), this, SLOT(onStoreValueChanged(QString)) );
@@ -122,6 +118,8 @@ DashboardWindow::DashboardWindow(::StateStore* store,
 
 DashboardWindow::~DashboardWindow()
 {
+    // Also when the application quits from an editor window.
+    saveLayout();
 }
 
 void
@@ -132,18 +130,98 @@ DashboardWindow::setNdiManager(::NdiManager* ndi)
     }
 }
 
+QDockWidget*
+DashboardWindow::addPanel(const QString& objectName,
+                          const QString& title,
+                          QWidget* content)
+{
+    QDockWidget* dock = new QDockWidget(title, this);
+    dock->setObjectName(objectName); // saved layout
+    dock->setWidget(content);
+    dock->setFeatures(QDockWidget::DockWidgetClosable | QDockWidget::DockWidgetMovable | QDockWidget::DockWidgetFloatable);
+
+    return dock;
+}
+
+void
+DashboardWindow::createPanels()
+{
+    // Panels only (no central widget), any of them can go anywhere.
+    setDockNestingEnabled(true);
+    setDockOptions(QMainWindow::AnimatedDocks | QMainWindow::AllowNestedDocks | QMainWindow::AllowTabbedDocks);
+    setTabPosition(Qt::AllDockWidgetAreas, QTabWidget::North);
+
+    if (_sceneStore) {
+        _scenePanel = new ScenePanel(_sceneStore, _sceneRenderer, _store, this);
+        QObject::connect( _scenePanel, SIGNAL(currentSceneChanged()), this, SLOT(onRecentSelectionChanged()) );
+    }
+
+    // Default layout:
+    //   Projects | Scene         | Data
+    //   Scenes   | KVs / NDI     |
+    QDockWidget* projects = addPanel( QString::fromUtf8("projects"), tr("Projects"), createProjectsPanel() );
+    QDockWidget* data = addPanel( QString::fromUtf8("data"), tr("Data"), createDataPanel() );
+    addDockWidget(Qt::LeftDockWidgetArea, projects);
+    addDockWidget(Qt::RightDockWidgetArea, data);
+
+    QList<QDockWidget*> panels;
+    panels << projects;
+    if (_scenePanel) {
+        QDockWidget* scenes = addPanel( QString::fromUtf8("scenes"), tr("Scenes"), _scenePanel->sceneListPart() );
+        QDockWidget* scene = addPanel( QString::fromUtf8("scene"), tr("Scene"), _scenePanel->scenePart() );
+        QDockWidget* kvs = addPanel( QString::fromUtf8("kvs"), tr("KVs used in this scene"), _scenePanel->kvPart() );
+        QDockWidget* ndi = addPanel( QString::fromUtf8("ndi"), tr("NDI output"), _scenePanel->ndiPart() );
+        addDockWidget(Qt::LeftDockWidgetArea, scene);
+        splitDockWidget(projects, scene, Qt::Horizontal);
+        splitDockWidget(projects, scenes, Qt::Vertical);
+        splitDockWidget(scene, kvs, Qt::Vertical);
+        tabifyDockWidget(kvs, ndi);
+        kvs->raise();
+        panels << scenes << scene << kvs << ndi;
+    }
+    panels << data;
+
+    QMenu* windowMenu = menuBar()->addMenu( tr("&Window") );
+    for (int i = 0; i < panels.size(); ++i) {
+        windowMenu->addAction( panels.at(i)->toggleViewAction() );
+    }
+    windowMenu->addSeparator();
+    QAction* reset = windowMenu->addAction( tr("Reset Layout") );
+    QObject::connect( reset, SIGNAL(triggered()), this, SLOT(onResetLayoutClicked()) );
+
+    // The user's layout from the last run.
+    _defaultLayout = saveState(kDashboardLayoutVersion);
+    QSettings settings;
+    restoreGeometry( settings.value( QString::fromUtf8(kDashboardSettingsGeometry) ).toByteArray() );
+    restoreState(settings.value( QString::fromUtf8(kDashboardSettingsState) ).toByteArray(), kDashboardLayoutVersion);
+}
+
+void
+DashboardWindow::onResetLayoutClicked()
+{
+    restoreState(_defaultLayout, kDashboardLayoutVersion);
+    const QList<QDockWidget*> docks = findChildren<QDockWidget*>();
+    for (int i = 0; i < docks.size(); ++i) {
+        docks.at(i)->setFloating(false);
+        docks.at(i)->show();
+    }
+}
+
+void
+DashboardWindow::saveLayout()
+{
+    QSettings settings;
+
+    settings.setValue( QString::fromUtf8(kDashboardSettingsGeometry), saveGeometry() );
+    settings.setValue( QString::fromUtf8(kDashboardSettingsState), saveState(kDashboardLayoutVersion) );
+}
+
 QWidget*
 DashboardWindow::createProjectsPanel()
 {
-    QGroupBox* box = new QGroupBox(tr("Projects"), this);
-    QVBoxLayout* layout = new QVBoxLayout(box);
-
-    QSplitter* split = new QSplitter(Qt::Vertical, box);
-
-    // Recent projects
-    QWidget* recent = new QWidget(split);
+    QWidget* recent = new QWidget(this);
     QVBoxLayout* recentLayout = new QVBoxLayout(recent);
-    recentLayout->setContentsMargins(0, 0, 0, 0);
+    recentLayout->setContentsMargins(4, 4, 4, 4);
 
     QHBoxLayout* buttons = new QHBoxLayout;
     QPushButton* newButton = new QPushButton(tr("New Project"), recent);
@@ -168,17 +246,6 @@ DashboardWindow::createProjectsPanel()
     _recentList = new QListWidget(recent);
     _recentList->setSelectionMode(QAbstractItemView::ExtendedSelection);
     recentLayout->addWidget(_recentList);
-    split->addWidget(recent);
-
-    // Scenes
-    if (_sceneStore) {
-        _scenePanel = new ScenePanel(_sceneStore, _sceneRenderer, _store, split);
-        split->addWidget(_scenePanel);
-        QObject::connect( _scenePanel, SIGNAL(currentSceneChanged()), this, SLOT(onRecentSelectionChanged()) );
-    }
-    split->setStretchFactor(0, 1);
-    split->setStretchFactor(1, 3);
-    layout->addWidget(split);
 
     QObject::connect( newButton, SIGNAL(clicked()), this, SLOT(onNewProjectClicked()) );
     QObject::connect( openButton, SIGNAL(clicked()), this, SLOT(onOpenProjectClicked()) );
@@ -187,14 +254,15 @@ DashboardWindow::createProjectsPanel()
     QObject::connect( _recentList, SIGNAL(itemActivated(QListWidgetItem*)), this, SLOT(onRecentItemActivated(QListWidgetItem*)) );
     QObject::connect( _recentList, SIGNAL(itemSelectionChanged()), this, SLOT(onRecentSelectionChanged()) );
 
-    return box;
+    return recent;
 }
 
 QWidget*
 DashboardWindow::createDataPanel()
 {
-    QGroupBox* box = new QGroupBox(tr("Data"), this);
+    QWidget* box = new QWidget(this);
     QVBoxLayout* layout = new QVBoxLayout(box);
+    layout->setContentsMargins(4, 4, 4, 4);
 
     _serverStatusLabel = new QLabel(box);
     _serverStatusLabel->setTextFormat(Qt::PlainText);
@@ -638,23 +706,9 @@ DashboardWindow::onServerStatusChanged()
 // ----- Window -----
 
 void
-DashboardWindow::showEvent(QShowEvent* e)
-{
-    QWidget::showEvent(e);
-
-    // Initial 75% / 25% split, from the real width (setSizes before the
-    // window is shown gets skewed by the panels' minimum sizes).
-    if (!_initialSplitDone) {
-        _initialSplitDone = true;
-        const int total = _mainSplitter->width() - _mainSplitter->handleWidth();
-        _mainSplitter->setSizes( QList<int>() << (total * 3) / 4 << total - (total * 3) / 4 );
-    }
-}
-
-void
 DashboardWindow::changeEvent(QEvent* e)
 {
-    QWidget::changeEvent(e);
+    QMainWindow::changeEvent(e);
 
     // Coming back from an editor: projects may have been saved with new
     // bindings or renamed outputs.
@@ -669,6 +723,7 @@ DashboardWindow::closeEvent(QCloseEvent* e)
     // Closing the dashboard quits the application. Stay open if the user
     // cancels saving one of the open projects.
     if ( appPTR->requestQuit(true) ) {
+        saveLayout();
         e->accept();
     } else {
         e->ignore();

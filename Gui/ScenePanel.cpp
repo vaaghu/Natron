@@ -31,7 +31,6 @@ CLANG_DIAG_OFF(uninitialized)
 #include <QCheckBox>
 #include <QColor>
 #include <QDoubleSpinBox>
-#include <QTabWidget>
 #include <QStyle>
 #include <QComboBox>
 #include <QDesktopServices>
@@ -52,7 +51,6 @@ CLANG_DIAG_OFF(uninitialized)
 #include <QPixmap>
 #include <QProgressBar>
 #include <QPushButton>
-#include <QSplitter>
 #include <QStackedWidget>
 #include <QTableWidget>
 #include <QTreeWidget>
@@ -160,6 +158,9 @@ ScenePanel::ScenePanel(::SceneStore* scenes,
     , _sceneList(0)
     , _renameSceneButton(0)
     , _deleteSceneButton(0)
+    , _sceneListPart(0)
+    , _kvPart(0)
+    , _ndiPart(0)
     , _detailStack(0)
     , _sceneTitle(0)
     , _outputDirLabel(0)
@@ -185,15 +186,11 @@ ScenePanel::ScenePanel(::SceneStore* scenes,
     , _ndiReplayAllButton(0)
     , _ndiTable(0)
 {
-    QHBoxLayout* layout = new QHBoxLayout(this);
-    layout->setContentsMargins(0, 0, 0, 0);
-
-    QSplitter* splitter = new QSplitter(Qt::Horizontal, this);
-    splitter->addWidget( createSceneList() );
-    splitter->addWidget( createSceneDetail() );
-    splitter->setStretchFactor(0, 1);
-    splitter->setStretchFactor(1, 4);
-    layout->addWidget(splitter);
+    // The parts are shown by the owner (e.g. in dock panels); this widget
+    // itself stays hidden.
+    _sceneListPart = createSceneList();
+    createSceneDetail();
+    hide();
 
     QObject::connect( _scenes, SIGNAL(scenesChanged()), this, SLOT(onScenesChanged()) );
     QObject::connect( _scenes, SIGNAL(renderRecordChanged(QString,QString)), this, SLOT(onRenderRecordChanged(QString,QString)) );
@@ -219,9 +216,7 @@ ScenePanel::createSceneList()
 {
     QWidget* w = new QWidget(this);
     QVBoxLayout* layout = new QVBoxLayout(w);
-    layout->setContentsMargins(0, 0, 0, 0);
-
-    layout->addWidget( new QLabel(tr("Scenes"), w) );
+    layout->setContentsMargins(4, 4, 4, 4);
 
     _sceneList = new QListWidget(w);
     _sceneList->setSelectionMode(QAbstractItemView::SingleSelection);
@@ -258,7 +253,7 @@ ScenePanel::createSceneDetail()
 
     QWidget* detail = new QWidget(_detailStack);
     QVBoxLayout* layout = new QVBoxLayout(detail);
-    layout->setContentsMargins(0, 0, 0, 0);
+    layout->setContentsMargins(4, 4, 4, 4);
 
     _sceneTitle = new QLabel(detail);
     QFont titleFont = _sceneTitle->font();
@@ -305,9 +300,7 @@ ScenePanel::createSceneDetail()
     buttons->addWidget(_stopButton);
     layout->addLayout(buttons);
 
-    QSplitter* split = new QSplitter(Qt::Vertical, detail);
-
-    _projectTable = new QTableWidget(0, kSceneColumnCount, split);
+    _projectTable = new QTableWidget(0, kSceneColumnCount, detail);
     QStringList headers;
     headers << tr("Preview") << tr("Project") << tr("Writer") << tr("Progress") << tr("Status") << tr("Controls") << tr("Time remaining");
     _projectTable->setHorizontalHeaderLabels(headers);
@@ -326,12 +319,11 @@ ScenePanel::createSceneDetail()
     _projectTable->setColumnWidth(kSceneColumnControls, 100);
     _projectTable->setColumnWidth(kSceneColumnRemaining, 120);
     _projectTable->setToolTip( tr("Double-click a preview to open the rendered output, or a project to open it in the editor.") );
-    split->addWidget(_projectTable);
+    layout->addWidget(_projectTable, 1);
 
-    QTabWidget* bottomTabs = new QTabWidget(split);
-    QWidget* kvBox = new QWidget(bottomTabs);
+    QWidget* kvBox = new QWidget(this);
     QVBoxLayout* kvLayout = new QVBoxLayout(kvBox);
-    kvLayout->setContentsMargins(0, 4, 0, 0);
+    kvLayout->setContentsMargins(4, 4, 4, 4);
     _kvTable = new QTableWidget(0, 5, kvBox);
     QStringList kvHeaders;
     kvHeaders << tr("Key in projects") << tr("Uses key") << tr("Type") << tr("Value") << tr("Used by");
@@ -349,12 +341,8 @@ ScenePanel::createSceneDetail()
                              "Double-click an image to open it. Edit values in the Data panel, then re-render.") );
     QObject::connect( _kvTable, SIGNAL(cellDoubleClicked(int,int)), this, SLOT(onKvCellDoubleClicked(int,int)) );
     kvLayout->addWidget(_kvTable);
-    bottomTabs->addTab( kvBox, tr("KVs used in this scene") );
-    bottomTabs->addTab( createNdiTab(bottomTabs), tr("NDI output") );
-    split->addWidget(bottomTabs);
-    split->setStretchFactor(0, 3);
-    split->setStretchFactor(1, 2);
-    layout->addWidget(split);
+    _kvPart = kvBox;
+    _ndiPart = createNdiTab(this);
 
     _renderStatus = new QLabel(detail);
     _renderStatus->setWordWrap(true);
@@ -376,6 +364,30 @@ ScenePanel::createSceneDetail()
 }
 
 // ----- Scene list -----
+
+QWidget*
+ScenePanel::sceneListPart() const
+{
+    return _sceneListPart;
+}
+
+QWidget*
+ScenePanel::scenePart() const
+{
+    return _detailStack;
+}
+
+QWidget*
+ScenePanel::kvPart() const
+{
+    return _kvPart;
+}
+
+QWidget*
+ScenePanel::ndiPart() const
+{
+    return _ndiPart;
+}
 
 bool
 ScenePanel::hasCurrentScene() const
@@ -1361,7 +1373,7 @@ ScenePanel::createNdiTab(QWidget* parent)
 {
     QWidget* tab = new QWidget(parent);
     QVBoxLayout* layout = new QVBoxLayout(tab);
-    layout->setContentsMargins(0, 4, 0, 0);
+    layout->setContentsMargins(4, 4, 4, 4);
 
     QHBoxLayout* settings = new QHBoxLayout;
     _ndiEnabledCheck = new QCheckBox(tr("NDI output"), tab);

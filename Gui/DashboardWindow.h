@@ -30,7 +30,8 @@
 
 CLANG_DIAG_OFF(deprecated)
 CLANG_DIAG_OFF(uninitialized)
-#include <QWidget>
+#include <QByteArray>
+#include <QMainWindow>
 #include <QString>
 #include <QStringList>
 CLANG_DIAG_ON(deprecated)
@@ -38,10 +39,9 @@ CLANG_DIAG_ON(uninitialized)
 
 class QCloseEvent;
 class QComboBox;
+class QDockWidget;
 class QModelIndex;
 class QEvent;
-class QShowEvent;
-class QSplitter;
 class QLabel;
 class QLineEdit;
 class QListWidget;
@@ -62,12 +62,18 @@ class HoverLineEdit;
 
 /**
  * @brief Start window shown instead of an empty project window.
- * Left: recent projects, with New/Open buttons (each opens a project window).
- * Right: the key/value pairs of the state store, editable.
+ * Dock panels, like the editor's panes (drag to re-dock or stack as tabs,
+ * float, close and reopen from the Window menu; the layout is kept):
+ *   Projects  recent projects, with New/Open buttons (each opens a project window)
+ *   Scenes    the scene list
+ *   Scene     the opened scene's Write nodes and renders
+ *   KVs       the keys the opened scene uses
+ *   NDI       the opened scene's NDI output
+ *   Data      the key/value pairs of the state store, editable
  * Closing it quits the application (after asking to save open projects).
  **/
 class DashboardWindow
-    : public QWidget
+    : public QMainWindow
 {
 GCC_DIAG_SUGGEST_OVERRIDE_OFF
     Q_OBJECT
@@ -112,17 +118,20 @@ private Q_SLOTS:
     void onAddClicked();
     void onRemoveClicked();
     void onServerStatusChanged();
+    void onResetLayoutClicked();
 
 protected:
 
     virtual void closeEvent(QCloseEvent* e) OVERRIDE;
     virtual void changeEvent(QEvent* e) OVERRIDE;
-    virtual void showEvent(QShowEvent* e) OVERRIDE;
 
 private:
 
     QWidget* createProjectsPanel();
     QWidget* createDataPanel();
+    QDockWidget* addPanel(const QString& objectName, const QString& title, QWidget* content);
+    void createPanels();
+    void saveLayout();
 
     QStringList selectedRecentProjects() const;
 
@@ -140,8 +149,7 @@ private:
     QPushButton* _openRecentButton;
     QPushButton* _addToSceneButton;
     ScenePanel* _scenePanel;
-    QSplitter* _mainSplitter;
-    bool _initialSplitDone;
+    QByteArray _defaultLayout; // dock layout before the saved one is restored
 
     QLabel* _serverStatusLabel;
     QTableWidget* _table;

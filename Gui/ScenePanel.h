@@ -62,8 +62,10 @@ NATRON_NAMESPACE_ENTER
  * @brief Dashboard panel managing scenes: named groups of Write nodes of
  * projects ("items", see SceneItem) rendered together with the current state
  * store values.
- * Left: scene list. Right: the opened scene (one row per Write node with its
- * last render status and output thumbnail; all KVs of the scene).
+ * It is made of separate parts the owner lays out (the panel itself stays
+ * hidden): the scene list, the opened scene (one row per Write node with its
+ * last render status and output thumbnail), the KVs of the scene, and its
+ * NDI output.
  **/
 class ScenePanel
     : public QWidget
@@ -80,6 +82,12 @@ public:
                QWidget* parent = 0);
 
     virtual ~ScenePanel();
+
+    // Parts to show (reparented by the owner, e.g. into dock panels).
+    QWidget* sceneListPart() const;
+    QWidget* scenePart() const;
+    QWidget* kvPart() const;
+    QWidget* ndiPart() const;
 
     bool hasCurrentScene() const;
 
@@ -191,6 +199,10 @@ private:
         QPushButton* stop;
     };
     QHash<QString, RowWidgets> _rows; // item -> row widgets
+
+    QWidget* _sceneListPart;
+    QWidget* _kvPart;
+    QWidget* _ndiPart;
 
     QListWidget* _sceneList;
     QPushButton* _renameSceneButton;

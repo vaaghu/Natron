@@ -1023,6 +1023,13 @@ GuiApplicationManager::initGui(const CLArgs& args)
         }
     }
     _imp->httpServer.reset( new HttpServer(static_cast<unsigned short>(httpPort), _imp->stateStore) );
+    // NATRON_HTTP_TOKEN: requests need this token. NATRON_HTTP_HOST: address
+    // to listen on (default localhost; another one needs the token).
+    _imp->httpServer->setToken( QString::fromUtf8( qgetenv("NATRON_HTTP_TOKEN").constData() ) );
+    const QByteArray httpHost = qgetenv("NATRON_HTTP_HOST");
+    if ( !httpHost.isEmpty() ) {
+        _imp->httpServer->setListenAddress( QHostAddress( QString::fromUtf8( httpHost.constData() ) ) );
+    }
     _imp->httpServer->start();
     _imp->httpServer->addRouteHandler( _imp->ndiManager.get() ); // /ndi
 

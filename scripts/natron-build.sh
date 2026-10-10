@@ -282,6 +282,12 @@ export MODE STEPS
 export GIT_URL=https://github.com/vaaghu/Natron.git
 export GIT_URL_IS_NATRON=1
 export GIT_BRANCH="$BRANCH"
+if [ "$MODE" = "installer" ]; then
+    # The checkout step is skipped, and it is what records the commit for the
+    # file names: give the commit of the build being packaged.
+    GIT_COMMIT="$(git -C "$CACHE/tmp/Natron" rev-parse HEAD 2>/dev/null || true)"
+    [ -n "$GIT_COMMIT" ] && export GIT_COMMIT
+fi
 export BUILD_NAME="$NAME"
 export BUILD_NUMBER="$NUMBER"
 export MKJOBS="$JOBS"
@@ -319,7 +325,7 @@ prepare_and_build /src /home $NATRON_BIN"
         --mount type=bind,src="$CACHE/tmp",target=/home/tmp
         --mount type=bind,src="$CACHE/src",target=/home/src
         --mount type=bind,src="$OUT",target=/home/builds_archive)
-    for v in MODE STEPS GIT_URL GIT_URL_IS_NATRON GIT_BRANCH BUILD_NAME BUILD_NUMBER MKJOBS \
+    for v in MODE STEPS GIT_URL GIT_URL_IS_NATRON GIT_BRANCH GIT_COMMIT BUILD_NAME BUILD_NUMBER MKJOBS \
              UNIT_TESTS DEBUG_SCRIPTS SKIP_NATRON_TESTS DISABLE_PORTABLE_ARCHIVE XZ_OPT QT_VERSION_MAJOR; do
         [ -n "${!v+x}" ] && RUN_OPTS+=(--env "$v=${!v}")
     done

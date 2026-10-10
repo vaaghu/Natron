@@ -7,7 +7,7 @@
 #
 # Modes:
 #   all        build Natron, then the installer and portable archive (default)
-#   build      build Natron only (no installer)
+#   build      build Natron only, in the cache (no installer, nothing in the output)
 #   installer  make the installer and portable archive from the existing build
 #   plugins    re-clone and rebuild the OFX plug-ins (otherwise built once and kept)
 #   status     show what the cache holds
@@ -221,9 +221,11 @@ mkdir -p "$CACHE/tmp" "$CACHE/src" "$CACHE/logs" "$CACHE/build-numbers" "$OUT"
 if [ -z "$NUMBER" ]; then
     NUMBER="$(next_build_number)"
 fi
+COUNTER="$CACHE/build-numbers/$NAME"
+PREVIOUS_COUNT="$(cat "$COUNTER" 2>/dev/null || true)"
 case "$NUMBER" in
     *[!0-9]*) ;;
-    *) # reserved, even if the build fails; an explicit lower -b keeps the counter
+    *) # reserved while building; an explicit lower -b keeps the counter
         if [ ! -f "$CACHE/build-numbers/$NAME" ] || [ "$NUMBER" -gt "$(cat "$CACHE/build-numbers/$NAME")" ]; then
             echo "$NUMBER" > "$CACHE/build-numbers/$NAME"
         fi
@@ -337,13 +339,31 @@ else
     fi
 fi
 
+# The build scripts create the output folder up front, but only the
+# installer step fills it (build, plugins and failed runs leave it empty):
+# remove an empty one and give its number back.
+PRODUCED=1
+if rmdir "$OUT/$NAME/$NUMBER" 2>/dev/null; then
+    PRODUCED=0
+    if [ "$(cat "$COUNTER" 2>/dev/null || true)" = "$NUMBER" ]; then
+        if [ -n "$PREVIOUS_COUNT" ]; then
+            echo "$PREVIOUS_COUNT" > "$COUNTER"
+        else
+            rm -f "$COUNTER"
+        fi
+    fi
+fi
+
 ELAPSED=$(( $(date +%s) - START ))
 echo
 echo "Log:      $LOG"
 printf 'Duration: %dm%02ds\n' $((ELAPSED / 60)) $((ELAPSED % 60))
-if [ "$STATUS" = "0" ]; then
+if [ "$STATUS" != "0" ]; then
+    echo "Failed with status $STATUS"
+elif [ "$PRODUCED" = "1" ]; then
     echo "Done:     $OUT/$NAME/$NUMBER"
 else
-    echo "Failed with status $STATUS"
+    echo "Done:     built in the cache ($CACHE/tmp/tmp_deploy), not packaged."
+    echo "          Run \`$0 installer\` for the installer and the portable archive."
 fi
 exit "$STATUS"

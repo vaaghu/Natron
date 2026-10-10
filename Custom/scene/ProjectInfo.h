@@ -16,6 +16,15 @@ struct ProjectInfo
   // in order of appearance, without duplicates.
   QStringList stateKeys;
 
+  // Nodes bound to each key, in order of appearance: label as shown in the
+  // node graph, and script name (Group1.Text1 inside a group).
+  struct BoundNode
+  {
+    QString label;
+    QString name;
+  };
+  QHash<QString, QList<BoundNode> > keyNodes;
+
   // Value type each key is bound for: "text" (Text node) or "image"
   // (Read node). A key bound on both kinds of node is "text,image".
   QHash<QString, QString> keyTypes;

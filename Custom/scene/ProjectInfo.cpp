@@ -195,6 +195,8 @@ ProjectInfo readProjectInfo(const QString &projectFilePath)
     namePositions << at;
   }
   const QString pluginEnd = QString::fromUtf8("</Plugin_id>");
+  const QString labelTag = QString::fromUtf8("<Plugin_label>");
+  int previousIdEnd = 0;
 
   // Each node starts with its <Plugin_id>; its parameters follow until the
   // next node.
@@ -211,6 +213,23 @@ ProjectInfo readProjectInfo(const QString &projectFilePath)
     const int next = text.indexOf(pluginTag, idEnd);
     const QString node = text.mid(idEnd, next < 0 ? -1 : next - idEnd);
 
+    // The node's script name and label come just before its <Plugin_id>;
+    // inside a group, the full path (Group1.Write1) is used.
+    const int nameStart = text.lastIndexOf(nameTag, pos);
+    const int nameEnd = (nameStart < previousIdEnd) ? -1 : text.indexOf(QString::fromUtf8("</Plugin_script_name>"), nameStart);
+    QString name = (nameEnd < 0) ? QString()
+                                 : unescapeXml(text.mid(nameStart + nameTag.size(), nameEnd - nameStart - nameTag.size()).trimmed());
+    const int nameIndex = namePositions.indexOf(nameStart);
+    if (!name.isEmpty() && nameIndex >= 0 && nameIndex < paths.size() && paths.at(nameIndex).endsWith(name))
+    {
+      name = paths.at(nameIndex);
+    }
+    const int labelStart = text.lastIndexOf(labelTag, pos);
+    const int labelEnd = (labelStart < previousIdEnd) ? -1 : text.indexOf(QString::fromUtf8("</Plugin_label>"), labelStart);
+    const QString label = (labelEnd < 0) ? QString()
+                                         : unescapeXml(text.mid(labelStart + labelTag.size(), labelEnd - labelStart - labelTag.size()).trimmed());
+    previousIdEnd = idEnd;
+
     // Text nodes bind text, Read nodes bind an image file.
     const QString boundType = (pluginId == QString::fromUtf8("fr.inria.built-in.Read")) ? QString::fromUtf8("image")
                                                                                        : QString::fromUtf8("text");
@@ -222,6 +241,13 @@ ProjectInfo readProjectInfo(const QString &projectFilePath)
       if (value.isEmpty())
       {
         continue;
+      }
+      if (!name.isEmpty() || !label.isEmpty())
+      {
+        ProjectInfo::BoundNode bound;
+        bound.label = label.isEmpty() ? name : label;
+        bound.name = name;
+        info.keyNodes[value] << bound;
       }
       if (!info.stateKeys.contains(value))
       {
@@ -236,17 +262,7 @@ ProjectInfo readProjectInfo(const QString &projectFilePath)
 
     if (isWritePlugin(pluginId))
     {
-      // The node's script name comes just before its <Plugin_id>; inside a
-      // group, the full path (Group1.Write1) is used.
-      const int nameStart = text.lastIndexOf(nameTag, pos);
-      const int nameEnd = (nameStart < 0) ? -1 : text.indexOf(QString::fromUtf8("</Plugin_script_name>"), nameStart);
-      QString writer = (nameEnd < 0) ? QString()
-                                     : unescapeXml(text.mid(nameStart + nameTag.size(), nameEnd - nameStart - nameTag.size()).trimmed());
-      const int nameIndex = namePositions.indexOf(nameStart);
-      if (nameIndex >= 0 && nameIndex < paths.size() && paths.at(nameIndex).endsWith(writer))
-      {
-        writer = paths.at(nameIndex);
-      }
+      const QString& writer = name;
       if (!writer.isEmpty() && !info.writers.contains(writer))
       {
         info.writers << writer;

@@ -159,6 +159,8 @@ private:
     HoverLineEdit* _newValueEdit;
     QPushButton* _addButton;
     QAction* _removeAction;
+    QAction* _newProjectAction;  // Ctrl+Shift+N in the Projects panel
+    QAction* _openProjectAction; // Ctrl+O in the Projects panel
 
     // Set while the table is filled from the store, so the resulting
     // itemChanged signals are not written back to the store.

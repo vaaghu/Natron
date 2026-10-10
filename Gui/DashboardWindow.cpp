@@ -100,6 +100,8 @@ DashboardWindow::DashboardWindow(::StateStore* store,
     , _newValueEdit(0)
     , _addButton(0)
     , _removeAction(0)
+    , _newProjectAction(0)
+    , _openProjectAction(0)
     , _updatingTable(false)
 {
     setWindowTitle( tr("%1 - Dashboard").arg( QString::fromUtf8(NATRON_APPLICATION_NAME) ) );
@@ -237,8 +239,19 @@ DashboardWindow::createProjectsPanel()
     QMenu* menu = 0;
     QToolButton* menuButton = KvGui::panelMenuButton(recent, &menu);
     menuButton->setToolTip( tr("Project actions") );
-    menu->addAction( tr("New Project"), this, SLOT(onNewProjectClicked()) );
-    menu->addAction( tr("Open Project..."), this, SLOT(onOpenProjectClicked()) );
+    _newProjectAction = new QAction(tr("New Project"), recent);
+    _newProjectAction->setShortcut( QKeySequence(Qt::CTRL + Qt::SHIFT + Qt::Key_N) );
+    _openProjectAction = new QAction(tr("Open Project..."), recent);
+    _openProjectAction->setShortcut( QKeySequence(Qt::CTRL + Qt::Key_O) );
+    QAction* projectActions[] = { _newProjectAction, _openProjectAction };
+    for (int i = 0; i < 2; ++i) {
+        // Only while the focus is in this panel: the editor has its own.
+        projectActions[i]->setShortcutContext(Qt::WidgetWithChildrenShortcut);
+        recent->addAction(projectActions[i]);
+        menu->addAction(projectActions[i]);
+    }
+    QObject::connect( _newProjectAction, SIGNAL(triggered()), this, SLOT(onNewProjectClicked()) );
+    QObject::connect( _openProjectAction, SIGNAL(triggered()), this, SLOT(onOpenProjectClicked()) );
     header->addWidget(menuButton);
     recentLayout->addLayout(header);
 
@@ -440,8 +453,8 @@ DashboardWindow::onRecentContextMenu(const QPoint& pos)
         addToScene->setEnabled( _scenePanel && _scenePanel->hasCurrentScene() );
         menu.addSeparator();
     }
-    menu.addAction( tr("New Project"), this, SLOT(onNewProjectClicked()) );
-    menu.addAction( tr("Open Project..."), this, SLOT(onOpenProjectClicked()) );
+    menu.addAction(_newProjectAction);
+    menu.addAction(_openProjectAction);
     menu.exec( _recentList->viewport()->mapToGlobal(pos) );
 }
 

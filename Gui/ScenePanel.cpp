@@ -52,6 +52,7 @@ CLANG_DIAG_OFF(uninitialized)
 #include <QMessageBox>
 #include <QIcon>
 #include <QItemSelectionModel>
+#include <QKeySequence>
 #include <QPixmap>
 #include <QProgressBar>
 #include <QPushButton>
@@ -135,6 +136,25 @@ makeControlButton(const QIcon& icon,
     button->setToolTip(tooltip);
 
     return button;
+}
+
+// An action with a shortcut working while the focus is in owner (one of the
+// dashboard panels), so it does not clash with the editor windows' own.
+QAction*
+makeShortcutAction(QWidget* owner,
+                   const QString& text,
+                   const QKeySequence& shortcut,
+                   QObject* receiver,
+                   const char* slot)
+{
+    QAction* action = new QAction(text, owner);
+
+    action->setShortcut(shortcut);
+    action->setShortcutContext(Qt::WidgetWithChildrenShortcut);
+    owner->addAction(action);
+    QObject::connect(action, SIGNAL(triggered()), receiver, slot);
+
+    return action;
 }
 
 // The project at path if it is open in an editor window.
@@ -320,10 +340,16 @@ ScenePanel::ScenePanel(::SceneStore* scenes,
     , _projectWatcher(0)
     , _projectReloadTimer()
     , _rows()
-    , _sceneList(0)
     , _sceneListPart(0)
     , _kvPart(0)
     , _ndiPart(0)
+    , _sceneList(0)
+    , _newSceneAction(0)
+    , _renameSceneAction(0)
+    , _deleteSceneAction(0)
+    , _renderAction(0)
+    , _openInEditorAction(0)
+    , _removeProjectsAction(0)
     , _detailStack(0)
     , _sceneTitle(0)
     , _sceneSummary(0)
@@ -449,6 +475,9 @@ ScenePanel::createSceneList()
     layout->addWidget(_sceneList);
 
     QObject::connect( _sceneList, SIGNAL(customContextMenuRequested(QPoint)), this, SLOT(onSceneListContextMenu(QPoint)) );
+    _newSceneAction = makeShortcutAction( w, tr("New Scene..."), QKeySequence(Qt::CTRL + Qt::Key_N), this, SLOT(onNewSceneClicked()) );
+    _renameSceneAction = makeShortcutAction( w, tr("Rename..."), QKeySequence(Qt::Key_F2), this, SLOT(onRenameSceneClicked()) );
+    _deleteSceneAction = makeShortcutAction( w, tr("Delete"), QKeySequence(QKeySequence::Delete), this, SLOT(onDeleteSceneClicked()) );
     QObject::connect( _sceneList, SIGNAL(itemSelectionChanged()), this, SLOT(onSceneSelectionChanged()) );
 
     return w;
@@ -482,7 +511,7 @@ ScenePanel::createSceneDetail()
     header->addSpacing(8);
     header->addWidget(_sceneSummary, 1);
     _renderButton = makeControlButton( playerIcon(NATRON_ENUM::NATRON_PIXMAP_PLAYER_PLAY_DISABLED, NATRON_ENUM::NATRON_PIXMAP_PLAYER_PLAY_DISABLED),
-                                       tr("Render all Write nodes"), detail );
+                                       tr("Render all Write nodes (Ctrl+R)"), detail );
     _stopButton = makeControlButton( playerIcon(NATRON_ENUM::NATRON_PIXMAP_PLAYER_STOP_DISABLED, NATRON_ENUM::NATRON_PIXMAP_PLAYER_STOP_DISABLED),
                                      tr("Stop rendering and clear the queue"), detail );
     header->addWidget(_renderButton);
@@ -547,6 +576,10 @@ ScenePanel::createSceneDetail()
     layout->addWidget(_renderStatus);
 
     _detailStack->addWidget(detail);
+
+    _renderAction = makeShortcutAction( detail, tr("Render"), QKeySequence(Qt::CTRL + Qt::Key_R), this, SLOT(onRenderClicked()) );
+    _openInEditorAction = makeShortcutAction( detail, tr("Open in Editor"), QKeySequence(Qt::CTRL + Qt::Key_E), this, SLOT(onOpenInEditorClicked()) );
+    _removeProjectsAction = makeShortcutAction( detail, tr("Remove from Scene"), QKeySequence(QKeySequence::Delete), this, SLOT(onRemoveProjectsClicked()) );
 
     QObject::connect( _renderButton, SIGNAL(clicked()), this, SLOT(onRenderClicked()) );
     QObject::connect( _stopButton, SIGNAL(clicked()), this, SLOT(onStopClicked()) );
@@ -692,12 +725,12 @@ ScenePanel::onSceneListContextMenu(const QPoint& pos)
 
     if (item) {
         _sceneList->setCurrentItem(item); // opens it: the actions apply to the opened scene
-        menu.addAction( tr("New Scene..."), this, SLOT(onNewSceneClicked()) );
-        menu.addAction( tr("Rename..."), this, SLOT(onRenameSceneClicked()) );
+        menu.addAction(_newSceneAction);
+        menu.addAction(_renameSceneAction);
         menu.addSeparator();
-        menu.addAction( tr("Delete"), this, SLOT(onDeleteSceneClicked()) );
+        menu.addAction(_deleteSceneAction);
     } else {
-        menu.addAction( tr("New Scene..."), this, SLOT(onNewSceneClicked()) );
+        menu.addAction(_newSceneAction);
     }
     menu.exec( _sceneList->viewport()->mapToGlobal(pos) );
 }
@@ -1437,8 +1470,8 @@ ScenePanel::refreshButtons()
 
     const bool hasSelection = scene && !selectedItems().isEmpty();
     _renderButton->setEnabled(_renderer && hasProjects);
-    _renderButton->setToolTip( hasSelection ? tr("Render selected Write nodes")
-                                            : tr("Render all Write nodes") );
+    _renderButton->setToolTip( hasSelection ? tr("Render selected Write nodes (Ctrl+R)")
+                                            : tr("Render all Write nodes (Ctrl+R)") );
     _stopButton->setEnabled(busy);
 
     if (!_renderer) {
@@ -1635,11 +1668,11 @@ ScenePanel::onProjectTableContextMenu(const QPoint& pos)
         if ( !_projectTable->selectionModel()->isRowSelected( row, QModelIndex() ) ) {
             _projectTable->selectRow(row);
         }
-        QAction* render = menu.addAction( tr("Render"), this, SLOT(onRenderSelectedClicked()) );
-        render->setEnabled(_renderer != 0);
-        menu.addAction( tr("Open in Editor"), this, SLOT(onOpenInEditorClicked()) );
+        _renderAction->setEnabled(_renderer != 0);
+        menu.addAction(_renderAction); // the selection, which now holds the row
+        menu.addAction(_openInEditorAction);
         menu.addSeparator();
-        menu.addAction( tr("Remove from Scene"), this, SLOT(onRemoveProjectsClicked()) );
+        menu.addAction(_removeProjectsAction);
     } else {
         menu.addAction( tr("Add Projects..."), this, SLOT(onAddProjectsClicked()) );
     }

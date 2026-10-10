@@ -223,6 +223,13 @@ private:
     QWidget* _ndiPart;
 
     QListWidget* _sceneList;
+    // Shortcuts of the scene list and of the opened scene, also in their menus.
+    QAction* _newSceneAction;    // Ctrl+N
+    QAction* _renameSceneAction; // F2
+    QAction* _deleteSceneAction; // Delete
+    QAction* _renderAction;      // Ctrl+R: the selected Write nodes, or all
+    QAction* _openInEditorAction; // Ctrl+E
+    QAction* _removeProjectsAction; // Delete
 
     QStackedWidget* _detailStack;
     QLabel* _sceneTitle;

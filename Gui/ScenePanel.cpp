@@ -53,9 +53,11 @@ CLANG_DIAG_OFF(uninitialized)
 #include <QIcon>
 #include <QItemSelectionModel>
 #include <QKeySequence>
+#include <QPair>
 #include <QPixmap>
 #include <QProgressBar>
 #include <QPushButton>
+#include <QSettings>
 #include <QStackedWidget>
 #include <QStandardItemModel>
 #include <QTableWidget>
@@ -86,6 +88,9 @@ CLANG_DIAG_ON(uninitialized)
 #include "Custom/state/StateStore.h"
 #include "Gui/HoverWidgets.h"
 #include "Gui/KvGuiUtils.h"
+
+// QSettings key: renders run at once.
+#define kSceneSettingsParallelRenders "dashboard/parallelRenders"
 
 #define kSceneColumnPreview 0
 #define kSceneColumnProject 1
@@ -432,6 +437,7 @@ ScenePanel::ScenePanel(::SceneStore* scenes,
     , _sceneTitle(0)
     , _sceneSummary(0)
     , _clearOutputDirAction(0)
+    , _parallelMenu(0)
     , _renderButton(0)
     , _stopButton(0)
     , _projectTable(0)
@@ -478,6 +484,12 @@ ScenePanel::ScenePanel(::SceneStore* scenes,
     QObject::connect( _projectWatcher, SIGNAL(fileChanged(QString)), this, SLOT(onProjectFileChanged(QString)) );
     QObject::connect( &_projectReloadTimer, SIGNAL(timeout()), this, SLOT(onProjectReloadTimeout()) );
 
+    // Renders at once, as chosen last time (otherwise the renderer's default).
+    QSettings settings;
+    if ( _renderer && settings.contains( QString::fromUtf8(kSceneSettingsParallelRenders) ) ) {
+        _renderer->setMaxParallel( settings.value( QString::fromUtf8(kSceneSettingsParallelRenders) ).toInt() );
+    }
+
     refreshSceneList();
     showScene();
 }
@@ -495,6 +507,33 @@ ScenePanel::onProjectFileChanged(const QString& path)
         _projectWatcher->addPath(path);
     }
     _projectReloadTimer.start();
+}
+
+void
+ScenePanel::onParallelRendersMenu()
+{
+    _parallelMenu->clear();
+    if (!_renderer) {
+        return;
+    }
+    for (int count = 1; count <= 4; ++count) {
+        QAction* action = _parallelMenu->addAction( QString::number(count) );
+        action->setCheckable(true);
+        action->setChecked(_renderer->maxParallel() == count);
+        action->setData(count);
+    }
+}
+
+void
+ScenePanel::onParallelRendersChosen(QAction* action)
+{
+    if (!_renderer || !action) {
+        return;
+    }
+    const int count = action->data().toInt();
+    _renderer->setMaxParallel(count);
+    QSettings settings;
+    settings.setValue(QString::fromUtf8(kSceneSettingsParallelRenders), count);
 }
 
 void
@@ -617,6 +656,10 @@ ScenePanel::createSceneDetail()
     menu->addSeparator();
     menu->addAction( tr("Choose Output Folder..."), this, SLOT(onChooseOutputDirClicked()) );
     _clearOutputDirAction = menu->addAction( tr("Use Project Output Paths"), this, SLOT(onClearOutputDirClicked()) );
+    menu->addSeparator();
+    _parallelMenu = menu->addMenu( tr("Renders at Once") );
+    QObject::connect( _parallelMenu, SIGNAL(aboutToShow()), this, SLOT(onParallelRendersMenu()) );
+    QObject::connect( _parallelMenu, SIGNAL(triggered(QAction*)), this, SLOT(onParallelRendersChosen(QAction*)) );
     header->addWidget(menuButton);
     layout->addLayout(header);
 
@@ -1183,9 +1226,9 @@ ScenePanel::onRowPauseToggled(bool paused)
         return;
     }
     if (paused) {
-        _renderer->pause();
+        _renderer->pause(_currentSceneId, item);
     } else {
-        _renderer->resume();
+        _renderer->resume(_currentSceneId, item);
     }
 }
 
@@ -1580,13 +1623,22 @@ ScenePanel::refreshButtons()
     if (!_renderer) {
         _renderStatus->setText( tr("Rendering is not available.") );
     } else if (busy) {
-        ::Scene renderingScene;
-        _scenes->scene(_renderer->currentSceneId(), &renderingScene);
-        _renderStatus->setText( tr("Rendering %1 of %2 in scene \"%3\" (%4 more queued)...")
-                                .arg( ::SceneItem::writer( _renderer->currentItem() ) )
-                                .arg( QFileInfo( ::SceneItem::project( _renderer->currentItem() ) ).fileName() )
-                                .arg(renderingScene.name)
-                                .arg( _renderer->queuedCount() ) );
+        // "Rendering Write1 of intro.ntp (Scene 1), Write1 of outro.ntp (Scene 2); 3 queued"
+        const QList<QPair<QString, QString> > running = _renderer->runningItems();
+        QStringList parts;
+        for (int i = 0; i < running.size(); ++i) {
+            ::Scene renderingScene;
+            _scenes->scene(running.at(i).first, &renderingScene);
+            parts << tr("%1 of %2 (%3)")
+                     .arg( ::SceneItem::writer( running.at(i).second ) )
+                     .arg( QFileInfo( ::SceneItem::project( running.at(i).second ) ).fileName() )
+                     .arg(renderingScene.name);
+        }
+        QString text = tr("Rendering %1").arg( parts.join( QString::fromUtf8(", ") ) );
+        if (_renderer->queuedCount() > 0) {
+            text += tr("; %1 queued").arg( _renderer->queuedCount() );
+        }
+        _renderStatus->setText(text);
     } else {
         _renderStatus->clear();
     }

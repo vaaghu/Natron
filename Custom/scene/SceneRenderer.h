@@ -1,6 +1,7 @@
 #pragma once
 
 #include <QList>
+#include <QPair>
 #include <QObject>
 #include <QProcess>
 #include <QString>
@@ -31,8 +32,8 @@ struct RenderProgress
   }
 };
 
-// Renders scene items (Write nodes of projects, see SceneItem) one after the
-// other with NatronRenderer:
+// Renders scene items (Write nodes of projects, see SceneItem) with
+// NatronRenderer, up to maxParallel() at once:
 //   NatronRenderer -l <applyScript> -w <Write node> <project.ntp>
 // The apply script (see writeApplyScript) runs after the project is loaded
 // and, using the environment set here:
@@ -41,6 +42,7 @@ struct RenderProgress
 //   NATRON_OUTPUT_DIR    the scene's output folder (may be empty)
 // writes the store values into the bound Text (text) and Read (file) nodes
 // and redirects the Write nodes to the output folder.
+// A render that fails once it ran (crash, renderer error) is retried once.
 // Results (and a thumbnail of the output) go to the SceneStore.
 class SceneRenderer : public QObject
 {
@@ -64,24 +66,26 @@ public:
   // an item that is rendering right now is stopped and restarted.
   void rerender(const QString &sceneId, const QStringList &items);
 
-  // Kills the current render and clears the queue.
+  // Kills the running renders and clears the queue.
   void stop();
 
-  // Cancels one job: removes it from the queue, or kills it if it is the
-  // one rendering (the queue then continues).
+  // Cancels one job: removes it from the queue, or kills it if it is
+  // rendering (the queue then continues).
   void cancel(const QString &sceneId, const QString &item);
 
-  // Pausing suspends the renderer process (POSIX only, see canPause()).
+  // Pausing suspends a renderer process (POSIX only, see canPause()).
   bool canPause() const;
-  void pause();
-  void resume();
-  bool isPaused() const;
+  void pause(const QString &sceneId, const QString &item);
+  void resume(const QString &sceneId, const QString &item);
+
+  // How many renders run at once (default: 2 with 4 cores or more, else 1).
+  int maxParallel() const;
+  void setMaxParallel(int count);
 
   bool isBusy() const;
   bool isQueued(const QString &sceneId, const QString &item) const;
-  bool isCurrent(const QString &sceneId, const QString &item) const;
-  QString currentSceneId() const;
-  QString currentItem() const;
+  bool isCurrent(const QString &sceneId, const QString &item) const; // rendering now
+  QList<QPair<QString, QString> > runningItems() const; // (scene id, item)
   int queuedCount() const;
 
   // Live progress (inactive unless this job is rendering).
@@ -97,11 +101,17 @@ public:
   static bool writeApplyScript(const QString &path);
 
 Q_SIGNALS:
-  // Queue, current job or pause state changed.
+  // Queue, running jobs or pause state changed.
   void statusChanged();
 
-  // New progress line for the job being rendered.
+  // New progress line for a job being rendered.
   void progressChanged(const QString &sceneId, const QString &item);
+
+  // A job ended for good (not cancelled, retries done).
+  void jobFinished(const QString &sceneId, const QString &item, bool ok, const QString &message);
+
+  // Nothing left to render.
+  void allFinished();
 
 private Q_SLOTS:
   void onFinished(int exitCode, QProcess::ExitStatus exitStatus);
@@ -113,6 +123,12 @@ private:
   {
     QString sceneId;
     QString item;
+    int attempt; // 1, then 2 for the retry
+
+    Job()
+        : attempt(1)
+    {
+    }
 
     bool operator==(const Job &other) const
     {
@@ -120,14 +136,39 @@ private:
     }
   };
 
-  void startNext();
-  void finishCurrent(bool ok, const QString &message);
+  // One running render.
+  struct Run
+  {
+    Job job;
+    QProcess *process;
+    QByteArray outputTail;
+    QByteArray partialLine;
+    RenderProgress progress;
+    bool stopping; // being cancelled
+    // Movie outputs are rendered into a staging folder and moved over their
+    // final file once complete, so a channel playing the previous render
+    // never reads a half-written file.
+    QString stagingDir;  // empty: rendering straight to the final file
+    QString finalOutput; // where the staged file goes
+
+    Run()
+        : process(nullptr),
+          stopping(false)
+    {
+    }
+  };
+
+  void startPending();
+  bool startJob(const Job &job); // false: not started now (output in use)
+  void finishRun(Run *run, bool ok, const QString &message, bool ran);
+  Run *findRun(const QString &sceneId, const QString &item) const;
+  Run *runOf(QObject *process) const;
   QString makeThumbnail(const Job &job, const QString &output);
-  void parseOutputLine(const QString &line);
-  bool signalProcess(int signal);
+  void parseOutputLine(Run *run, const QString &line);
+  bool signalProcess(Run *run, int signal);
   void setRecordStatus(const Job &job, int status, const QString &message);
-  bool moveStagedOutputs(QString *error);
-  void removeStagingDir();
+  bool moveStagedOutputs(Run *run, QString *error);
+  static void removeStagingDir(const QString &dir);
 
   StateStore *m_state;
   SceneStore *m_scenes;
@@ -137,15 +178,6 @@ private:
   QString m_thumbnailDir;
 
   QList<Job> m_queue;
-  Job m_current;
-  QProcess *m_process;
-  QByteArray m_outputTail;
-  QByteArray m_partialLine;
-  RenderProgress m_progress;
-  bool m_stopping; // the current render is being cancelled
-  // Movie outputs are rendered into a staging folder and moved over their
-  // final file once complete, so a channel playing the previous render never
-  // reads a half-written file.
-  QString m_stagingDir;  // empty: rendering straight to the final file
-  QString m_finalOutput; // where the staged file goes
+  QList<Run *> m_runs;
+  int m_maxParallel;
 };

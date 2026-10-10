@@ -28,6 +28,7 @@
 CLANG_DIAG_OFF(deprecated)
 CLANG_DIAG_OFF(uninitialized)
 #include <QAction>
+#include <QApplication>
 #include <QCloseEvent>
 #include <QColor>
 #include <QComboBox>
@@ -53,6 +54,8 @@ CLANG_DIAG_OFF(uninitialized)
 #include <QPushButton>
 #include <QSettings>
 #include <QStringList>
+#include <QSystemTrayIcon>
+#include <QTimer>
 #include <QTableWidget>
 #include <QToolTip>
 #include <QUndoCommand>
@@ -72,6 +75,7 @@ CLANG_DIAG_ON(uninitialized)
 #include "Custom/server/HttpServer.h"
 #include "Custom/state/Json.h"
 #include "Custom/state/KvValue.h"
+#include "Custom/scene/SceneStore.h"
 #include "Custom/state/StateStore.h"
 
 #define kDashboardColumnKey 0
@@ -225,6 +229,9 @@ DashboardWindow::DashboardWindow(::StateStore* store,
     , _addButton(0)
     , _removeAction(0)
     , _undoStack(0)
+    , _tray(0)
+    , _rendersDone(0)
+    , _rendersFailed(0)
     , _searchEdit(0)
     , _newProjectAction(0)
     , _openProjectAction(0)
@@ -243,6 +250,12 @@ DashboardWindow::DashboardWindow(::StateStore* store,
 
     if (_server) {
         QObject::connect( _server, SIGNAL(statusChanged()), this, SLOT(onServerStatusChanged()) );
+    }
+
+    if (_sceneRenderer) {
+        QObject::connect( _sceneRenderer, SIGNAL(jobFinished(QString,QString,bool,QString)),
+                          this, SLOT(onRenderJobFinished(QString,QString,bool,QString)) );
+        QObject::connect( _sceneRenderer, SIGNAL(allFinished()), this, SLOT(onAllRendersFinished()) );
     }
 
     refreshRecentProjects();
@@ -1124,6 +1137,64 @@ DashboardWindow::onRemoveClicked()
     }
     if ( !removed.isEmpty() ) {
         _undoStack->push( new KeyRemovalCommand(_store, removed) );
+    }
+}
+
+void
+DashboardWindow::onRenderJobFinished(const QString& sceneId,
+                                     const QString& item,
+                                     bool ok,
+                                     const QString& message)
+{
+    if (ok) {
+        ++_rendersDone;
+
+        return;
+    }
+    ++_rendersFailed;
+
+    ::Scene scene;
+    if (_sceneStore) {
+        _sceneStore->scene(sceneId, &scene);
+    }
+    notify( tr("Render failed"),
+            tr("%1 of %2 (%3): %4").arg( ::SceneItem::writer(item) )
+            .arg( QFileInfo( ::SceneItem::project(item) ).fileName() )
+            .arg(scene.name)
+            .arg( message.section(QLatin1Char('\n'), 0, 0) ),
+            true );
+}
+
+void
+DashboardWindow::onAllRendersFinished()
+{
+    if ( (_rendersDone == 0) && (_rendersFailed == 0) ) {
+        return;
+    }
+    notify( tr("Renders finished"),
+            (_rendersFailed == 0) ? ( (_rendersDone == 1) ? tr("1 render done.") : tr("%1 renders done.").arg(_rendersDone) )
+                                  : tr("%1 done, %2 failed.").arg(_rendersDone).arg(_rendersFailed),
+            _rendersFailed > 0 );
+    _rendersDone = 0;
+    _rendersFailed = 0;
+}
+
+void
+DashboardWindow::notify(const QString& title,
+                        const QString& text,
+                        bool error)
+{
+    if ( QSystemTrayIcon::isSystemTrayAvailable() && QSystemTrayIcon::supportsMessages() ) {
+        if (!_tray) {
+            _tray = new QSystemTrayIcon(windowIcon().isNull() ? qApp->windowIcon() : windowIcon(), this);
+        }
+        // Shown for the message only: no permanent tray icon.
+        _tray->show();
+        _tray->showMessage(title, text, error ? QSystemTrayIcon::Warning : QSystemTrayIcon::Information, 8000);
+        QTimer::singleShot( 10000, _tray, SLOT(hide()) );
+    }
+    if ( !isActiveWindow() ) {
+        QApplication::alert(this);
     }
 }
 

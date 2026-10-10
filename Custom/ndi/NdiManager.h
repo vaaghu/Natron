@@ -109,6 +109,7 @@ private:
   QStringList m_changedKeys; // store keys changed since the last re-render
   QTimer m_dataChangeTimer;  // batches bursts of changes (one API request)
   QHash<QString, QHash<QString, QString> > m_keyMaps; // scene id -> its last key renaming
-  QString m_liveKey; // channel currently fed live frames
-  int m_liveLastFrame; // last frame sent live (renderer frame number)
+  // Channels fed live frames (renders run in parallel), with the last frame
+  // sent to each (renderer frame number).
+  QHash<QString, int> m_live;
 };

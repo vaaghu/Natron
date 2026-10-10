@@ -49,6 +49,7 @@ class QComboBox;
 class QDoubleSpinBox;
 class QLabel;
 class QListWidget;
+class QMenu;
 class QPoint;
 class QProgressBar;
 class QPushButton;
@@ -150,6 +151,10 @@ private Q_SLOTS:
     // Projects open in an editor: picks up unsaved label and binding changes.
     void onOpenProjectsTimer();
 
+    // Scene menu, "Renders at Once": how many renders run in parallel.
+    void onParallelRendersMenu();
+    void onParallelRendersChosen(QAction* action);
+
     void onStateValueChanged();
     void onKeyMappingEdited();
     void onKvCellDoubleClicked(int row, int column);
@@ -243,6 +248,7 @@ private:
     QLabel* _sceneTitle;
     QLabel* _sceneSummary;
     QAction* _clearOutputDirAction;
+    QMenu* _parallelMenu;
     QPushButton* _renderButton;
     QPushButton* _stopButton;
     QTableWidget* _projectTable;

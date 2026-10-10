@@ -44,8 +44,7 @@ NdiManager::NdiManager(SceneStore *scenes,
       m_ffmpegPath(ffmpegPath),
       m_ffprobePath(ffprobePath),
       m_sinkFactory(sinkFactory),
-      m_state(nullptr),
-      m_liveLastFrame(-1)
+      m_state(nullptr)
 {
   m_dataChangeTimer.setSingleShot(true);
   m_dataChangeTimer.setInterval(300);
@@ -147,10 +146,7 @@ void NdiManager::syncChannels()
     if (w == wanted.end() || w.value().name != current.name || w.value().alpha != current.alpha)
     {
       touchedScenes.insert(current.sceneId);
-      if (m_liveKey == keys.at(i))
-      {
-        m_liveKey.clear();
-      }
+      m_live.remove(keys.at(i));
       delete current.channel;
       m_channels.remove(keys.at(i));
     }
@@ -329,9 +325,8 @@ void NdiManager::onRenderRecordChanged(const QString &sceneId, const QString &it
   const RenderRecord record = m_scenes->renderRecord(sceneId, item);
   if (record.status == RenderRecord::eDone || record.status == RenderRecord::eFailed || record.status == RenderRecord::eNone)
   {
-    if (m_liveKey == channelKey(sceneId, item))
+    if (m_live.remove(channelKey(sceneId, item)) > 0)
     {
-      m_liveKey.clear();
       reloadMedia(sceneId, item);
       c->leaveLive();
     }
@@ -345,11 +340,15 @@ void NdiManager::onRenderRecordChanged(const QString &sceneId, const QString &it
 void NdiManager::onRendererStatusChanged()
 {
   // A live render that was cancelled before any frame: leave live mode.
-  if (!m_liveKey.isEmpty() && (!m_renderer->isBusy() ||
-                               channelKey(m_renderer->currentSceneId(), m_renderer->currentItem()) != m_liveKey))
+  const QList<QString> live = m_live.keys();
+  for (int i = 0; i < live.size(); ++i)
   {
-    const ChannelInfo info = m_channels.value(m_liveKey);
-    m_liveKey.clear();
+    const ChannelInfo info = m_channels.value(live.at(i));
+    if (m_renderer->isCurrent(info.sceneId, info.item))
+    {
+      continue;
+    }
+    m_live.remove(live.at(i));
     if (info.channel)
     {
       reloadMedia(info.sceneId, info.item);
@@ -370,7 +369,7 @@ void NdiManager::onRenderProgressChanged(const QString &sceneId, const QString &
   const RenderProgress progress = m_renderer->progress(sceneId, item);
   // Progress is also reported for "started"/"finished": send each frame once.
   if (progress.currentFrame < 0 ||
-      (m_liveKey == channelKey(sceneId, item) && progress.currentFrame == m_liveLastFrame))
+      (m_live.contains(channelKey(sceneId, item)) && progress.currentFrame == m_live.value(channelKey(sceneId, item))))
   {
     return;
   }
@@ -393,14 +392,12 @@ void NdiManager::onRenderProgressChanged(const QString &sceneId, const QString &
   const QByteArray bgra(reinterpret_cast<const char *>(image.constBits()), image.bytesPerLine() * image.height());
 
   const QString key = channelKey(sceneId, item);
-  if (m_liveKey != key)
+  if (!m_live.contains(key))
   {
-    m_liveKey = key;
-    m_liveLastFrame = -1;
     c->enterLive(image.width(), image.height(), readProjectInfo(SceneItem::project(item)).fps);
   }
   c->pushLiveFrame(bgra, image.width(), image.height());
-  m_liveLastFrame = progress.currentFrame;
+  m_live.insert(key, progress.currentFrame);
 }
 
 void NdiManager::onChannelStatusChanged()

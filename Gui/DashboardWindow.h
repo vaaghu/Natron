@@ -51,6 +51,7 @@ class QPoint;
 class QPushButton;
 class QTableWidget;
 class QTableWidgetItem;
+class QSystemTrayIcon;
 class QUndoStack;
 class StateStore; // Custom/state/StateStore.h
 class HttpServer; // Custom/server/HttpServer.h
@@ -126,6 +127,8 @@ private Q_SLOTS:
     void onRemoveClicked();
     void onServerStatusChanged();
     void onResetLayoutClicked();
+    void onRenderJobFinished(const QString& sceneId, const QString& item, bool ok, const QString& message);
+    void onAllRendersFinished();
 
 protected:
 
@@ -153,6 +156,8 @@ private:
     QString newTypeName() const;
     // Hides the rows not matching the search.
     void applySearch();
+    // System notification (tray message where available) and taskbar alert.
+    void notify(const QString& title, const QString& text, bool error);
 
 
     ::StateStore* _store;
@@ -172,6 +177,9 @@ private:
     QPushButton* _addButton;
     QAction* _removeAction;
     QUndoStack* _undoStack; // scene and data changes (Edit menu)
+    QSystemTrayIcon* _tray; // created for the first notification
+    int _rendersDone;   // since the queue was last empty
+    int _rendersFailed;
     QLineEdit* _searchEdit; // filters the Data table (Ctrl+F)
     QAction* _newProjectAction;  // Ctrl+Shift+N in the Projects panel
     QAction* _openProjectAction; // Ctrl+O in the Projects panel

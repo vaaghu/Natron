@@ -3,7 +3,9 @@
 #include <QDir>
 #include <QFile>
 #include <QFileInfo>
+#include <QPair>
 #include <QRegExp>
+#include <QXmlStreamReader>
 #include <algorithm>
 
 namespace
@@ -118,6 +120,48 @@ bool nextKnobValue(const QString &text, const QString &knobName, int *from, QStr
   return true;
 }
 
+// Full script names of the project's nodes ("Group1.Write1" for a node inside
+// Group1, as NatronRenderer -w and Python take them), in the order their
+// <Plugin_script_name> appears: a group's children are serialized inside its
+// own <item>.
+QStringList nodePaths(const QString &text)
+{
+  QStringList paths;
+  QList<QPair<int, QString> > open; // element depth of each enclosing node, its name
+  QXmlStreamReader xml(text);
+  int depth = 0;
+
+  while (!xml.atEnd() && !xml.hasError())
+  {
+    const QXmlStreamReader::TokenType token = xml.readNext();
+    if (token == QXmlStreamReader::StartElement)
+    {
+      ++depth;
+      if (xml.name() == QLatin1String("Plugin_script_name"))
+      {
+        const QString name = xml.readElementText().trimmed(); // consumes the end tag
+        --depth;
+        open << qMakePair(depth, name); // the node is the enclosing <item>
+        QStringList path;
+        for (int i = 0; i < open.size(); ++i)
+        {
+          path << open.at(i).second;
+        }
+        paths << path.join(QString::fromUtf8("."));
+      }
+    }
+    else if (token == QXmlStreamReader::EndElement)
+    {
+      if (!open.isEmpty() && open.last().first == depth)
+      {
+        open.removeLast();
+      }
+      --depth;
+    }
+  }
+  return paths;
+}
+
 bool isWritePlugin(const QString &pluginId)
 {
   // Built-in Write meta node and the actual writer plug-ins it wraps.
@@ -142,6 +186,14 @@ ProjectInfo readProjectInfo(const QString &projectFilePath)
   const QString projectDir = QFileInfo(projectFilePath).absolutePath();
   const QString pluginTag = QString::fromUtf8("<Plugin_id>");
   const QString nameTag = QString::fromUtf8("<Plugin_script_name>");
+
+  // Node paths, matched to the <Plugin_script_name> tags by their order.
+  const QStringList paths = nodePaths(text);
+  QList<int> namePositions;
+  for (int at = text.indexOf(nameTag); at >= 0; at = text.indexOf(nameTag, at + 1))
+  {
+    namePositions << at;
+  }
   const QString pluginEnd = QString::fromUtf8("</Plugin_id>");
 
   // Each node starts with its <Plugin_id>; its parameters follow until the
@@ -184,11 +236,17 @@ ProjectInfo readProjectInfo(const QString &projectFilePath)
 
     if (isWritePlugin(pluginId))
     {
-      // The node's script name comes just before its <Plugin_id>.
+      // The node's script name comes just before its <Plugin_id>; inside a
+      // group, the full path (Group1.Write1) is used.
       const int nameStart = text.lastIndexOf(nameTag, pos);
       const int nameEnd = (nameStart < 0) ? -1 : text.indexOf(QString::fromUtf8("</Plugin_script_name>"), nameStart);
-      const QString writer = (nameEnd < 0) ? QString()
-                                           : unescapeXml(text.mid(nameStart + nameTag.size(), nameEnd - nameStart - nameTag.size()).trimmed());
+      QString writer = (nameEnd < 0) ? QString()
+                                     : unescapeXml(text.mid(nameStart + nameTag.size(), nameEnd - nameStart - nameTag.size()).trimmed());
+      const int nameIndex = namePositions.indexOf(nameStart);
+      if (nameIndex >= 0 && nameIndex < paths.size() && paths.at(nameIndex).endsWith(writer))
+      {
+        writer = paths.at(nameIndex);
+      }
       if (!writer.isEmpty() && !info.writers.contains(writer))
       {
         info.writers << writer;

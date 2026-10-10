@@ -27,8 +27,9 @@ struct ProjectInfo
   // May contain frame patterns such as ### or %04d.
   QStringList outputs;
 
-  // Write nodes (script names, as NatronRenderer -w takes them) in order of
-  // appearance, and the output path of each (same rules as outputs).
+  // Write nodes (script names, as NatronRenderer -w takes them: Group1.Write1
+  // for one inside a group) in order of appearance, and the output path of
+  // each (same rules as outputs).
   QStringList writers;
   QHash<QString, QString> writerOutputs;
 

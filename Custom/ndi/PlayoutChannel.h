@@ -4,6 +4,7 @@
 #include "MediaProbe.h"
 
 #include <QByteArray>
+#include <QImage>
 #include <QList>
 #include <QMutex>
 #include <QString>
@@ -78,6 +79,10 @@ public:
   };
   Status status() const;
 
+  // The frame last sent (what receivers show), at most maxWidth wide; null
+  // before the first frame.
+  QImage preview(int maxWidth) const;
+
   static QString stateName(State state);
 
 Q_SIGNALS:
@@ -128,4 +133,8 @@ private:
   QByteArray m_lastFrame;
   int m_lastWidth;
   int m_lastHeight;
+  // Copy of the last frame for preview() (m_mutex; QByteArray shares the data).
+  QByteArray m_previewFrame;
+  int m_previewWidth;
+  int m_previewHeight;
 };

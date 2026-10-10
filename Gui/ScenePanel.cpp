@@ -51,6 +51,7 @@ CLANG_DIAG_OFF(uninitialized)
 #include <QMenu>
 #include <QMessageBox>
 #include <QIcon>
+#include <QImage>
 #include <QItemSelectionModel>
 #include <QKeySequence>
 #include <QPair>
@@ -91,6 +92,18 @@ CLANG_DIAG_ON(uninitialized)
 
 // QSettings key: renders run at once.
 #define kSceneSettingsParallelRenders "dashboard/parallelRenders"
+
+// NDI table columns.
+#define kNdiColumnPreview 0
+#define kNdiColumnName 1
+#define kNdiColumnState 2
+#define kNdiColumnPosition 3
+#define kNdiColumnControls 4
+#define kNdiColumnPauseAt 5
+#define kNdiColumnReceivers 6
+#define kNdiColumnCount 7
+#define kNdiPreviewWidth 64
+#define kNdiPreviewHeight 36
 
 #define kSceneColumnPreview 0
 #define kSceneColumnProject 1
@@ -1949,20 +1962,22 @@ ScenePanel::createNdiTab(QWidget* parent)
     transport->addStretch();
     layout->addLayout(transport);
 
-    _ndiTable = new QTableWidget(0, 6, tab);
+    _ndiTable = new QTableWidget(0, kNdiColumnCount, tab);
     QStringList headers;
-    headers << tr("NDI source") << tr("State") << tr("Position") << tr("Controls") << tr("Pause at") << tr("Receivers");
+    headers << tr("Preview") << tr("NDI source") << tr("State") << tr("Position") << tr("Controls") << tr("Pause at") << tr("Receivers");
     _ndiTable->setHorizontalHeaderLabels(headers);
     KvGui::styleTable(_ndiTable);
-    _ndiTable->verticalHeader()->setDefaultSectionSize( _ndiTable->fontMetrics().height() + 14 ); // fits the controls
+    _ndiTable->verticalHeader()->setDefaultSectionSize( qMax(_ndiTable->fontMetrics().height() + 14, kNdiPreviewHeight + 6) ); // fits the controls and preview
+    _ndiTable->setIconSize( QSize(kNdiPreviewWidth, kNdiPreviewHeight) );
     _ndiTable->setEditTriggers(QAbstractItemView::NoEditTriggers);
-    _ndiTable->setColumnWidth(0, 200);
-    _ndiTable->setColumnWidth(1, 150);
-    _ndiTable->setColumnWidth(2, 170);
-    _ndiTable->setColumnWidth(3, 130);
-    _ndiTable->setColumnWidth(4, 100);
+    _ndiTable->setColumnWidth(kNdiColumnPreview, kNdiPreviewWidth + 12);
+    _ndiTable->setColumnWidth(kNdiColumnName, 200);
+    _ndiTable->setColumnWidth(kNdiColumnState, 150);
+    _ndiTable->setColumnWidth(kNdiColumnPosition, 170);
+    _ndiTable->setColumnWidth(kNdiColumnControls, 130);
+    _ndiTable->setColumnWidth(kNdiColumnPauseAt, 100);
     QList<int> ndiHidden;
-    ndiHidden << 5; // Receivers
+    ndiHidden << kNdiColumnReceivers;
     TableColumnMenu::install(_ndiTable, QString::fromUtf8("dashboard/columns/ndi"), ndiHidden);
     EmptyViewHint::install( _ndiTable, QString() ); // text set by refreshNdiTab()
     layout->addWidget(_ndiTable);
@@ -2046,12 +2061,12 @@ ScenePanel::refreshNdiTab()
 
         QTableWidgetItem* nameItem = new QTableWidgetItem( ::NdiManager::sourceName(scene, item) );
         nameItem->setToolTip( tr("%1\nWrite node: %2").arg( QDir::toNativeSeparators( ::SceneItem::project(item) ) ).arg( ::SceneItem::writer(item) ) );
-        _ndiTable->setItem(row, 0, nameItem);
+        _ndiTable->setItem(row, kNdiColumnName, nameItem);
 
         r.position = new QProgressBar;
         r.position->setRange(0, 1000);
         r.position->setAlignment(Qt::AlignCenter);
-        _ndiTable->setCellWidget(row, 2, r.position);
+        _ndiTable->setCellWidget(row, kNdiColumnPosition, r.position);
 
         QWidget* controls = new QWidget;
         QHBoxLayout* cl = new QHBoxLayout(controls);
@@ -2076,7 +2091,7 @@ ScenePanel::refreshNdiTab()
         QObject::connect( r.stop, SIGNAL(clicked()), this, SLOT(onNdiRowAction()) );
         QObject::connect( r.replay, SIGNAL(clicked()), this, SLOT(onNdiRowAction()) );
         QObject::connect( r.loop, SIGNAL(toggled(bool)), this, SLOT(onNdiLoopToggled(bool)) );
-        _ndiTable->setCellWidget(row, 3, controls);
+        _ndiTable->setCellWidget(row, kNdiColumnControls, controls);
 
         r.pauseAt = new QDoubleSpinBox;
         r.pauseAt->setRange(-1, 24 * 3600);
@@ -2089,7 +2104,7 @@ ScenePanel::refreshNdiTab()
         r.pauseAt->setProperty("item", item);
         r.pauseAt->setKeyboardTracking(false);
         QObject::connect( r.pauseAt, SIGNAL(valueChanged(double)), this, SLOT(onNdiPauseAtChanged(double)) );
-        _ndiTable->setCellWidget(row, 4, r.pauseAt);
+        _ndiTable->setCellWidget(row, kNdiColumnPauseAt, r.pauseAt);
 
         _ndiRows.insert(item, r);
     }
@@ -2131,7 +2146,16 @@ ScenePanel::refreshNdiRows()
         } else if (st.state == ::PlayoutChannel::ePlaying || st.state == ::PlayoutChannel::eLive) {
             stateItem->setForeground( QColor(110, 200, 110) );
         }
-        _ndiTable->setItem(r.row, 1, stateItem);
+        _ndiTable->setItem(r.row, kNdiColumnState, stateItem);
+
+        // What receivers see now.
+        QTableWidgetItem* previewItem = new QTableWidgetItem;
+        const QImage frame = c->preview(kNdiPreviewWidth);
+        if ( !frame.isNull() ) {
+            previewItem->setData( Qt::DecorationRole, QPixmap::fromImage(frame) );
+        }
+        previewItem->setToolTip( tr("What receivers of %1 see now").arg( c->sourceName() ) );
+        _ndiTable->setItem(r.row, kNdiColumnPreview, previewItem);
 
         const double duration = st.duration();
         r.position->setValue( duration > 0 ? int(1000.0 * qMin(1.0, st.seconds() / duration)) : 0 );
@@ -2148,7 +2172,7 @@ ScenePanel::refreshNdiRows()
         r.loop->setChecked(st.loop);
         r.loop->blockSignals(blocked);
 
-        _ndiTable->setItem( r.row, 5, new QTableWidgetItem( st.connections < 0 ? tr("-") : QString::number(st.connections) ) );
+        _ndiTable->setItem( r.row, kNdiColumnReceivers, new QTableWidgetItem( st.connections < 0 ? tr("-") : QString::number(st.connections) ) );
     }
 }
 

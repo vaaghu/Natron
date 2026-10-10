@@ -12,6 +12,8 @@
 namespace
 {
 const int kIdleSleepMs = 5;
+// The output (NDI source) could not be opened: try again this often.
+const int kReopenDelayMs = 5000;
 const int kDecoderReadTimeoutMs = 5000;
 const int kLiveQueueMax = 8; // drop old live frames if the output lags
 }
@@ -44,7 +46,9 @@ PlayoutChannel::PlayoutChannel(const QString &sourceName,
       m_decoder(nullptr),
       m_decoderFrame(-1),
       m_lastWidth(0),
-      m_lastHeight(0)
+      m_lastHeight(0),
+      m_previewWidth(0),
+      m_previewHeight(0)
 {
 }
 
@@ -340,6 +344,31 @@ void PlayoutChannel::sendFrame(const QByteArray &frame, int width, int height)
   m_lastFrame = frame;
   m_lastWidth = width;
   m_lastHeight = height;
+  {
+    QMutexLocker locker(&m_mutex);
+    m_previewFrame = frame;
+    m_previewWidth = width;
+    m_previewHeight = height;
+  }
+}
+
+QImage PlayoutChannel::preview(int maxWidth) const
+{
+  QByteArray frame;
+  int width, height;
+  {
+    QMutexLocker locker(&m_mutex);
+    frame = m_previewFrame;
+    width = m_previewWidth;
+    height = m_previewHeight;
+  }
+  if (width <= 0 || height <= 0 || frame.size() < width * height * 4)
+  {
+    return QImage();
+  }
+  // BGRA bytes = ARGB32 on little-endian machines.
+  const QImage image(reinterpret_cast<const uchar *>(frame.constData()), width, height, width * 4, QImage::Format_ARGB32);
+  return (width > maxWidth) ? image.scaledToWidth(maxWidth, Qt::FastTransformation) : image.copy();
 }
 
 void PlayoutChannel::sendClearFrame()
@@ -448,31 +477,50 @@ bool PlayoutChannel::readFrame(QByteArray *frame)
 
 void PlayoutChannel::run()
 {
-  m_sink = m_sinkFactory ? m_sinkFactory() : nullptr;
-  QString error;
-  if (!m_sink || !m_sink->open(m_name, m_alpha, &error))
+  // Open the output; if it cannot be opened (NDI runtime missing, network
+  // down...), keep trying every few seconds instead of giving up.
+  for (;;)
   {
+    QString error;
+    m_sink = m_sinkFactory ? m_sinkFactory() : nullptr;
+    if (m_sink && m_sink->open(m_name, m_alpha, &error))
+    {
+      break;
+    }
+    delete m_sink;
+    m_sink = nullptr;
     {
       QMutexLocker locker(&m_mutex);
-      m_outputError = error.isEmpty() ? tr("no output") : error;
+      m_outputError = (error.isEmpty() ? tr("no output") : error) + tr(" (retrying)");
       setStateLocked(eError, m_media.ok || m_media.error.isEmpty() ? m_outputError : m_outputError + QString::fromUtf8("; ") + m_media.error);
     }
     Q_EMIT statusChanged();
-    // Stay alive (idle) so the channel can be queried and destroyed normally.
-    for (;;)
+    // Wait, staying responsive to being destroyed.
+    for (int waited = 0; waited < kReopenDelayMs; waited += 50)
     {
       {
         QMutexLocker locker(&m_mutex);
         if (m_quit)
         {
-          break;
+          return;
         }
       }
       msleep(50);
     }
-    delete m_sink;
-    m_sink = nullptr;
-    return;
+  }
+  bool reconnected = false;
+  {
+    QMutexLocker locker(&m_mutex);
+    if (!m_outputError.isEmpty())
+    {
+      m_outputError.clear();
+      setStateLocked(eStopped, tr("Output reconnected"));
+      reconnected = true;
+    }
+  }
+  if (reconnected)
+  {
+    Q_EMIT statusChanged();
   }
 
   QElapsedTimer clock;   // pacing when the sink does not clock itself

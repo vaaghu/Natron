@@ -20,6 +20,7 @@
 #   -b NUMBER      build number (default: the next one for NAME: 1, 2, 3...)
 #   -d             linux only: run detached; follow with: docker logs -f natron-build
 #   --tests        run Natron's unit tests (skipped by default)
+#   --no-portable  installer only, no portable .tar.xz archive (saves a few minutes)
 #   --committed    refuse to build with uncommitted changes (build = HEAD)
 #   --qt4, --qt5   Qt to build against (default: 4, or 5 on Apple Silicon)
 #
@@ -79,6 +80,7 @@ fi
 NUMBER="" # next free one, see next_build_number
 DETACH=0
 TESTS=0
+PORTABLE=1
 COMMITTED=0
 QT=""
 
@@ -99,6 +101,7 @@ while [ $# -gt 0 ]; do
         -b) NUMBER="$2"; shift ;;
         -d) DETACH=1 ;;
         --tests) TESTS=1 ;;
+        --no-portable) PORTABLE=0 ;;
         --committed) COMMITTED=1 ;;
         --qt4) QT=4 ;;
         --qt5) QT=5 ;;
@@ -285,6 +288,9 @@ export MKJOBS="$JOBS"
 export UNIT_TESTS=false
 export DEBUG_SCRIPTS=1
 export SKIP_NATRON_TESTS="$([ "$TESTS" = "1" ] && echo 0 || echo 1)"
+export DISABLE_PORTABLE_ARCHIVE="$([ "$PORTABLE" = "1" ] && echo 0 || echo 1)"
+# The portable archive is made with tar J (xz): compress on every core.
+export XZ_OPT="-T0"
 [ -n "$QT" ] && export QT_VERSION_MAJOR="$QT"
 
 # Prefixes each line with the time, so slow steps show in the log.
@@ -314,7 +320,7 @@ prepare_and_build /src /home $NATRON_BIN"
         --mount type=bind,src="$CACHE/src",target=/home/src
         --mount type=bind,src="$OUT",target=/home/builds_archive)
     for v in MODE STEPS GIT_URL GIT_URL_IS_NATRON GIT_BRANCH BUILD_NAME BUILD_NUMBER MKJOBS \
-             UNIT_TESTS DEBUG_SCRIPTS SKIP_NATRON_TESTS QT_VERSION_MAJOR; do
+             UNIT_TESTS DEBUG_SCRIPTS SKIP_NATRON_TESTS DISABLE_PORTABLE_ARCHIVE XZ_OPT QT_VERSION_MAJOR; do
         [ -n "${!v+x}" ] && RUN_OPTS+=(--env "$v=${!v}")
     done
 

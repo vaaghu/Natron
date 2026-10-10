@@ -32,7 +32,9 @@ CLANG_DIAG_OFF(uninitialized)
 #include <QBrush>
 #include <QDockWidget>
 #include <QEvent>
+#include <QCursor>
 #include <QHBoxLayout>
+#include <QHelpEvent>
 #include <QHeaderView>
 #include <QLabel>
 #include <QMenu>
@@ -554,6 +556,108 @@ void
 TableColumnMenu::onHeaderContextMenu(const QPoint& pos)
 {
     _menu->exec( _table->horizontalHeader()->mapToGlobal(pos) );
+}
+
+// Mouse movement, in pixels, still counted as staying still.
+#define kToolTipStillDistance 4
+
+DelayedToolTips::DelayedToolTips(QWidget* root,
+                                 int delayMs)
+    : QObject(root)
+    , _root(root)
+    , _target()
+    , _globalPos()
+    , _timer()
+    , _replaying(false)
+{
+    // Qt sends the tooltip event after its own wake-up delay (~700 ms): wait
+    // for the rest.
+    _timer.setSingleShot(true);
+    _timer.setInterval( qMax(0, delayMs - 700) );
+    QObject::connect( &_timer, SIGNAL(timeout()), this, SLOT(onTimeout()) );
+}
+
+DelayedToolTips*
+DelayedToolTips::install(QWidget* root,
+                         int delayMs)
+{
+    DelayedToolTips* filter = new DelayedToolTips(root, delayMs);
+
+    // Application-wide, to see the events of floating panels too.
+    qApp->installEventFilter(filter);
+
+    return filter;
+}
+
+bool
+DelayedToolTips::isInRoot(QWidget* widget) const
+{
+    // Floating panels are windows of their own but keep their parent.
+    for (QWidget* w = widget; w; w = w->parentWidget()) {
+        if (w == _root) {
+            return true;
+        }
+    }
+
+    return false;
+}
+
+bool
+DelayedToolTips::eventFilter(QObject* watched,
+                             QEvent* e)
+{
+    if (_replaying) {
+        return false;
+    }
+
+    switch ( e->type() ) {
+    case QEvent::ToolTip: {
+        QWidget* widget = qobject_cast<QWidget*>(watched);
+        if ( !widget || !isInRoot(widget) ) {
+            return false;
+        }
+        _target = widget;
+        _globalPos = static_cast<QHelpEvent*>(e)->globalPos();
+        _timer.start();
+
+        return true; // shown later, if the mouse stays
+    }
+    case QEvent::MouseMove:
+        if ( _timer.isActive() && ( (QCursor::pos() - _globalPos).manhattanLength() > kToolTipStillDistance ) ) {
+            _timer.stop();
+        }
+        break;
+    case QEvent::MouseButtonPress:
+    case QEvent::Wheel:
+    case QEvent::KeyPress:
+        _timer.stop();
+        break;
+    case QEvent::Leave:
+        if (watched == _target) {
+            _timer.stop();
+        }
+        break;
+    default:
+        break;
+    }
+
+    return false;
+}
+
+void
+DelayedToolTips::onTimeout()
+{
+    if ( !_target || ( (QCursor::pos() - _globalPos).manhattanLength() > kToolTipStillDistance ) ||
+         ( QApplication::widgetAt( QCursor::pos() ) != _target ) ) {
+        return;
+    }
+
+    // Replay the tooltip event: the widget (or view, for item tooltips)
+    // shows its tooltip as usual.
+    QHelpEvent help( QEvent::ToolTip, _target->mapFromGlobal(_globalPos), _globalPos );
+    _replaying = true;
+    QApplication::sendEvent(_target, &help);
+    _replaying = false;
 }
 
 NATRON_NAMESPACE_EXIT

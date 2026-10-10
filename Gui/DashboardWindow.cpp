@@ -75,6 +75,9 @@ CLANG_DIAG_ON(uninitialized)
 #define kDashboardSettingsState "dashboard/dockState"
 #define kDashboardLayoutVersion 1
 
+// Tooltips show once the mouse has stayed still this long.
+#define kDashboardToolTipDelayMs 2000
+
 NATRON_NAMESPACE_ENTER
 
 DashboardWindow::DashboardWindow(::StateStore* store,
@@ -103,6 +106,7 @@ DashboardWindow::DashboardWindow(::StateStore* store,
     resize(1400, 800);
 
     createPanels();
+    DelayedToolTips::install(this, kDashboardToolTipDelayMs);
 
     if (_store) {
         QObject::connect( _store, SIGNAL(valueChanged(QString)), this, SLOT(onStoreValueChanged(QString)) );

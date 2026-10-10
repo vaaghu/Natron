@@ -34,7 +34,10 @@ CLANG_DIAG_OFF(uninitialized)
 #include <QLineEdit>
 #include <QList>
 #include <QModelIndex>
+#include <QPoint>
+#include <QPointer>
 #include <QStyledItemDelegate>
+#include <QTimer>
 #include <QWidget>
 CLANG_DIAG_ON(deprecated)
 CLANG_DIAG_ON(uninitialized)
@@ -264,6 +267,44 @@ private:
     QString _settingsKey;
     QToolButton* _button;
     QMenu* _menu;
+};
+
+/**
+ * @brief Shows the tooltips of a window and its children only once the mouse
+ * has stayed still for delayMs (Qt shows them after ~0.7 s, so they pop up
+ * whenever the mouse crosses a panel). Moving, clicking, scrolling or typing
+ * cancels a pending tooltip.
+ **/
+class DelayedToolTips
+    : public QObject
+{
+GCC_DIAG_SUGGEST_OVERRIDE_OFF
+    Q_OBJECT
+GCC_DIAG_SUGGEST_OVERRIDE_ON
+
+public:
+
+    static DelayedToolTips* install(QWidget* root, int delayMs);
+
+protected:
+
+    virtual bool eventFilter(QObject* watched, QEvent* e) OVERRIDE;
+
+private Q_SLOTS:
+
+    void onTimeout();
+
+private:
+
+    DelayedToolTips(QWidget* root, int delayMs);
+
+    bool isInRoot(QWidget* widget) const;
+
+    QWidget* _root;
+    QPointer<QWidget> _target;
+    QPoint _globalPos;
+    QTimer _timer;
+    bool _replaying;
 };
 
 NATRON_NAMESPACE_EXIT

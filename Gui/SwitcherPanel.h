@@ -68,7 +68,7 @@ class VideoMonitor;
  * and removed here; added from the input boxes of the scene panel), and a
  * timeline like the editor's: a playhead scrubbing
  * all its layers, transport controls, and the layers' cue points as
- * keyframes (where Cue and Play stop).
+ * keyframes (where Restart and Play stop).
  **/
 class SwitcherPanel
     : public QWidget
@@ -107,7 +107,7 @@ private Q_SLOTS:
     void onLayerUpClicked();
     void onLayerDownClicked();
     void onLayerRemoveClicked();
-    void onTransportClicked(); // the sender's object name: play, pause, stop, cue, continue, previous, next, addCue
+    void onTransportClicked(); // the sender's object name: previous, playPause, stop, next, restart, addCue
     void onTimelineSeek(double seconds);
     void onMarkerAdded(double seconds);
     void onMarkerMoved(double from, double to);
@@ -130,6 +130,7 @@ private:
         QToolButton* down;
         QToolButton* remove;
         BusTimeline* timeline;
+        QToolButton* playPause;
         QLabel* time;
         QLabel* status;
     };
@@ -146,6 +147,7 @@ private:
     void refreshLayerList(BusWidgets& w);
     void refreshTimeline(BusWidgets& w);
     void refreshButtons();
+    bool isPlaying(::ProgramOutput::Bus bus) const; // a layer of the bus is playing
     // Cue points of every layer of a bus: add one, move one (from -> to),
     // or remove one (to < 0).
     void editCuePoints(::ProgramOutput::Bus bus, double from, double to);

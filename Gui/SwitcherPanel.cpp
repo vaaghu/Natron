@@ -243,10 +243,10 @@ SwitcherPanel::createBus(::ProgramOutput::Bus bus,
     layerRow->addLayout(layerButtons);
     layout->addLayout(layerRow);
 
-    // Timeline, then [|<>][play][pause][stop][<>|]  [Cue][Continue][+cue]  time
+    // Timeline, then [prev cue][play/pause][stop][next cue]  [Restart][+cue]  time
     w.timeline = new BusTimeline(box);
     w.timeline->setProperty("bus", int(bus));
-    w.timeline->setToolTip( tr("Drag to scrub the layers. Diamonds are cue points, where Cue and Play stop: "
+    w.timeline->setToolTip( tr("Drag to scrub the layers. Diamonds are cue points, where Restart and Play stop: "
                                "drag to move, double-click to add or delete, right-click for more.") );
     layout->addWidget(w.timeline);
 
@@ -254,24 +254,24 @@ SwitcherPanel::createBus(::ProgramOutput::Bus bus,
     transport->setSpacing(2);
     struct Button { const char* name; const char* text; const char* tip; };
     const Button buttons[] = {
-        { "previous", "\xE2\x97\x86\xE2\x97\x80", QT_TR_NOOP("Previous cue point") },   // diamond, left triangle
-        { "play", "\xE2\x96\xB6", QT_TR_NOOP("Play the layers, continuing past cue points") },
-        { "pause", "\xE2\x9D\x9A\xE2\x9D\x9A", QT_TR_NOOP("Pause the layers") },
+        { "previous", "\xE2\x97\x86\xE2\x97\x80", QT_TR_NOOP("Previous cue point") }, // diamond, left triangle
+        { "playPause", "\xE2\x96\xB6", QT_TR_NOOP("Play the layers (on past cue points), or pause them") }, // shows pause while playing
         { "stop", "\xE2\x96\xA0", QT_TR_NOOP("Stop the layers (they are cleared)") },
         { "next", "\xE2\x96\xB6\xE2\x97\x86", QT_TR_NOOP("Next cue point") },
-        { "cue", QT_TR_NOOP("Cue"), QT_TR_NOOP("Play the layers from the start to their first cue point") },
-        { "continue", QT_TR_NOOP("Continue"), QT_TR_NOOP("Play the layers on to their next cue point") },
+        { "restart", "\xE2\x8F\xAE\xE2\x97\x86 Restart", QT_TR_NOOP("Play from the start to the first cue point") }, // previous-track sign, diamond
         { "addCue", "+\xE2\x97\x86", QT_TR_NOOP("Add a cue point at the playhead to every layer") },
     };
     for (size_t i = 0; i < sizeof(buttons) / sizeof(buttons[0]); ++i) {
         const QString name = QString::fromUtf8(buttons[i].name);
-        const bool textButton = (name == QString::fromUtf8("cue")) || (name == QString::fromUtf8("continue"));
-        QToolButton* button = smallButton( textButton ? tr(buttons[i].text) : QString::fromUtf8(buttons[i].text), tr(buttons[i].tip), box );
+        QToolButton* button = smallButton( QString::fromUtf8(buttons[i].text), tr(buttons[i].tip), box );
         button->setObjectName(name);
         button->setProperty("bus", int(bus));
         QObject::connect( button, SIGNAL(clicked()), this, SLOT(onTransportClicked()) );
         transport->addWidget(button);
-        if ( (name == QString::fromUtf8("next")) || (name == QString::fromUtf8("continue")) ) {
+        if ( name == QString::fromUtf8("playPause") ) {
+            w.playPause = button;
+        }
+        if ( (name == QString::fromUtf8("next")) || (name == QString::fromUtf8("restart")) ) {
             transport->addSpacing(8);
         }
     }
@@ -490,6 +490,11 @@ SwitcherPanel::refreshTimeline(BusWidgets& w)
                 }
             }
         }
+    }
+    // The play / pause toggle shows what a click does.
+    const QString toggle = isPlaying(w.bus) ? QString::fromUtf8("\xE2\x9D\x9A\xE2\x9D\x9A") : QString::fromUtf8("\xE2\x96\xB6");
+    if (w.playPause->text() != toggle) {
+        w.playPause->setText(toggle);
     }
     w.timeline->setRange(duration, fps);
     w.timeline->setPosition( qMin(position, duration) );
@@ -890,24 +895,40 @@ SwitcherPanel::onTransportClicked()
         return;
     }
 
+    // Play / pause: pauses if a layer is playing, else plays them all.
+    const bool pause = ( action == QString::fromUtf8("playPause") ) && isPlaying(w.bus);
     const QList<QPair< ::ProgramOutput::Source, ::PlayoutChannel*> > list = channels(w.bus);
     for (int i = 0; i < list.size(); ++i) {
         ::PlayoutChannel* channel = list.at(i).second;
         if (!channel) {
             continue;
         }
-        if ( action == QString::fromUtf8("play") ) {
-            channel->play();
-        } else if ( action == QString::fromUtf8("pause") ) {
-            channel->pause();
+        if ( action == QString::fromUtf8("playPause") ) {
+            if (pause) {
+                channel->pause();
+            } else {
+                channel->play();
+            }
         } else if ( action == QString::fromUtf8("stop") ) {
             channel->stop();
-        } else if ( action == QString::fromUtf8("cue") ) {
+        } else if ( action == QString::fromUtf8("restart") ) {
             channel->cue();
-        } else if ( ( action == QString::fromUtf8("continue") ) && (channel->status().state == ::PlayoutChannel::ePaused) ) {
-            channel->play();
         }
     }
+}
+
+bool
+SwitcherPanel::isPlaying(::ProgramOutput::Bus bus) const
+{
+    const QList<QPair< ::ProgramOutput::Source, ::PlayoutChannel*> > list = channels(bus);
+
+    for (int i = 0; i < list.size(); ++i) {
+        if ( list.at(i).second && (list.at(i).second->status().state == ::PlayoutChannel::ePlaying) ) {
+            return true;
+        }
+    }
+
+    return false;
 }
 
 void

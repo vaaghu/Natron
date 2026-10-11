@@ -210,6 +210,7 @@ bool SceneStore::loadAndAutoSave(const QString &path)
       placement.x = v.value(key("x"), 0.5).toDouble();
       placement.y = v.value(key("y"), 0.5).toDouble();
       placement.scale = v.value(key("scale"), 1.0).toDouble();
+      placement.start = qMax(0.0, v.value(key("start"), 0.0).toDouble());
       if (placement.scale > 0)
       {
         scene.layerPlacements.insert(p.key(), placement);
@@ -314,6 +315,7 @@ bool SceneStore::saveNow()
       v.insert(key("x"), p.value().x);
       v.insert(key("y"), p.value().y);
       v.insert(key("scale"), p.value().scale);
+      v.insert(key("start"), p.value().start);
       placements.insert(p.key(), v);
     }
     s.insert(key("layerPlacement"), placements);

@@ -34,7 +34,6 @@ CLANG_DIAG_OFF(uninitialized)
 #include <QFormLayout>
 #include <QHBoxLayout>
 #include <QLabel>
-#include <QListWidget>
 #include <QPushButton>
 #include <QSettings>
 #include <QSize>
@@ -62,7 +61,6 @@ CLANG_DIAG_ON(uninitialized)
 #define kSwitcherDefaultDurationMs 500
 #define kSwitcherRefreshMs 40 // monitors and timelines: 25 times/s
 #define kSwitcherTBarSteps 1000
-#define kSwitcherLayerRows 3  // the layer lists show this many layers before scrolling
 
 NATRON_NAMESPACE_ENTER
 
@@ -218,16 +216,19 @@ SwitcherPanel::createBus(::ProgramOutput::Bus bus,
     w.monitor->setCanvasFrame(true);
     layout->addWidget(w.monitor, 1);
 
-    // Layers, the top one first, with [up][down][remove].
-    QHBoxLayout* layerRow = new QHBoxLayout;
-    layerRow->setSpacing(2);
-    w.layers = new QListWidget(box);
-    KvGui::styleList(w.layers);
-    w.layers->setFixedHeight( kSwitcherLayerRows * (w.layers->fontMetrics().height() + 6) + 4 );
-    w.layers->setToolTip( (bus == ::ProgramOutput::ePreview) ? tr("Layers on Preview, the top one first. Add them with the + of the input boxes.")
-                                                           : tr("Layers on air, the top one first.") );
-    w.layers->setProperty("bus", int(bus));
-    layerRow->addWidget(w.layers, 1);
+    // Timeline: one track per layer (the top one first), with
+    // [up][down][remove] for the selected one.
+    QHBoxLayout* timelineRow = new QHBoxLayout;
+    timelineRow->setSpacing(2);
+    w.timeline = new BusTimeline(box);
+    w.timeline->setProperty("bus", int(bus));
+    w.timeline->setEditable(bus == ::ProgramOutput::ePreview);
+    w.timeline->setToolTip( (bus == ::ProgramOutput::ePreview)
+                            ? tr("One track per layer, the top one first. Drag a block to change when its layer starts; "
+                                 "click the ruler to move the playhead. Ticks on the ruler are cue points, where Restart and Play stop: "
+                                 "drag to move, double-click to add or delete, right-click for more.")
+                            : tr("The layers on air. Click the ruler to move the playhead; ticks are cue points.") );
+    timelineRow->addWidget(w.timeline, 1);
     QVBoxLayout* layerButtons = new QVBoxLayout;
     layerButtons->setSpacing(2);
     w.up = smallButton( QString::fromUtf8("\xE2\x96\xB2"), tr("Move the layer up"), box ); // black up-pointing triangle
@@ -240,26 +241,19 @@ SwitcherPanel::createBus(::ProgramOutput::Bus bus,
         layerButtons->addWidget(layerTools[i]);
     }
     layerButtons->addStretch();
-    layerRow->addLayout(layerButtons);
-    layout->addLayout(layerRow);
+    timelineRow->addLayout(layerButtons);
+    layout->addLayout(timelineRow);
 
-    // Timeline, then [prev cue][play/pause][stop][next cue]  [Restart][+cue]  time
-    w.timeline = new BusTimeline(box);
-    w.timeline->setProperty("bus", int(bus));
-    w.timeline->setToolTip( tr("Drag to scrub the layers. Diamonds are cue points, where Restart and Play stop: "
-                               "drag to move, double-click to add or delete, right-click for more.") );
-    layout->addWidget(w.timeline);
-
+    // Transport, as in OBS and vMix:
+    //   [restart][play][pause][stop]  elapsed / length       -remaining  [loop]
     QHBoxLayout* transport = new QHBoxLayout;
     transport->setSpacing(2);
     struct Button { const char* name; const char* text; const char* tip; };
     const Button buttons[] = {
-        { "previous", "\xE2\x97\x86\xE2\x97\x80", QT_TR_NOOP("Previous cue point") }, // diamond, left triangle
-        { "playPause", "\xE2\x96\xB6", QT_TR_NOOP("Play the layers (on past cue points), or pause them") }, // shows pause while playing
-        { "stop", "\xE2\x96\xA0", QT_TR_NOOP("Stop the layers (they are cleared)") },
-        { "next", "\xE2\x96\xB6\xE2\x97\x86", QT_TR_NOOP("Next cue point") },
-        { "restart", "\xE2\x8F\xAE\xE2\x97\x86 Restart", QT_TR_NOOP("Play from the start to the first cue point") }, // previous-track sign, diamond
-        { "addCue", "+\xE2\x97\x86", QT_TR_NOOP("Add a cue point at the playhead to every layer") },
+        { "restart", "\xE2\x8F\xAE", QT_TR_NOOP("Restart: play from the start to the first cue point") }, // previous-track sign
+        { "play", "\xE2\x96\xB6", QT_TR_NOOP("Play, on to the next cue point") },
+        { "pause", "\xE2\x9D\x9A\xE2\x9D\x9A", QT_TR_NOOP("Pause") },
+        { "stop", "\xE2\x96\xA0", QT_TR_NOOP("Stop: back to the start, the layers cleared") },
     };
     for (size_t i = 0; i < sizeof(buttons) / sizeof(buttons[0]); ++i) {
         const QString name = QString::fromUtf8(buttons[i].name);
@@ -268,24 +262,36 @@ SwitcherPanel::createBus(::ProgramOutput::Bus bus,
         button->setProperty("bus", int(bus));
         QObject::connect( button, SIGNAL(clicked()), this, SLOT(onTransportClicked()) );
         transport->addWidget(button);
-        if ( name == QString::fromUtf8("playPause") ) {
-            w.playPause = button;
-        }
-        if ( (name == QString::fromUtf8("next")) || (name == QString::fromUtf8("restart")) ) {
-            transport->addSpacing(8);
+        if ( name == QString::fromUtf8("play") ) {
+            w.play = button;
+        } else if ( name == QString::fromUtf8("pause") ) {
+            w.pause = button;
         }
     }
+    transport->addSpacing(8);
+    w.elapsed = new QLabel(box);
+    w.elapsed->setTextFormat(Qt::PlainText);
+    transport->addWidget(w.elapsed);
     transport->addStretch();
-    w.time = new QLabel(box);
-    w.time->setTextFormat(Qt::PlainText);
-    transport->addWidget(w.time);
+    w.remaining = new QLabel(box);
+    w.remaining->setTextFormat(Qt::PlainText);
+    w.remaining->setToolTip( tr("Time left") );
+    transport->addWidget(w.remaining);
+    w.loop = smallButton( QString::fromUtf8("\xE2\x9F\xB3"), tr("Loop the bus"), box ); // clockwise gapped circle arrow
+    w.loop->setCheckable(true);
+    w.loop->setProperty("bus", int(bus));
+    QObject::connect( w.loop, SIGNAL(toggled(bool)), this, SLOT(onLoopToggled(bool)) );
+    transport->addSpacing(4);
+    transport->addWidget(w.loop);
     layout->addLayout(transport);
 
     w.status = KvGui::secondaryLabel(box);
     w.status->setMinimumWidth(1);
     layout->addWidget(w.status);
 
-    QObject::connect( w.layers, SIGNAL(itemSelectionChanged()), this, SLOT(onLayerSelectionChanged()) );
+    QObject::connect( w.timeline, SIGNAL(trackSelected(QString)), this, SLOT(onTrackSelected(QString)) );
+    QObject::connect( w.timeline, SIGNAL(startChanging(QString,double)), this, SLOT(onStartChanging(QString,double)) );
+    QObject::connect( w.timeline, SIGNAL(startChanged(QString,double)), this, SLOT(onStartChanged(QString,double)) );
     QObject::connect( w.up, SIGNAL(clicked()), this, SLOT(onLayerUpClicked()) );
     QObject::connect( w.down, SIGNAL(clicked()), this, SLOT(onLayerDownClicked()) );
     QObject::connect( w.remove, SIGNAL(clicked()), this, SLOT(onLayerRemoveClicked()) );
@@ -401,36 +407,13 @@ SwitcherPanel::channels(::ProgramOutput::Bus bus) const
 ::ProgramOutput::Source
 SwitcherPanel::selectedLayer(const BusWidgets& w) const
 {
-    const QList<QListWidgetItem*> selected = w.layers->selectedItems();
-
-    if ( selected.isEmpty() ) {
-        return ::ProgramOutput::Source();
-    }
-
-    return ::ProgramOutput::Source( selected.front()->data(Qt::UserRole).toString(), selected.front()->data(Qt::UserRole + 1).toString() );
+    return layerOf( w.bus, w.timeline->selected() );
 }
 
 void
 SwitcherPanel::refreshLayerList(BusWidgets& w)
 {
-    const ::ProgramOutput::Source keep = selectedLayer(w);
     const ::ProgramOutput::Layers layers = _program ? _program->layers(w.bus) : ::ProgramOutput::Layers();
-    const bool blocked = w.layers->blockSignals(true);
-
-    w.layers->clear();
-    // Top layer first, numbered from the bottom as they stack.
-    for (int i = layers.size() - 1; i >= 0; --i) {
-        const QString label = sourceLabel( layers.at(i) );
-        QListWidgetItem* item = new QListWidgetItem( QString::fromUtf8("%1   %2").arg(i + 1).arg(label) );
-        item->setData( Qt::UserRole, layers.at(i).sceneId );
-        item->setData( Qt::UserRole + 1, layers.at(i).item );
-        item->setToolTip(label);
-        w.layers->addItem(item);
-        if (layers.at(i) == keep) {
-            item->setSelected(true);
-        }
-    }
-    w.layers->blockSignals(blocked);
 
     // Title: the top layer, and how many are under it.
     const QString base = (w.bus == ::ProgramOutput::ePreview) ? tr("Preview") : tr("Program");
@@ -458,49 +441,43 @@ SwitcherPanel::refreshLayerList(BusWidgets& w)
 void
 SwitcherPanel::refreshTimeline(BusWidgets& w)
 {
-    // The bus runs as long as its longest layer; the playhead follows it.
-    const QList<QPair< ::ProgramOutput::Source, ::PlayoutChannel*> > list = channels(w.bus);
-    double duration = 0;
-    double position = 0;
+    if (!_program) {
+        return;
+    }
+    // A track per layer, from its start for the length of its render.
+    const ::ProgramOutput::Layers layers = _program->layers(w.bus);
+    QList<BusTimeline::Track> tracks;
     double fps = 0;
-    QList<double> markers;
+    for (int i = 0; i < layers.size(); ++i) {
+        BusTimeline::Track track;
+        track.key = layerKey( layers.at(i) );
+        track.label = _labels.value(track.key);
+        track.start = _program->placement(w.bus, layers.at(i)).start;
+        track.duration = _program->layerDuration( layers.at(i) );
+        tracks << track;
+        ::PlayoutChannel* channel = _ndi ? _ndi->channel(layers.at(i).sceneId, layers.at(i).item) : 0;
+        if ( channel && (fps <= 0) ) {
+            fps = channel->status().fps;
+        }
+    }
+    const double duration = _program->duration(w.bus);
+    const double position = qMin( _program->position(w.bus), duration );
+    w.timeline->setFps( (fps > 0) ? fps : _program->fps() );
+    w.timeline->setTracks(tracks);
+    w.timeline->setPosition(position);
+    w.timeline->setMarkers( _program->cuePoints(w.bus) );
+    w.elapsed->setText( (duration > 0) ? QString::fromUtf8("%1 / %2").arg( formatTime(position) ).arg( formatTime(duration) ) : QString() );
+    w.remaining->setText( (duration > 0) ? QString::fromUtf8("-%1").arg( formatTime( qMax(0.0, duration - position) ) ) : QString() );
 
-    for (int i = 0; i < list.size(); ++i) {
-        ::PlayoutChannel* channel = list.at(i).second;
-        if (!channel) {
-            continue;
-        }
-        const ::PlayoutChannel::Status st = channel->status();
-        if ( (st.state != ::PlayoutChannel::eLive) && (st.duration() > duration) ) {
-            duration = st.duration();
-            position = st.seconds();
-            fps = st.fps;
-        }
-        // Cue points as saved in the scene (also those of layers not loaded yet).
-        ::Scene scene;
-        if ( _scenes && _scenes->scene(list.at(i).first.sceneId, &scene) ) {
-            const QList<double> points = scene.cuePoints(list.at(i).first.item);
-            for (int p = 0; p < points.size(); ++p) {
-                bool known = false;
-                for (int m = 0; m < markers.size() && !known; ++m) {
-                    known = std::fabs(markers.at(m) - points.at(p)) < 0.001;
-                }
-                if (!known) {
-                    markers << points.at(p);
-                }
-            }
-        }
+    const bool playing = _program->isPlaying(w.bus);
+    w.play->setEnabled( !layers.isEmpty() && !playing );
+    w.pause->setEnabled(playing);
+    if ( w.loop->isChecked() != _program->loops(w.bus) ) {
+        const bool blocked = w.loop->blockSignals(true);
+        w.loop->setChecked( _program->loops(w.bus) );
+        w.loop->blockSignals(blocked);
     }
-    // The play / pause toggle shows what a click does.
-    const QString toggle = isPlaying(w.bus) ? QString::fromUtf8("\xE2\x9D\x9A\xE2\x9D\x9A") : QString::fromUtf8("\xE2\x96\xB6");
-    if (w.playPause->text() != toggle) {
-        w.playPause->setText(toggle);
-    }
-    w.timeline->setRange(duration, fps);
-    w.timeline->setPosition( qMin(position, duration) );
-    w.timeline->setMarkers(markers);
-    w.time->setText( (duration > 0) ? QString::fromUtf8("%1 / %2").arg( formatTime( qMin(position, duration) ) ).arg( formatTime(duration) )
-                                    : QString() );
+    w.loop->setEnabled( !layers.isEmpty() );
 }
 
 void
@@ -744,15 +721,42 @@ SwitcherPanel::onFpsChosen(int index)
 // ----- Layers -----
 
 void
-SwitcherPanel::onLayerSelectionChanged()
+SwitcherPanel::onTrackSelected(const QString& key)
 {
     BusWidgets& w = busOf( sender() );
 
     if (w.bus == ::ProgramOutput::ePreview) {
-        const ::ProgramOutput::Source source = selectedLayer(w);
-        _layerMonitor->setSelected( source.isEmpty() ? QString() : layerKey(source) );
+        _layerMonitor->setSelected(key);
     }
     refreshButtons();
+}
+
+void
+SwitcherPanel::onStartChanging(const QString& key,
+                               double seconds)
+{
+    BusWidgets& w = busOf( sender() );
+    const ::ProgramOutput::Source source = layerOf(w.bus, key);
+
+    if ( !_program || source.isEmpty() ) {
+        return;
+    }
+    LayerPlacement placement = _program->placement(w.bus, source);
+    placement.start = seconds;
+    _program->setPlacement(w.bus, source, placement);
+}
+
+void
+SwitcherPanel::onStartChanged(const QString& key,
+                              double seconds)
+{
+    onStartChanging(key, seconds); // sender: the same timeline
+    BusWidgets& w = busOf( sender() );
+    const ::ProgramOutput::Source source = layerOf(w.bus, key);
+    // When it starts next time it is layered.
+    if ( _program && _scenes && !source.isEmpty() ) {
+        _scenes->setLayerPlacement( source.sceneId, source.item, _program->placement(w.bus, source) );
+    }
 }
 
 // ----- Placing Preview layers -----
@@ -764,9 +768,10 @@ SwitcherPanel::layerKey(const ::ProgramOutput::Source& source)
 }
 
 ::ProgramOutput::Source
-SwitcherPanel::previewLayer(const QString& key) const
+SwitcherPanel::layerOf(::ProgramOutput::Bus bus,
+                       const QString& key) const
 {
-    const ::ProgramOutput::Layers layers = _program ? _program->layers(::ProgramOutput::ePreview) : ::ProgramOutput::Layers();
+    const ::ProgramOutput::Layers layers = _program ? _program->layers(bus) : ::ProgramOutput::Layers();
 
     for (int i = 0; i < layers.size(); ++i) {
         if (layerKey( layers.at(i) ) == key) {
@@ -777,6 +782,12 @@ SwitcherPanel::previewLayer(const QString& key) const
     return ::ProgramOutput::Source();
 }
 
+::ProgramOutput::Source
+SwitcherPanel::previewLayer(const QString& key) const
+{
+    return layerOf(::ProgramOutput::ePreview, key);
+}
+
 void
 SwitcherPanel::refreshLayerBoxes()
 {
@@ -784,6 +795,11 @@ SwitcherPanel::refreshLayerBoxes()
     const QList<QPair< ::ProgramOutput::Source, ::PlayoutChannel*> > list = channels(::ProgramOutput::ePreview);
 
     for (int i = 0; i < list.size(); ++i) {
+        // The layers showing now, and the selected one.
+        if ( !_program->isActive(::ProgramOutput::ePreview, list.at(i).first) &&
+             (layerKey(list.at(i).first) != _layerMonitor->selected()) ) {
+            continue;
+        }
         LayerMonitor::Box box;
         box.key = layerKey(list.at(i).first);
         box.label = _labels.value(box.key);
@@ -802,13 +818,8 @@ SwitcherPanel::refreshLayerBoxes()
 void
 SwitcherPanel::onMonitorLayerSelected(const QString& key)
 {
-    BusWidgets& w = _buses[::ProgramOutput::ePreview];
-
-    for (int i = 0; i < w.layers->count(); ++i) {
-        QListWidgetItem* item = w.layers->item(i);
-        const ::ProgramOutput::Source source( item->data(Qt::UserRole).toString(), item->data(Qt::UserRole + 1).toString() );
-        item->setSelected(layerKey(source) == key);
-    }
+    _buses[::ProgramOutput::ePreview].timeline->setSelected(key);
+    refreshButtons();
 }
 
 void
@@ -881,66 +892,33 @@ SwitcherPanel::onTransportClicked()
     BusWidgets& w = busOf(button);
     const QString action = button->objectName();
 
-    if ( action == QString::fromUtf8("previous") || action == QString::fromUtf8("next") ) {
-        const double to = ( action == QString::fromUtf8("previous") ) ? w.timeline->previousMarker() : w.timeline->nextMarker();
-        if (to >= 0) {
-            onTimelineSeek(to); // sender: the button, of the same bus
-        }
-
+    if (!_program) {
         return;
     }
-    if ( action == QString::fromUtf8("addCue") ) {
-        editCuePoints( w.bus, -1, w.timeline->position() );
-
-        return;
-    }
-
-    // Play / pause: pauses if a layer is playing, else plays them all.
-    const bool pause = ( action == QString::fromUtf8("playPause") ) && isPlaying(w.bus);
-    const QList<QPair< ::ProgramOutput::Source, ::PlayoutChannel*> > list = channels(w.bus);
-    for (int i = 0; i < list.size(); ++i) {
-        ::PlayoutChannel* channel = list.at(i).second;
-        if (!channel) {
-            continue;
-        }
-        if ( action == QString::fromUtf8("playPause") ) {
-            if (pause) {
-                channel->pause();
-            } else {
-                channel->play();
-            }
-        } else if ( action == QString::fromUtf8("stop") ) {
-            channel->stop();
-        } else if ( action == QString::fromUtf8("restart") ) {
-            channel->cue();
-        }
+    if ( action == QString::fromUtf8("play") ) {
+        _program->play(w.bus);
+    } else if ( action == QString::fromUtf8("pause") ) {
+        _program->pause(w.bus);
+    } else if ( action == QString::fromUtf8("stop") ) {
+        _program->stop(w.bus);
+    } else if ( action == QString::fromUtf8("restart") ) {
+        _program->restart(w.bus);
     }
 }
 
-bool
-SwitcherPanel::isPlaying(::ProgramOutput::Bus bus) const
+void
+SwitcherPanel::onLoopToggled(bool loop)
 {
-    const QList<QPair< ::ProgramOutput::Source, ::PlayoutChannel*> > list = channels(bus);
-
-    for (int i = 0; i < list.size(); ++i) {
-        if ( list.at(i).second && (list.at(i).second->status().state == ::PlayoutChannel::ePlaying) ) {
-            return true;
-        }
+    if (_program) {
+        _program->setLoop(busOf( sender() ).bus, loop);
     }
-
-    return false;
 }
 
 void
 SwitcherPanel::onTimelineSeek(double seconds)
 {
-    const QList<QPair< ::ProgramOutput::Source, ::PlayoutChannel*> > list = channels( busOf( sender() ).bus );
-
-    // Each layer clamps to its own length.
-    for (int i = 0; i < list.size(); ++i) {
-        if (list.at(i).second) {
-            list.at(i).second->seek(seconds);
-        }
+    if (_program) {
+        _program->seek(busOf( sender() ).bus, seconds);
     }
 }
 
@@ -982,23 +960,29 @@ SwitcherPanel::editCuePoints(::ProgramOutput::Bus bus,
         if ( !_scenes->scene(layers.at(i).sceneId, &scene) ) {
             continue;
         }
+        // Bus time -> the layer's own time.
+        const double start = _program->placement(bus, layers.at(i)).start;
+        const double length = _program->layerDuration( layers.at(i) );
+        const double fromHere = (from >= 0) ? from - start : -1;
+        const double toHere = (to >= 0) ? to - start : -1;
         QList<double> points = scene.cuePoints(layers.at(i).item);
         bool found = false;
-        if (from >= 0) {
+        if (fromHere >= 0) {
             for (int p = points.size() - 1; p >= 0; --p) {
-                if (std::fabs(points.at(p) - from) < tolerance) {
+                if (std::fabs(points.at(p) - fromHere) < tolerance) {
                     points.removeAt(p);
                     found = true;
                 }
             }
         }
-        // Moving: only the layers that had it. Adding: every layer, once.
+        // Moving: the layers that had it. Adding: the layers playing then, once.
         bool present = false;
         for (int p = 0; p < points.size() && !present; ++p) {
-            present = std::fabs(points.at(p) - to) < tolerance;
+            present = std::fabs(points.at(p) - toHere) < tolerance;
         }
-        if ( (to >= 0) && ( (from < 0) || found ) && !present ) {
-            points << to;
+        const bool within = (toHere >= 0) && ( (length <= 0) || (toHere < length) );
+        if ( within && ( (from < 0) || found ) && !present ) {
+            points << toHere;
         }
         _scenes->setNdiCuePoints(layers.at(i).sceneId, layers.at(i).item, points);
     }

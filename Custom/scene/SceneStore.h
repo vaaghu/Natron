@@ -22,24 +22,28 @@ QString writer(const QString &item);
 QStringList allOf(const QString &project);
 }
 
-// Where a layer of the switcher sits in the output, in fractions of it:
-// its centre (0.5, 0.5: centred) and its size (1: fitted into the output,
-// aspect ratio kept).
+// Where and when a layer of the switcher shows: its centre (0.5, 0.5:
+// centred) and its size (1: fitted into the output, aspect ratio kept), in
+// fractions of the output, and when it starts on its bus's timeline, in
+// seconds.
 struct LayerPlacement
 {
   double x;
   double y;
   double scale;
+  double start;
 
   LayerPlacement()
       : x(0.5),
         y(0.5),
-        scale(1)
+        scale(1),
+        start(0)
   {
   }
 
-  bool isDefault() const { return x == 0.5 && y == 0.5 && scale == 1; }
-  bool operator==(const LayerPlacement &other) const { return x == other.x && y == other.y && scale == other.scale; }
+  bool isDefault() const { return x == 0.5 && y == 0.5 && scale == 1 && start == 0; }
+  bool isDefaultFrame() const { return x == 0.5 && y == 0.5 && scale == 1; } // where, not when
+  bool operator==(const LayerPlacement &other) const { return x == other.x && y == other.y && scale == other.scale && start == other.start; }
   bool operator!=(const LayerPlacement &other) const { return !(*this == other); }
 };
 

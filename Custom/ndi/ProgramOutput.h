@@ -10,6 +10,7 @@
 #include <QList>
 #include <QObject>
 #include <QString>
+#include <QStringList>
 #include <QTimer>
 
 class NdiManager;
@@ -28,12 +29,17 @@ class SceneStore;
 // bottom), with their transparency, over black, each at its placement in
 // the format (fitted and centred by default). A layer taken to a bus gets
 // its scene's saved placement; Cut and Fade carry the placements along.
+// Each bus has its own clock (play, pause, stop, restart, seek, loop): a
+// layer starts at its placement's start time on it, plays its render from
+// there, and only shows until its render ends. Playing stops at the next
+// cue point of the layers (in bus time).
 //   cut()                 Preview goes on air at once; the old Program goes to Preview
 //   fade(ms)              crossfades from Program to Preview, then swaps them
 //   setManualPosition(t)  the T-bar: 0..1 of the crossfade, 1 completes it
 //   fadeToBlack(ms)       fades Program to black, or back from black
-// A stopped layer put on Preview is cued: it holds its first frame. Layers
-// going on air play (unless already playing).
+// Layers put on an empty Preview hold their first frame; Preview going on
+// air plays from where its clock is, and the bus coming back to Preview
+// pauses.
 // Frames are mixed and sent in a worker thread; the methods are for the
 // main thread.
 class ProgramOutput : public QObject
@@ -92,6 +98,21 @@ public:
   LayerPlacement placement(Bus bus, const Source &source) const;
   void setPlacement(Bus bus, const Source &source, const LayerPlacement &placement);
 
+  // Bus playback (see above).
+  void play(Bus bus);    // on to the next cue point
+  void pause(Bus bus);
+  void stop(Bus bus);    // back to the start, layers cleared
+  void restart(Bus bus); // from the start to the first cue point
+  void seek(Bus bus, double seconds);
+  void setLoop(Bus bus, bool loop);
+  bool loops(Bus bus) const;
+  bool isPlaying(Bus bus) const;
+  double position(Bus bus) const;
+  double duration(Bus bus) const;            // to the end of its last layer
+  double layerDuration(const Source &source) const; // its render's length (0: unknown)
+  bool isActive(Bus bus, const Source &source) const; // showing now (within its block)
+  QList<double> cuePoints(Bus bus) const;    // the layers' cue points in bus time, ascending
+
   // Only this input on Preview.
   void setPreview(const Source &source);
   // Only this input on Program; Preview stays (unless it is just that input: then like cut()).
@@ -129,8 +150,30 @@ private:
   Layers &bus(Bus bus);
   static QString placementKey(const Source &source);
   LayerPlacement savedPlacement(const Source &source) const; // the scene's
-  void cueLayers(const Layers &layers);  // stopped ones hold their first frame
-  void playLayers(const Layers &layers); // going on air
+  struct Clock
+  {
+    bool playing;
+    bool stopped;   // at the start, layers cleared
+    double position;
+    double from;    // position when the timer started
+    QElapsedTimer timer;
+    double stopAt;  // cue point where playing stops (-1: none)
+    bool loop;
+
+    Clock()
+        : playing(false),
+          stopped(true),
+          position(0),
+          from(0),
+          stopAt(-1),
+          loop(false)
+    {
+    }
+  };
+
+  void advance(Bus bus); // the clock's position now
+  void drive(Bus bus, const QStringList &skip); // makes the layers' channels follow the clock
+  double nextCuePoint(Bus bus, double after) const;
   void stopTransition();
   void swap(); // Preview <-> Program
 
@@ -142,6 +185,8 @@ private:
   Layers m_preview;
   Layers m_program;
   QHash<QString, LayerPlacement> m_placements[2]; // per Bus: placementKey() -> placement
+  Clock m_clocks[2]; // per Bus
+  QHash<QString, QElapsedTimer> m_seeks; // placementKey() -> since the bus last sought that layer
   int m_width;
   int m_height;
   double m_fps;

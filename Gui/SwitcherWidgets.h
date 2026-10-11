@@ -176,12 +176,15 @@ private:
 };
 
 /**
- * @brief Timeline of a switcher bus, drawn like the editor's: frame ruler,
- * playhead, and cue points as keyframe diamonds.
- *   click / drag            moves the playhead (seekRequested)
- *   drag a diamond          moves that cue point
- *   double-click            adds a cue point there, or removes the one clicked
- *   right-click             add / delete / go to cue points
+ * @brief Timeline of a switcher bus, as in video editors: a time ruler on
+ * top, then one track per layer (the top layer first) with a block from the
+ * layer's start to its end, and the playhead across them.
+ *   click / drag the ruler or an empty track    moves the playhead (seekRequested)
+ *   drag a block                                moves its layer's start (editable only);
+ *                                               snaps to 0, the playhead and the other blocks
+ *   ticks on the ruler                          cue points: drag to move,
+ *                                               double-click to add or delete
+ *   right-click                                 cue points, or a block's start
  **/
 class BusTimeline
     : public QWidget
@@ -192,18 +195,29 @@ GCC_DIAG_SUGGEST_OVERRIDE_ON
 
 public:
 
+    struct Track
+    {
+        QString key;     // the layer
+        QString label;
+        double start;    // seconds on the bus
+        double duration; // its render (0: unknown, e.g. NDI output off)
+    };
+
     explicit BusTimeline(QWidget* parent = 0);
 
-    // Length (0: nothing to show) and frame rate of the bus.
-    void setRange(double duration, double fps);
+    // Bottom layer first. Ignored while a block is dragged.
+    void setTracks(const QList<Track>& tracks);
+    void setFps(double fps);  // snapping
     // Ignored while the user drags the playhead.
     void setPosition(double seconds);
     void setMarkers(const QList<double>& seconds);
+    void setSelected(const QString& key);
+    QString selected() const;
+    // Blocks can be dragged (Preview), or not (Program).
+    void setEditable(bool editable);
 
-    double duration() const;
-    double fps() const;
     double position() const;
-    const QList<double>& markers() const;
+    double fps() const;
     // Nearest cue point before / after the playhead (-1: none).
     double previousMarker() const;
     double nextMarker() const;
@@ -214,6 +228,10 @@ public:
 Q_SIGNALS:
 
     void seekRequested(double seconds);
+    void trackSelected(const QString& key);
+    // While dragging a block (live), then once released.
+    void startChanging(const QString& key, double seconds);
+    void startChanged(const QString& key, double seconds);
     void markerAdded(double seconds);
     void markerMoved(double from, double to);
     void markerRemoved(double seconds);
@@ -229,19 +247,37 @@ protected:
 
 private:
 
-    QRect track() const;
-    double secondsAt(int x) const; // snapped to a frame
-    int xAt(double seconds) const;
-    int markerAt(const QPoint& pos) const; // index, -1: none
-    void scrubTo(int x);
+    enum DragEnum
+    {
+        eDragNone,
+        eDragScrub,
+        eDragMarker,
+        eDragBlock
+    };
 
-    double _duration;
+    int rulerHeight() const;
+    int rowHeight() const;
+    QRect track() const;              // horizontal extent of the time axis
+    double secondsAt(int x) const;    // snapped to a frame
+    int xAt(double seconds) const;
+    double snapped(double seconds) const; // to a frame
+    QRect blockRect(int index) const; // index in _tracks
+    int blockAt(const QPoint& pos) const;
+    int markerAt(const QPoint& pos) const; // index, -1: none (on the ruler only)
+    void scrubTo(int x);
+    void updateViewLength();
+
+    QList<Track> _tracks;
     double _fps;
     double _position;
+    double _viewLength; // seconds shown
     QList<double> _markers;
-    bool _scrubbing;
-    int _dragMarker;       // index of the cue point being dragged, -1: none
-    double _dragFrom;      // its time before the drag
+    QString _selected;
+    bool _editable;
+    DragEnum _drag;
+    int _dragIndex;     // marker or block being dragged
+    double _dragFrom;   // its time before the drag
+    int _pressX;
     bool _dragMoved;
 };
 

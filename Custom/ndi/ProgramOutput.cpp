@@ -11,6 +11,7 @@
 #include <QPainter>
 #include <QThread>
 
+#include <algorithm>
 #include <cmath>
 
 namespace
@@ -22,6 +23,12 @@ const int kPreviewMonitorWidth = 960; // Preview is composited this small when n
 const int kDefaultWidth = 1920;
 const int kDefaultHeight = 1080;
 const double kDefaultFps = 30;
+// Bus clocks: how far a playing layer may be from the clock and still lead
+// it, how far it may drift before being sought back, and how long after a
+// seek it is left alone (its decoder starting).
+const double kFollowWindow = 1.0;
+const double kResyncSeconds = 0.5;
+const qint64 kResyncGraceMs = 1000;
 
 // a = a * (1 - k) + b * k, k in 0..256 (same sizes).
 void blend(QByteArray *a, const QByteArray &b, int k)
@@ -290,7 +297,7 @@ private:
         // BGRA bytes = ARGB32 on little-endian machines.
         const QImage image(reinterpret_cast<const uchar *>(layer.frame.constData()), layer.width, layer.height,
                            layer.width * 4, QImage::Format_ARGB32);
-        if (layer.width == width && layer.height == height && layer.placement.isDefault())
+        if (layer.width == width && layer.height == height && layer.placement.isDefaultFrame())
         {
           painter.drawImage(0, 0, image);
         }
@@ -343,7 +350,8 @@ QList<ProgramMixer::Layer> framesOf(NdiManager *ndi, const ProgramOutput &output
   {
     PlayoutChannel *channel = ndi->channel(layers.at(i).sceneId, layers.at(i).item);
     ProgramMixer::Layer layer;
-    if (channel && channel->status().state != PlayoutChannel::eStopped &&
+    // Only the layers within their block on the bus's timeline.
+    if (channel && output.isActive(bus, layers.at(i)) && channel->status().state != PlayoutChannel::eStopped &&
         channel->currentFrame(&layer.frame, &layer.width, &layer.height))
     {
       layer.placement = output.placement(bus, layers.at(i));
@@ -460,14 +468,10 @@ void ProgramOutput::setLayers(Bus which, const Layers &layers)
   {
     return;
   }
-  if (which == ePreview)
-  {
-    cueLayers(unique);
-  }
-  else
+  const bool wasEmpty = bus(which).isEmpty();
+  if (which == eProgram)
   {
     stopTransition();
-    playLayers(unique);
   }
   // Placements: kept for the layers staying; new ones get the scene's (on
   // Program, the one they have on Preview, if they are there).
@@ -490,6 +494,22 @@ void ProgramOutput::setLayers(Bus which, const Layers &layers)
   }
   m_placements[which] = placements;
   bus(which) = unique;
+  // Clock: Program plays its new layers from the start; an empty Preview
+  // getting layers holds their first frames.
+  if (unique.isEmpty())
+  {
+    m_clocks[which] = Clock();
+  }
+  else if (which == eProgram)
+  {
+    m_clocks[which] = Clock();
+    play(eProgram);
+  }
+  else if (wasEmpty)
+  {
+    m_clocks[which] = Clock();
+    m_clocks[which].stopped = false;
+  }
   Q_EMIT busChanged();
 }
 
@@ -579,8 +599,9 @@ void ProgramOutput::cut()
     return;
   }
   stopTransition();
-  playLayers(m_preview);
+  play(ePreview);
   swap();
+  pause(ePreview); // what was on air, held
 }
 
 void ProgramOutput::fade(int durationMs)
@@ -594,7 +615,7 @@ void ProgramOutput::fade(int durationMs)
     cut();
     return;
   }
-  playLayers(m_preview);
+  play(ePreview);
   // From where the T-bar is, in the time left.
   m_fadeFrom = m_position;
   m_fadeMs = qMax(1, int(durationMs * (1.0 - m_fadeFrom)));
@@ -612,12 +633,13 @@ void ProgramOutput::setManualPosition(double position)
   m_fadeMs = 0; // the T-bar takes over
   if (m_position <= 0 && position > 0)
   {
-    playLayers(m_preview);
+    play(ePreview);
   }
   if (position >= 1)
   {
     m_position = 0;
     swap();
+    pause(ePreview);
   }
   else
   {
@@ -693,32 +715,281 @@ int ProgramOutput::connections() const
   return m_mixer->connections();
 }
 
-void ProgramOutput::cueLayers(const Layers &layers)
+// ----- Bus clocks -----
+
+double ProgramOutput::layerDuration(const Source &source) const
 {
-  for (int i = 0; i < layers.size(); ++i)
-  {
-    PlayoutChannel *channel = m_ndi->channel(layers.at(i).sceneId, layers.at(i).item);
-    if (channel && channel->status().state == PlayoutChannel::eStopped)
-    {
-      channel->seek(0);
-    }
-  }
+  PlayoutChannel *channel = m_ndi->channel(source.sceneId, source.item);
+  return channel ? channel->status().duration() : 0.0;
 }
 
-void ProgramOutput::playLayers(const Layers &layers)
+double ProgramOutput::duration(Bus which) const
 {
-  for (int i = 0; i < layers.size(); ++i)
+  double end = 0;
+  const Layers list = layers(which);
+  for (int i = 0; i < list.size(); ++i)
   {
-    PlayoutChannel *channel = m_ndi->channel(layers.at(i).sceneId, layers.at(i).item);
+    end = qMax(end, placement(which, list.at(i)).start + layerDuration(list.at(i)));
+  }
+  return end;
+}
+
+double ProgramOutput::position(Bus which) const
+{
+  return m_clocks[which].position;
+}
+
+bool ProgramOutput::isPlaying(Bus which) const
+{
+  return m_clocks[which].playing;
+}
+
+bool ProgramOutput::loops(Bus which) const
+{
+  return m_clocks[which].loop;
+}
+
+void ProgramOutput::setLoop(Bus which, bool loop)
+{
+  m_clocks[which].loop = loop;
+}
+
+bool ProgramOutput::isActive(Bus which, const Source &source) const
+{
+  const Clock &clock = m_clocks[which];
+  const double local = clock.position - placement(which, source).start;
+  return !clock.stopped && local >= 0 && local < layerDuration(source);
+}
+
+QList<double> ProgramOutput::cuePoints(Bus which) const
+{
+  QList<double> points;
+  const Layers list = layers(which);
+  for (int i = 0; i < list.size(); ++i)
+  {
+    Scene scene;
+    if (!m_scenes->scene(list.at(i).sceneId, &scene))
+    {
+      continue;
+    }
+    const double start = placement(which, list.at(i)).start;
+    const QList<double> own = scene.cuePoints(list.at(i).item);
+    for (int p = 0; p < own.size(); ++p)
+    {
+      bool known = false;
+      for (int k = 0; k < points.size() && !known; ++k)
+      {
+        known = std::fabs(points.at(k) - (start + own.at(p))) < 0.001;
+      }
+      if (!known)
+      {
+        points << start + own.at(p);
+      }
+    }
+  }
+  std::sort(points.begin(), points.end());
+  return points;
+}
+
+double ProgramOutput::nextCuePoint(Bus which, double after) const
+{
+  const QList<double> points = cuePoints(which);
+  for (int i = 0; i < points.size(); ++i)
+  {
+    if (points.at(i) > after + 0.001)
+    {
+      return points.at(i);
+    }
+  }
+  return -1;
+}
+
+void ProgramOutput::advance(Bus which)
+{
+  Clock &clock = m_clocks[which];
+  if (!clock.playing)
+  {
+    return;
+  }
+  double t = clock.from + clock.timer.elapsed() / 1000.0;
+  // Follow the first layer playing within its block, as a player follows
+  // its decoder: the clock waits while a decoder starts and never runs
+  // ahead of the pictures. Between blocks (no layer playing) the timer
+  // goes on from there.
+  const Layers list = layers(which);
+  for (int i = 0; i < list.size(); ++i)
+  {
+    PlayoutChannel *channel = m_ndi->channel(list.at(i).sceneId, list.at(i).item);
     if (!channel)
     {
       continue;
     }
-    // Stopped, cued, held or at its end: play (from the start at the end).
-    const PlayoutChannel::State state = channel->status().state;
-    if (state == PlayoutChannel::eStopped || state == PlayoutChannel::ePaused)
+    const PlayoutChannel::Status status = channel->status();
+    const double local = status.seconds();
+    const double master = placement(which, list.at(i)).start + local;
+    if (status.state != PlayoutChannel::ePlaying || local >= status.duration() || std::fabs(master - t) > kFollowWindow)
     {
-      channel->play();
+      continue; // not playing, or somewhere else (left by a seek in progress, looping on its own)
+    }
+    t = master;
+    clock.from = t;
+    clock.timer.restart();
+    break;
+  }
+  const double end = duration(which);
+  if (clock.stopAt >= 0 && t >= clock.stopAt)
+  {
+    clock.position = clock.stopAt; // a cue point
+    clock.playing = false;
+  }
+  else if (end > 0 && t >= end)
+  {
+    if (clock.loop)
+    {
+      clock.position = 0;
+      clock.from = 0;
+      clock.timer.start();
+      clock.stopAt = nextCuePoint(which, -1);
+    }
+    else
+    {
+      // Hold the last frame.
+      clock.position = qMax(0.0, end - 0.5 / m_fps);
+      clock.playing = false;
+    }
+  }
+  else
+  {
+    clock.position = t;
+  }
+}
+
+void ProgramOutput::play(Bus which)
+{
+  Clock &clock = m_clocks[which];
+  if (clock.playing || layers(which).isEmpty())
+  {
+    return;
+  }
+  const double end = duration(which);
+  if (clock.stopped || (end > 0 && clock.position >= end - 1.0 / m_fps))
+  {
+    clock.position = 0; // from the start
+  }
+  clock.stopped = false;
+  clock.playing = true;
+  clock.from = clock.position;
+  clock.timer.start();
+  clock.stopAt = nextCuePoint(which, clock.position);
+}
+
+void ProgramOutput::pause(Bus which)
+{
+  advance(which);
+  m_clocks[which].playing = false;
+}
+
+void ProgramOutput::stop(Bus which)
+{
+  Clock &clock = m_clocks[which];
+  clock.playing = false;
+  clock.stopped = true;
+  clock.position = 0;
+  const Layers list = layers(which);
+  for (int i = 0; i < list.size(); ++i)
+  {
+    PlayoutChannel *channel = m_ndi->channel(list.at(i).sceneId, list.at(i).item);
+    if (channel)
+    {
+      channel->stop();
+    }
+  }
+}
+
+void ProgramOutput::restart(Bus which)
+{
+  m_clocks[which].playing = false;
+  m_clocks[which].stopped = true;
+  play(which); // from the start, stopping at the first cue point
+}
+
+void ProgramOutput::seek(Bus which, double seconds)
+{
+  advance(which);
+  Clock &clock = m_clocks[which];
+  const double end = duration(which);
+  clock.position = qBound(0.0, seconds, end > 0 ? end : 0.0);
+  clock.stopped = false;
+  if (clock.playing)
+  {
+    clock.from = clock.position;
+    clock.timer.start();
+    clock.stopAt = nextCuePoint(which, clock.position);
+  }
+}
+
+void ProgramOutput::drive(Bus which, const QStringList &skip)
+{
+  const Clock &clock = m_clocks[which];
+  const Layers list = layers(which);
+  for (int i = 0; i < list.size(); ++i)
+  {
+    PlayoutChannel *channel = m_ndi->channel(list.at(i).sceneId, list.at(i).item);
+    if (!channel || clock.stopped || skip.contains(placementKey(list.at(i))))
+    {
+      continue;
+    }
+    const PlayoutChannel::Status status = channel->status();
+    if (status.state == PlayoutChannel::eLive)
+    {
+      continue; // sending the frames it renders
+    }
+    const QString key = placementKey(list.at(i));
+    const double local = clock.position - placement(which, list.at(i)).start;
+    if (local < 0 || local >= status.duration())
+    {
+      // Outside its block: not shown, held.
+      if (status.state == PlayoutChannel::ePlaying)
+      {
+        channel->pause();
+      }
+      continue;
+    }
+    // In whole frames of the layer, within its render.
+    const double fps = status.fps > 0 ? status.fps : 25;
+    const int wanted = qBound(0, int(std::floor(local * fps + 0.5)), qMax(0, status.frameCount - 1));
+    const int off = qAbs(status.position - wanted);
+    if (clock.playing)
+    {
+      if (status.state != PlayoutChannel::ePlaying)
+      {
+        // Seek only when elsewhere: a layer held at its own cue point, or
+        // just paused, goes on without restarting its decoder.
+        if (off > 2 || status.state == PlayoutChannel::eStopped)
+        {
+          channel->seek(wanted / fps);
+          m_seeks[key].start();
+        }
+        channel->play();
+      }
+      else if (off > int(kResyncSeconds * fps) && (!m_seeks.contains(key) || m_seeks[key].elapsed() > kResyncGraceMs))
+      {
+        // Drifted away (a slow decoder): back in step, then left alone a
+        // while (its decoder restarts).
+        channel->seek(wanted / fps);
+        m_seeks[key].start();
+      }
+    }
+    else
+    {
+      if (status.state == PlayoutChannel::ePlaying)
+      {
+        channel->pause();
+      }
+      if (off > 0 || status.state == PlayoutChannel::eStopped)
+      {
+        channel->seek(wanted / fps); // holds that frame
+      }
     }
   }
 }
@@ -742,6 +1013,9 @@ void ProgramOutput::swap()
   const QHash<QString, LayerPlacement> placements = m_placements[eProgram];
   m_placements[eProgram] = m_placements[ePreview];
   m_placements[ePreview] = placements;
+  const Clock clock = m_clocks[eProgram];
+  m_clocks[eProgram] = m_clocks[ePreview];
+  m_clocks[ePreview] = clock;
   Q_EMIT busChanged();
 }
 
@@ -760,6 +1034,7 @@ void ProgramOutput::onTick()
       m_fadeMs = 0;
       m_position = 0;
       swap();
+      pause(ePreview);
     }
   }
   if (m_blackMs > 0)
@@ -774,6 +1049,18 @@ void ProgramOutput::onTick()
       m_black = target;
     }
   }
+
+  // Clocks, then the channels follow them (Program first: a layer on both
+  // buses plays as on air).
+  advance(eProgram);
+  advance(ePreview);
+  drive(eProgram, QStringList());
+  QStringList onAir;
+  for (int i = 0; i < m_program.size(); ++i)
+  {
+    onAir << placementKey(m_program.at(i));
+  }
+  drive(ePreview, onAir);
 
   m_mixer->setInputs(framesOf(m_ndi, *this, eProgram), framesOf(m_ndi, *this, ePreview), m_position, m_black);
 

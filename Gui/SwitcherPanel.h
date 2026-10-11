@@ -44,7 +44,6 @@ CLANG_DIAG_ON(uninitialized)
 class QColor;
 class QComboBox;
 class QLabel;
-class QListWidget;
 class QPushButton;
 class QSlider;
 class QSpinBox;
@@ -64,11 +63,11 @@ class VideoMonitor;
  * laid out like vision mixers:
  *   Preview bus | format, Cut, Fade, duration, Fade to Black, T-bar | Program bus
  * Each bus shows its layers composited in the output format (on Preview,
- * dragged into place with the mouse), the list of its layers (reordered
- * and removed here; added from the input boxes of the scene panel), and a
- * timeline like the editor's: a playhead scrubbing
- * all its layers, transport controls, and the layers' cue points as
- * keyframes (where Restart and Play stop).
+ * dragged into place with the mouse), a timeline as in video editors with
+ * a track per layer (blocks dragged to set when each layer starts; layers
+ * reordered and removed here, added from the input boxes of the scene
+ * panel) and cue points on its ruler, and transport controls for the bus's
+ * clock (restart, play, pause, stop, loop).
  **/
 class SwitcherPanel
     : public QWidget
@@ -103,11 +102,14 @@ private Q_SLOTS:
     void onFpsChosen(int index);
 
     // Per bus (the sender's "bus" property).
-    void onLayerSelectionChanged();
+    void onTrackSelected(const QString& key);
+    void onStartChanging(const QString& key, double seconds);
+    void onStartChanged(const QString& key, double seconds);
     void onLayerUpClicked();
     void onLayerDownClicked();
     void onLayerRemoveClicked();
-    void onTransportClicked(); // the sender's object name: previous, playPause, stop, next, restart, addCue
+    void onTransportClicked(); // the sender's object name: restart, play, pause, stop
+    void onLoopToggled(bool loop);
     void onTimelineSeek(double seconds);
     void onMarkerAdded(double seconds);
     void onMarkerMoved(double from, double to);
@@ -125,13 +127,15 @@ private:
         ::ProgramOutput::Bus bus;
         QLabel* title;
         VideoMonitor* monitor;
-        QListWidget* layers;
         QToolButton* up;
         QToolButton* down;
         QToolButton* remove;
         BusTimeline* timeline;
-        QToolButton* playPause;
-        QLabel* time;
+        QToolButton* play;
+        QToolButton* pause;
+        QToolButton* loop;
+        QLabel* elapsed;
+        QLabel* remaining;
         QLabel* status;
     };
 
@@ -147,13 +151,13 @@ private:
     void refreshLayerList(BusWidgets& w);
     void refreshTimeline(BusWidgets& w);
     void refreshButtons();
-    bool isPlaying(::ProgramOutput::Bus bus) const; // a layer of the bus is playing
     // Cue points of every layer of a bus: add one, move one (from -> to),
     // or remove one (to < 0).
     void editCuePoints(::ProgramOutput::Bus bus, double from, double to);
     void applyFormat(int width, int height, double fps);
     static QString layerKey(const ::ProgramOutput::Source& source);
-    ::ProgramOutput::Source previewLayer(const QString& key) const; // empty: not on Preview
+    ::ProgramOutput::Source layerOf(::ProgramOutput::Bus bus, const QString& key) const; // empty: not on that bus
+    ::ProgramOutput::Source previewLayer(const QString& key) const;
     void refreshLayerBoxes();
 
     ::ProgramOutput* _program;

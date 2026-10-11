@@ -1,0 +1,24 @@
+#!/bin/sh
+#
+# shiboken2 as Natron's build-natron.sh runs it, in the natron-sdk-qt5 image:
+# the generator from Qt's wheel, with what its libclang does not find by
+# itself on this system:
+# - the SDK's libraries (ICU for the SDK's Qt 5, see the Dockerfile);
+# - clang's built-in headers (LLVM_INSTALL_DIR);
+# - the C++ standard library headers of the compiler in use (g++ of the
+#   build's devtoolset): asked to g++, given as -I before the other options.
+
+GENERATOR=/opt/Natron-sdk/lib/python3.10/site-packages/shiboken2_generator
+
+CXX_INCLUDES=$(g++ -E -x c++ - -v </dev/null 2>&1 |
+    sed -n '/#include <...> search starts here:/,/End of search list./p' |
+    grep '/c++/' |
+    sed 's/^ */-I/')
+
+LLVM_INSTALL_DIR=/opt/Natron-sdk/libclang
+LD_LIBRARY_PATH="/opt/Natron-sdk/lib${LD_LIBRARY_PATH:+:$LD_LIBRARY_PATH}"
+export LLVM_INSTALL_DIR LD_LIBRARY_PATH
+
+# CXX_INCLUDES: one option per word (paths without spaces).
+# shellcheck disable=SC2086
+exec "$GENERATOR/shiboken2" $CXX_INCLUDES "$@"

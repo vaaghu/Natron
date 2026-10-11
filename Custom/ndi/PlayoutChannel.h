@@ -109,6 +109,7 @@ private:
   void sendClearFrame();
   void sendFrame(const QByteArray &frame, int width, int height);
   void showFrame(int frame); // decodes and sends one frame (seek while paused)
+  void openSink(); // the output; on failure m_outputError says why
   void setStateLocked(State state, const QString &message = QString());
   // First pause point after frame (-1: none).
   int nextPauseFrameLocked(int frame) const;
@@ -138,7 +139,7 @@ private:
   double m_liveFps;
   int m_connections;
   QString m_message;
-  QString m_outputError; // the output (NDI) could not be opened: stays in eError
+  QString m_outputError; // the output (NDI) could not be opened (retried; playing goes on)
 
   // channel thread
   FrameSink *m_sink;

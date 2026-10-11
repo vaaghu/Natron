@@ -1200,7 +1200,13 @@ ScenePanel::refreshTileImage(const QString& item)
     TileWidgets& w = it.value();
     VideoMonitor* monitor = w.tile->monitor();
     ::PlayoutChannel* channel = _ndi ? _ndi->channel(_currentSceneId, item) : 0;
-    const QString state = channel ? ::PlayoutChannel::stateName( channel->status().state ) : QString();
+    // Its state; with the reason when it failed (also as the tooltip).
+    const ::PlayoutChannel::Status status = channel ? channel->status() : ::PlayoutChannel::Status();
+    QString state = channel ? ::PlayoutChannel::stateName(status.state) : QString();
+    if ( channel && (status.state == ::PlayoutChannel::eError) && !status.message.isEmpty() ) {
+        state += QString::fromUtf8(": ") + status.message;
+    }
+    monitor->setToolTip( (channel && !status.message.isEmpty()) ? status.message : QString() );
 
     // What its NDI source sends, while it sends something.
     if ( channel && (channel->status().state != ::PlayoutChannel::eStopped) ) {

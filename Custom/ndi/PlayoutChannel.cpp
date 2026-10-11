@@ -121,7 +121,10 @@ PlayoutChannel::Status PlayoutChannel::status() const
   s.pausePoints = m_pausePoints;
   s.loop = m_loop;
   s.connections = m_connections;
-  s.message = m_message;
+  // An output that cannot open does not stop the channel (its frames still
+  // feed the switcher): it is only reported.
+  s.message = m_outputError.isEmpty() ? m_message
+              : m_message.isEmpty() ? m_outputError : m_outputError + QString::fromUtf8("; ") + m_message;
   return s;
 }
 
@@ -131,12 +134,7 @@ void PlayoutChannel::setMedia(const MediaInfo &media)
     QMutexLocker locker(&m_mutex);
     m_media = media;
     m_mediaChanged = true;
-    if (!m_outputError.isEmpty())
-    {
-      // No output: report that first, whatever the media.
-      setStateLocked(eError, media.ok ? m_outputError : m_outputError + QString::fromUtf8("; ") + media.error);
-    }
-    else if (m_state == eLive)
+    if (m_state == eLive)
     {
       // keep sending live; the media is used once live ends
     }
@@ -166,10 +164,6 @@ void PlayoutChannel::play()
 {
   {
     QMutexLocker locker(&m_mutex);
-    if (!m_outputError.isEmpty())
-    {
-      return; // nothing can be sent
-    }
     if (m_state == eLive || !m_media.ok)
     {
       return;
@@ -204,10 +198,6 @@ void PlayoutChannel::stop()
 {
   {
     QMutexLocker locker(&m_mutex);
-    if (!m_outputError.isEmpty())
-    {
-      return; // nothing can be sent
-    }
     if (m_state == eLive)
     {
       return;
@@ -225,10 +215,6 @@ void PlayoutChannel::replay()
 {
   {
     QMutexLocker locker(&m_mutex);
-    if (!m_outputError.isEmpty())
-    {
-      return; // nothing can be sent
-    }
     if (m_state == eLive || !m_media.ok)
     {
       return;
@@ -246,10 +232,6 @@ void PlayoutChannel::cue()
 {
   {
     QMutexLocker locker(&m_mutex);
-    if (!m_outputError.isEmpty())
-    {
-      return; // nothing can be sent
-    }
     if (m_state == eLive || !m_media.ok)
     {
       return;
@@ -301,7 +283,7 @@ void PlayoutChannel::seek(double seconds)
 {
   {
     QMutexLocker locker(&m_mutex);
-    if (!m_outputError.isEmpty() || m_state == eLive || !m_media.ok || m_media.frameCount <= 0)
+    if (m_state == eLive || !m_media.ok || m_media.frameCount <= 0)
     {
       return;
     }
@@ -393,7 +375,10 @@ void PlayoutChannel::sendFrame(const QByteArray &frame, int width, int height)
       den = m_media.fpsDen;
     }
   }
-  m_sink->sendFrame(frame, width, height, num, den);
+  if (m_sink)
+  {
+    m_sink->sendFrame(frame, width, height, num, den);
+  }
   m_lastFrame = frame;
   m_lastWidth = width;
   m_lastHeight = height;
@@ -422,6 +407,30 @@ QImage PlayoutChannel::preview(int maxWidth) const
   // BGRA bytes = ARGB32 on little-endian machines.
   const QImage image(reinterpret_cast<const uchar *>(frame.constData()), width, height, width * 4, QImage::Format_ARGB32);
   return (width > maxWidth) ? image.scaledToWidth(maxWidth, Qt::FastTransformation) : image.copy();
+}
+
+void PlayoutChannel::openSink()
+{
+  QString error;
+  m_sink = m_sinkFactory ? m_sinkFactory() : nullptr;
+  const bool opened = m_sink && m_sink->open(m_name, m_alpha, &error);
+  if (!opened)
+  {
+    delete m_sink;
+    m_sink = nullptr;
+  }
+  {
+    QMutexLocker locker(&m_mutex);
+    if (opened)
+    {
+      m_outputError.clear();
+    }
+    else
+    {
+      m_outputError = tr("NDI output not available: %1 (retrying)").arg(error.isEmpty() ? tr("no output") : error);
+    }
+  }
+  Q_EMIT statusChanged();
 }
 
 void PlayoutChannel::showFrame(int frame)
@@ -559,51 +568,12 @@ bool PlayoutChannel::readFrame(QByteArray *frame)
 
 void PlayoutChannel::run()
 {
-  // Open the output; if it cannot be opened (NDI runtime missing, network
-  // down...), keep trying every few seconds instead of giving up.
-  for (;;)
-  {
-    QString error;
-    m_sink = m_sinkFactory ? m_sinkFactory() : nullptr;
-    if (m_sink && m_sink->open(m_name, m_alpha, &error))
-    {
-      break;
-    }
-    delete m_sink;
-    m_sink = nullptr;
-    {
-      QMutexLocker locker(&m_mutex);
-      m_outputError = (error.isEmpty() ? tr("no output") : error) + tr(" (retrying)");
-      setStateLocked(eError, m_media.ok || m_media.error.isEmpty() ? m_outputError : m_outputError + QString::fromUtf8("; ") + m_media.error);
-    }
-    Q_EMIT statusChanged();
-    // Wait, staying responsive to being destroyed.
-    for (int waited = 0; waited < kReopenDelayMs; waited += 50)
-    {
-      {
-        QMutexLocker locker(&m_mutex);
-        if (m_quit)
-        {
-          return;
-        }
-      }
-      msleep(50);
-    }
-  }
-  bool reconnected = false;
-  {
-    QMutexLocker locker(&m_mutex);
-    if (!m_outputError.isEmpty())
-    {
-      m_outputError.clear();
-      setStateLocked(eStopped, tr("Output reconnected"));
-      reconnected = true;
-    }
-  }
-  if (reconnected)
-  {
-    Q_EMIT statusChanged();
-  }
+  // The output (NDI source) is opened here and, if it cannot be (NDI runtime
+  // missing, network down...), again every few seconds. Meanwhile the
+  // channel plays as usual: its frames still feed the switcher.
+  QElapsedTimer reopen;
+  openSink();
+  reopen.start();
 
   QElapsedTimer clock;   // pacing when the sink does not clock itself
   qint64 nextFrameMs = 0;
@@ -639,10 +609,16 @@ void PlayoutChannel::run()
       fps = m_media.fps();
     }
 
+    if (!m_sink && reopen.elapsed() > kReopenDelayMs)
+    {
+      openSink();
+      reopen.restart();
+    }
+
     if (connectionsTimer.elapsed() > 1000)
     {
       connectionsTimer.restart();
-      const int connections = m_sink->connectionCount();
+      const int connections = m_sink ? m_sink->connectionCount() : -1;
       bool changed;
       {
         QMutexLocker locker(&m_mutex);
@@ -757,7 +733,7 @@ void PlayoutChannel::run()
     }
 
     // Pace (NDI senders clock themselves).
-    if (!m_sink->isClocked() && fps > 0)
+    if ((!m_sink || !m_sink->isClocked()) && fps > 0)
     {
       if (!clock.isValid())
       {

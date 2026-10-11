@@ -53,6 +53,7 @@ CLANG_DIAG_OFF(uninitialized)
 #include <QPair>
 #include <QPushButton>
 #include <QSettings>
+#include <QShowEvent>
 #include <QStringList>
 #include <QSystemTrayIcon>
 #include <QTimer>
@@ -87,7 +88,9 @@ CLANG_DIAG_ON(uninitialized)
 // QSettings keys of the dashboard window layout.
 #define kDashboardSettingsGeometry "dashboard/geometry"
 #define kDashboardSettingsState "dashboard/dockState"
-#define kDashboardLayoutVersion 2 // 2: Switcher panel
+#define kDashboardLayoutVersion 3 // 2: Switcher panel, 3: fewer panels shown by default
+// Default layout: share of the width taken by the scene list.
+#define kDashboardSceneListPercent 20
 
 // Tooltips show once the mouse has stayed still this long.
 #define kDashboardToolTipDelayMs 2000
@@ -225,6 +228,10 @@ DashboardWindow::DashboardWindow(::StateStore* store,
     , _switcherBox(0)
     , _switcherPanel(0)
     , _defaultLayout()
+    , _defaultSizesPending(false)
+    , _scenesDock(0)
+    , _switcherDock(0)
+    , _sceneDock(0)
     , _serverStatusLabel(0)
     , _table(0)
     , _newTypeCombo(0)
@@ -329,10 +336,11 @@ DashboardWindow::createPanels()
     QVBoxLayout* switcherLayout = new QVBoxLayout(_switcherBox);
     switcherLayout->setContentsMargins(0, 0, 0, 0);
 
-    // Default layout, like vision mixers:
-    //   Scenes   | Switcher: Preview | transitions | Program | Data
-    //   Projects | Scene: input boxes                       |
-    //            | KVs / NDI                                 |
+    // Default layout, like vision mixers (the panels in brackets are hidden:
+    // shown from the Window menu, at these places):
+    //   Scenes     | Switcher: Preview | transitions | Program | [Data]
+    //   [Projects] | Scene: input boxes                       |
+    //              | [KVs / NDI]                               |
     QDockWidget* projects = addPanel( QString::fromUtf8("projects"), tr("Projects"), createProjectsPanel() );
     QDockWidget* switcher = addPanel( QString::fromUtf8("switcher"), tr("Switcher"), _switcherBox );
     QDockWidget* data = addPanel( QString::fromUtf8("data"), tr("Data"), createDataPanel() );
@@ -351,16 +359,19 @@ DashboardWindow::createPanels()
         splitDockWidget(scene, kvs, Qt::Vertical);
         tabifyDockWidget(kvs, ndi);
         kvs->raise();
-#if QT_VERSION >= QT_VERSION_CHECK(5, 6, 0)
-        resizeDocks(QList<QDockWidget*>() << scenes << switcher << data, QList<int>() << 220 << 1060 << 320, Qt::Horizontal);
-        resizeDocks(QList<QDockWidget*>() << switcher << scene << kvs, QList<int>() << 400 << 380 << 140, Qt::Vertical);
-#endif
+        projects->hide();
+        kvs->hide();
+        ndi->hide();
+        _scenesDock = scenes;
+        _sceneDock = scene;
         panels << scenes << projects << switcher << scene << kvs << ndi;
     } else {
         addDockWidget(Qt::LeftDockWidgetArea, projects);
         splitDockWidget(projects, switcher, Qt::Horizontal);
         panels << projects << switcher;
     }
+    data->hide();
+    _switcherDock = switcher;
     panels << data;
 
     QMenu* windowMenu = menuBar()->addMenu( tr("&Window") );
@@ -375,17 +386,53 @@ DashboardWindow::createPanels()
     _defaultLayout = saveState(kDashboardLayoutVersion);
     QSettings settings;
     restoreGeometry( settings.value( QString::fromUtf8(kDashboardSettingsGeometry) ).toByteArray() );
-    restoreState(settings.value( QString::fromUtf8(kDashboardSettingsState) ).toByteArray(), kDashboardLayoutVersion);
+    _defaultSizesPending = !restoreState(settings.value( QString::fromUtf8(kDashboardSettingsState) ).toByteArray(), kDashboardLayoutVersion);
 }
 
 void
 DashboardWindow::onResetLayoutClicked()
 {
+    // Also which panels are shown and floating.
     restoreState(_defaultLayout, kDashboardLayoutVersion);
-    const QList<QDockWidget*> docks = findChildren<QDockWidget*>();
-    for (int i = 0; i < docks.size(); ++i) {
-        docks.at(i)->setFloating(false);
-        docks.at(i)->show();
+    onApplyDefaultSizes();
+}
+
+void
+DashboardWindow::showEvent(QShowEvent* e)
+{
+    QMainWindow::showEvent(e);
+    if (_defaultSizesPending) {
+        _defaultSizesPending = false;
+        // Once the window has its size.
+        QTimer::singleShot( 0, this, SLOT(onApplyDefaultSizes()) );
+    }
+}
+
+void
+DashboardWindow::onApplyDefaultSizes()
+{
+    if ( !_scenesDock || !_switcherDock || !_sceneDock || _scenesDock->isFloating() ) {
+        return;
+    }
+
+    const int listWidth = qMax(160, width() * kDashboardSceneListPercent / 100);
+#if QT_VERSION >= QT_VERSION_CHECK(5, 6, 0)
+    resizeDocks(QList<QDockWidget*>() << _scenesDock << _switcherDock, QList<int>() << listWidth << width() - listWidth, Qt::Horizontal);
+    resizeDocks(QList<QDockWidget*>() << _switcherDock << _sceneDock, QList<int>() << height() * 55 / 100 << height() * 45 / 100, Qt::Vertical);
+#else
+    // No resizeDocks(): hold the scene list at that width while the docks
+    // are laid out, then let it be resized again.
+    _scenesDock->setFixedWidth(listWidth);
+    QTimer::singleShot( 100, this, SLOT(onReleaseDockWidths()) );
+#endif
+}
+
+void
+DashboardWindow::onReleaseDockWidths()
+{
+    if (_scenesDock) {
+        _scenesDock->setMinimumWidth(0);
+        _scenesDock->setMaximumWidth(QWIDGETSIZE_MAX);
     }
 }
 

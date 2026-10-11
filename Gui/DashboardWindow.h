@@ -38,6 +38,7 @@ CLANG_DIAG_ON(deprecated)
 CLANG_DIAG_ON(uninitialized)
 
 class QCloseEvent;
+class QShowEvent;
 class QComboBox;
 class QDockWidget;
 class QModelIndex;
@@ -131,6 +132,10 @@ private Q_SLOTS:
     void onRemoveClicked();
     void onServerStatusChanged();
     void onResetLayoutClicked();
+    // Default layout: the scene list a fifth of the width, the switcher and
+    // the input boxes the rest.
+    void onApplyDefaultSizes();
+    void onReleaseDockWidths(); // Qt 4: see onApplyDefaultSizes()
     void onRenderJobFinished(const QString& sceneId, const QString& item, bool ok, const QString& message);
     void onAllRendersFinished();
 
@@ -138,6 +143,7 @@ protected:
 
     virtual void closeEvent(QCloseEvent* e) OVERRIDE;
     virtual void changeEvent(QEvent* e) OVERRIDE;
+    virtual void showEvent(QShowEvent* e) OVERRIDE;
 
 private:
 
@@ -174,6 +180,10 @@ private:
     QWidget* _switcherBox; // holds the SwitcherPanel once setNdiManager() gave its outputs
     SwitcherPanel* _switcherPanel;
     QByteArray _defaultLayout; // dock layout before the saved one is restored
+    bool _defaultSizesPending; // no saved layout: size the panels once shown
+    QDockWidget* _scenesDock;
+    QDockWidget* _switcherDock;
+    QDockWidget* _sceneDock;
 
     QLabel* _serverStatusLabel;
     QTableWidget* _table;

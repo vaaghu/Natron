@@ -1010,6 +1010,10 @@ GuiApplicationManager::initGui(const CLArgs& args)
                                                 binDir.absoluteFilePath(QString::fromUtf8("ffprobe") + exe),
                                                 &Ndi::createSink ) );
         _imp->ndiManager->setStateStore(&_imp->stateStore);
+        // The dashboard switcher's Program: one more NDI source, mixing the scenes' sources.
+        _imp->programOutput.reset( new ProgramOutput( _imp->ndiManager.get(), _imp->sceneStore.get(),
+                                                      QString::fromUtf8(NATRON_APPLICATION_NAME " Program"),
+                                                      &Ndi::createSink ) );
     }
 
     // Local control HTTP server (see Custom/server).

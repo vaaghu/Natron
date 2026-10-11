@@ -224,6 +224,7 @@ SOURCES += \
     ../Custom/ndi/MediaProbe.cpp \
     ../Custom/ndi/PlayoutChannel.cpp \
     ../Custom/ndi/NdiManager.cpp \
+    ../Custom/ndi/ProgramOutput.cpp \
     Splitter.cpp \
     TabGroup.cpp \
     TabWidget.cpp \
@@ -380,6 +381,7 @@ HEADERS += \
     ../Custom/ndi/MediaProbe.h \
     ../Custom/ndi/PlayoutChannel.h \
     ../Custom/ndi/NdiManager.h \
+    ../Custom/ndi/ProgramOutput.h \
     Splitter.h \
     TabGroup.h \
     TabWidget.h \

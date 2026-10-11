@@ -371,6 +371,19 @@ QImage PlayoutChannel::preview(int maxWidth) const
   return (width > maxWidth) ? image.scaledToWidth(maxWidth, Qt::FastTransformation) : image.copy();
 }
 
+bool PlayoutChannel::currentFrame(QByteArray *bgra, int *width, int *height) const
+{
+  QMutexLocker locker(&m_mutex);
+  if (m_previewWidth <= 0 || m_previewHeight <= 0 || m_previewFrame.size() < m_previewWidth * m_previewHeight * 4)
+  {
+    return false;
+  }
+  *bgra = m_previewFrame;
+  *width = m_previewWidth;
+  *height = m_previewHeight;
+  return true;
+}
+
 void PlayoutChannel::sendClearFrame()
 {
   // Transparent (alpha) or black: receivers stop showing the last frame.

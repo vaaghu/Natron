@@ -24,6 +24,8 @@ add_library(NatronCustom STATIC
     ndi/PlayoutChannel.cpp
     ndi/NdiManager.h
     ndi/NdiManager.cpp
+    ndi/ProgramOutput.h
+    ndi/ProgramOutput.cpp
 )
 target_link_libraries(NatronCustom
     PUBLIC

@@ -83,6 +83,10 @@ public:
   // before the first frame.
   QImage preview(int maxWidth) const;
 
+  // The frame last sent, full size and shared (no copy); false before the
+  // first frame.
+  bool currentFrame(QByteArray *bgra, int *width, int *height) const;
+
   static QString stateName(State state);
 
 Q_SIGNALS:

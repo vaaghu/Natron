@@ -241,7 +241,7 @@ void NdiManager::reloadMedia(const QString &sceneId, const QString &item)
     return;
   }
 
-  const QString output = SceneRenderer::itemOutput(scene.outputDir, item);
+  const QString output = SceneRenderer::itemOutput(scene, item);
   if (output.isEmpty())
   {
     MediaInfo none;
@@ -375,7 +375,7 @@ void NdiManager::onRenderProgressChanged(const QString &sceneId, const QString &
   }
 
   // Live needs one file per frame to read as soon as it is written.
-  const QString output = SceneRenderer::itemOutput(scene.outputDir, item);
+  const QString output = SceneRenderer::itemOutput(scene, item);
   if (output.isEmpty() || !isSequencePattern(output))
   {
     c->setMessage(tr("Live needs an image-sequence output (e.g. frame_####.png); playing the render instead."));

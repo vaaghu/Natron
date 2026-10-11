@@ -361,15 +361,46 @@ void SceneRenderer::resume(const QString &sceneId, const QString &item)
 #endif
 }
 
-QString SceneRenderer::itemOutput(const QString &outputDir, const QString &item)
+QString SceneRenderer::itemOutputDir(const Scene &scene, const QString &item)
 {
   const QString output = readProjectInfo(SceneItem::project(item)).writerOutputs.value(SceneItem::writer(item));
 
-  if (output.isEmpty() || outputDir.isEmpty())
+  if (output.isEmpty())
+  {
+    return QString();
+  }
+  if (!scene.outputDir.isEmpty())
+  {
+    return scene.outputDir;
+  }
+
+  // "<Write node's folder>/<scene name>", the name made safe as a folder name.
+  QString name = scene.name.trimmed();
+  static const char forbidden[] = "/\\:*?\"<>|";
+  for (int i = 0; forbidden[i]; ++i)
+  {
+    name.replace(QLatin1Char(forbidden[i]), QLatin1Char('_'));
+  }
+  if (name.isEmpty() || name == QString::fromUtf8(".") || name == QString::fromUtf8(".."))
+  {
+    name = scene.id;
+  }
+  QString folder = output;
+  folder.replace(QLatin1Char('\\'), QLatin1Char('/'));
+  folder = folder.section(QLatin1Char('/'), 0, -2);
+  return QDir(folder.isEmpty() ? QString::fromUtf8("/") : folder).absoluteFilePath(name);
+}
+
+QString SceneRenderer::itemOutput(const Scene &scene, const QString &item)
+{
+  const QString output = readProjectInfo(SceneItem::project(item)).writerOutputs.value(SceneItem::writer(item));
+  const QString dir = itemOutputDir(scene, item);
+
+  if (output.isEmpty() || dir.isEmpty())
   {
     return output;
   }
-  return QDir(outputDir).absoluteFilePath(outputFileName(output));
+  return QDir(dir).absoluteFilePath(outputFileName(output));
 }
 
 void SceneRenderer::startPending()
@@ -411,7 +442,8 @@ bool SceneRenderer::startJob(const Job &job)
   const bool sceneExists = m_scenes->scene(job.sceneId, &scene);
   const QString project = SceneItem::project(job.item);
   const QString writer = SceneItem::writer(job.item);
-  const QString output = sceneExists ? itemOutput(scene.outputDir, job.item) : QString();
+  const QString output = sceneExists ? itemOutput(scene, job.item) : QString();
+  const QString outputDir = sceneExists ? itemOutputDir(scene, job.item) : QString();
   const QString finalOutput = output.isEmpty() ? QString() : QFileInfo(project).absoluteDir().absoluteFilePath(output);
 
   for (int i = 0; i < m_runs.size(); ++i)
@@ -458,9 +490,9 @@ bool SceneRenderer::startJob(const Job &job)
     finishRun(run, false, tr("%1 has no output file: set one in the editor, save, and render again.").arg(writer), false);
     return true;
   }
-  if (!scene.outputDir.isEmpty() && !QDir().mkpath(scene.outputDir))
+  if (!outputDir.isEmpty() && !QDir().mkpath(outputDir))
   {
-    finishRun(run, false, tr("Cannot create the output folder %1").arg(scene.outputDir), false);
+    finishRun(run, false, tr("Cannot create the output folder %1").arg(outputDir), false);
     return true;
   }
 
@@ -507,7 +539,7 @@ bool SceneRenderer::startJob(const Job &job)
     env.insert(QString::fromUtf8("NATRON_STATE_JSON"), m_state->filePath());
   }
   env.insert(QString::fromUtf8("NATRON_STATE_KEYMAP"), QString::fromUtf8(Json::serialize(keyMap)));
-  env.insert(QString::fromUtf8("NATRON_OUTPUT_DIR"), run->stagingDir.isEmpty() ? scene.outputDir : run->stagingDir);
+  env.insert(QString::fromUtf8("NATRON_OUTPUT_DIR"), run->stagingDir.isEmpty() ? outputDir : run->stagingDir);
   process->setProcessEnvironment(env);
 
   connect(process, SIGNAL(finished(int,QProcess::ExitStatus)), this, SLOT(onFinished(int,QProcess::ExitStatus)));
@@ -686,7 +718,7 @@ void SceneRenderer::finishRun(Run *run, bool ok, const QString &message, bool ra
 
     Scene scene;
     m_scenes->scene(job.sceneId, &scene);
-    const QString output = itemOutput(scene.outputDir, job.item);
+    const QString output = itemOutput(scene, job.item);
     record.output = findExistingOutputFile(output);
     if (record.output.isEmpty())
     {

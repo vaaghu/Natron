@@ -670,7 +670,7 @@ ScenePanel::createSceneDetail()
     addProjects->setToolTip( tr("Add the Write nodes of one or more projects to this scene.") );
     menu->addSeparator();
     menu->addAction( tr("Choose Output Folder..."), this, SLOT(onChooseOutputDirClicked()) );
-    _clearOutputDirAction = menu->addAction( tr("Use Project Output Paths"), this, SLOT(onClearOutputDirClicked()) );
+    _clearOutputDirAction = menu->addAction( tr("Use a Scene Folder Next to Each Output"), this, SLOT(onClearOutputDirClicked()) );
     menu->addSeparator();
     _parallelMenu = menu->addMenu( tr("Renders at Once") );
     QObject::connect( _parallelMenu, SIGNAL(aboutToShow()), this, SLOT(onParallelRendersMenu()) );
@@ -1019,9 +1019,10 @@ ScenePanel::showScene()
     const QString separator = QString::fromUtf8("  \xC2\xB7  "); // middle dot
     _sceneSummary->setText( ( (writers == 1) ? tr("1 Write node") : tr("%1 Write nodes").arg(writers) ) + separator +
                               ( (projectCount == 1) ? tr("1 project") : tr("%1 projects").arg(projectCount) ) + separator +
-                              ( scene.outputDir.isEmpty() ? tr("Output: project paths")
+                              ( scene.outputDir.isEmpty() ? tr("Output: \"%1\" folders").arg(scene.name)
                                                           : tr("Output: %1").arg( QFileInfo(scene.outputDir).fileName() ) ) );
-    _sceneSummary->setToolTip( scene.outputDir.isEmpty() ? tr("Output: each project's Write node path. Change it from the scene menu.")
+    _sceneSummary->setToolTip( scene.outputDir.isEmpty() ? tr("Output: a folder named \"%1\" next to each Write node's output file, so the same project renders separately in each scene. "
+                                                              "Change it from the scene menu.").arg(scene.name)
                                                            : tr("Output folder: %1. Change it from the scene menu.").arg( QDir::toNativeSeparators(scene.outputDir) ) );
     _clearOutputDirAction->setEnabled( !scene.outputDir.isEmpty() );
 

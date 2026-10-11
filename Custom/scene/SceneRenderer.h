@@ -9,6 +9,7 @@
 
 class SceneStore;
 class StateStore;
+struct Scene;
 
 // Live state of the item being rendered, parsed from the renderer output
 // ("Write1 ==> Frame: 12, Progress: 60.0%, 14.2 Fps, Time Remaining: 3 seconds").
@@ -93,9 +94,15 @@ public:
 
   QString rendererPath() const;
 
-  // Output an item of the scene renders to (its Write node path, moved to
-  // the scene's output folder if it has one). Empty: no such Write node.
-  static QString itemOutput(const QString &outputDir, const QString &item);
+  // Folder a scene renders an item into: the scene's output folder, or a
+  // folder named after the scene next to the Write node's output (the same
+  // project in two scenes must not render to the same file). Empty: the
+  // Write node has no output.
+  static QString itemOutputDir(const Scene &scene, const QString &item);
+
+  // Output an item of the scene renders to: its Write node's file name in
+  // itemOutputDir(). Empty: no such Write node.
+  static QString itemOutput(const Scene &scene, const QString &item);
 
   // Writes the Python script applied by NatronRenderer before rendering.
   static bool writeApplyScript(const QString &path);

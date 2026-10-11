@@ -448,6 +448,10 @@ if [ "$PLATFORM" = "linux" ]; then
     INNER="$(declare -f prepare_and_build)
 set -e
 trap 'chown -R $(id -u):$(id -g) /home/tmp /home/src /home/builds_archive/$NAME 2>/dev/null || true' EXIT
+# The cache's repositories belong to the host user, git runs as root here:
+# without this, git refuses them (\"dubious ownership\") and the checkout step
+# neither updates the submodules nor records the commit.
+git config --global --add safe.directory '*'
 LAUNCH=(scl enable devtoolset-11 launchBuildMain.sh)
 cd /home
 prepare_and_build /src /home $NATRON_BIN"

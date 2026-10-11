@@ -106,7 +106,7 @@ QList<PlayoutChannel *> NdiManager::sceneChannels(const QString &sceneId) const
 
 void NdiManager::applySettings(const ChannelInfo &info, const Scene &scene)
 {
-  info.channel->setPauseAt(scene.pauseAt(info.item));
+  info.channel->setPausePoints(scene.cuePoints(info.item));
   info.channel->setLoop(scene.ndiLoop.value(info.item, false));
 }
 
@@ -492,6 +492,12 @@ QVariantMap NdiManager::channelState(const ChannelInfo &info) const
   m.insert(s("position"), st.seconds());
   m.insert(s("duration"), st.duration());
   m.insert(s("pauseAt"), st.pauseAt);
+  QVariantList cuePoints;
+  for (int p = 0; p < st.pausePoints.size(); ++p)
+  {
+    cuePoints << st.pausePoints.at(p);
+  }
+  m.insert(s("cuePoints"), cuePoints);
   m.insert(s("loop"), st.loop);
   m.insert(s("receivers"), st.connections);
   if (!st.message.isEmpty())
@@ -581,6 +587,16 @@ bool NdiManager::handleHttpRequest(const QByteArray &method, const QByteArray &p
     {
       const QVariant v = request.value(s("pauseAt"));
       m_scenes->setNdiPauseAt(sceneId, items.at(i), v.isValid() ? v.toDouble() : -1.0);
+    }
+    if (request.contains(s("cuePoints")))
+    {
+      const QVariantList values = request.value(s("cuePoints")).toList();
+      QList<double> points;
+      for (int p = 0; p < values.size(); ++p)
+      {
+        points << values.at(p).toDouble();
+      }
+      m_scenes->setNdiCuePoints(sceneId, items.at(i), points);
     }
     if (request.contains(s("loop")))
     {

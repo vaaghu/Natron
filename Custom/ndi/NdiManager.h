@@ -62,7 +62,8 @@ public:
   //   POST /ndi   {"scene": "<name or id>", "project": "<name>" (optional:
   //                all projects), "writer": "<Write node>" (optional: all
   //                of the project), "action": "play|pause|stop|replay|cue|
-  //                continue", "pauseAt": seconds, "loop": true|false}
+  //                continue", "pauseAt": seconds (only pause point),
+  //                "cuePoints": [seconds, ...], "loop": true|false}
   bool handleHttpRequest(const QByteArray &method, const QByteArray &path, const QByteArray &body,
                          int *status, QByteArray *response);
 

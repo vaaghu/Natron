@@ -479,6 +479,7 @@ ScenePanel::ScenePanel(::SceneStore* scenes,
 
     QObject::connect( _scenes, SIGNAL(scenesChanged()), this, SLOT(onScenesChanged()) );
     QObject::connect( _scenes, SIGNAL(renderRecordChanged(QString,QString)), this, SLOT(onRenderRecordChanged(QString,QString)) );
+    QObject::connect( _scenes, SIGNAL(ndiSettingsChanged(QString,QString)), this, SLOT(onNdiSettingsChanged(QString,QString)) );
     if (_renderer) {
         QObject::connect( _renderer, SIGNAL(statusChanged()), this, SLOT(onRendererStatusChanged()) );
         QObject::connect( _renderer, SIGNAL(progressChanged(QString,QString)), this, SLOT(onRenderProgressChanged(QString,QString)) );
@@ -2383,7 +2384,8 @@ ScenePanel::refreshNdiTab()
         r.pauseAt->setSingleStep(0.5);
         r.pauseAt->setSpecialValueText( tr("none") ); // shown at the minimum (-1)
         r.pauseAt->setSuffix( tr(" s") );
-        r.pauseAt->setToolTip( tr("Time, in seconds, at which Cue and Play stop. \"none\" disables the pause point.") );
+        r.pauseAt->setToolTip( tr("First cue point: time, in seconds, at which Cue and Play stop. \"none\" removes it. "
+                                  "The switcher's timelines show and edit all the cue points.") );
         r.pauseAt->setValue( scene.pauseAt(item) );
         r.pauseAt->setProperty("item", item);
         r.pauseAt->setKeyboardTracking(false);
@@ -2554,13 +2556,40 @@ ScenePanel::onNdiLoopToggled(bool loop)
 }
 
 void
+ScenePanel::onNdiSettingsChanged(const QString& sceneId,
+                                 const QString& item)
+{
+    ::Scene scene;
+    QHash<QString, NdiRow>::const_iterator it = _ndiRows.find(item);
+
+    if ( (sceneId != _currentSceneId) || ( it == _ndiRows.end() ) || !_scenes->scene(sceneId, &scene) ) {
+        return;
+    }
+    // Cue points changed elsewhere (timeline, HTTP API).
+    const bool blocked = it.value().pauseAt->blockSignals(true);
+    it.value().pauseAt->setValue( scene.pauseAt(item) );
+    it.value().pauseAt->blockSignals(blocked);
+}
+
+void
 ScenePanel::onNdiPauseAtChanged(double seconds)
 {
     QObject* s = sender();
 
-    if (s) {
-        _scenes->setNdiPauseAt( _currentSceneId, s->property("item").toString(), (seconds < 0) ? -1.0 : seconds );
+    ::Scene scene;
+    if ( !s || !_scenes->scene(_currentSceneId, &scene) ) {
+        return;
     }
+    // The first cue point (the switcher's timelines can add more).
+    const QString item = s->property("item").toString();
+    QList<double> points = scene.cuePoints(item);
+    if ( !points.isEmpty() ) {
+        points.removeFirst();
+    }
+    if (seconds >= 0) {
+        points.prepend(seconds);
+    }
+    _scenes->setNdiCuePoints(_currentSceneId, item, points);
 }
 
 NATRON_NAMESPACE_EXIT

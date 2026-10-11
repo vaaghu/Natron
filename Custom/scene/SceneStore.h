@@ -41,7 +41,9 @@ struct Scene
   bool ndiEnabled;
   bool ndiAlpha;  // send with transparency (overlays)
   bool ndiLive;   // send frames while rendering instead of playing the render
-  QHash<QString, double> ndiPauseAt; // item -> pause point in seconds
+  // item -> cue points (seconds, ascending): where Cue and Play stop, one
+  // after the other (the first one is the item's "pause point").
+  QHash<QString, QList<double> > ndiCuePoints;
   QHash<QString, bool> ndiLoop;      // item -> loop
 
   Scene()
@@ -53,7 +55,13 @@ struct Scene
 
   double pauseAt(const QString &item) const
   {
-    return ndiPauseAt.value(item, -1.0);
+    const QList<double> points = ndiCuePoints.value(item);
+    return points.isEmpty() ? -1.0 : points.first();
+  }
+
+  QList<double> cuePoints(const QString &item) const
+  {
+    return ndiCuePoints.value(item);
   }
 
   // Projects of the items, without duplicates, in order of appearance.
@@ -150,7 +158,8 @@ public:
   void setNdiEnabled(const QString &id, bool enabled);
   void setNdiAlpha(const QString &id, bool alpha);
   void setNdiLive(const QString &id, bool live);
-  void setNdiPauseAt(const QString &id, const QString &item, double seconds); // < 0: none
+  void setNdiPauseAt(const QString &id, const QString &item, double seconds); // only this point; < 0: none
+  void setNdiCuePoints(const QString &id, const QString &item, const QList<double> &seconds); // sorted, negative ones dropped
   void setNdiLoop(const QString &id, const QString &item, bool loop);
 
   // Renders are per scene: the same item renders differently (other keys,

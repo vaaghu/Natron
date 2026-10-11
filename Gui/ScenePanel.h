@@ -193,6 +193,7 @@ private Q_SLOTS:
     void onNdiRowAction();
     void onNdiLoopToggled(bool loop);
     void onNdiPauseAtChanged(double seconds);
+    void onNdiSettingsChanged(const QString& sceneId, const QString& item);
 
 private:
 

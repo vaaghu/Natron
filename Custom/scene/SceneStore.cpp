@@ -11,6 +11,8 @@
 #include <QVariantList>
 #include <QVariantMap>
 
+#include <algorithm>
+
 namespace
 {
 const int kSaveDelayMs = 300;
@@ -171,13 +173,24 @@ bool SceneStore::loadAndAutoSave(const QString &path)
     scene.ndiEnabled = ndi.value(key("enabled")).toBool();
     scene.ndiAlpha = ndi.value(key("alpha")).toBool();
     scene.ndiLive = ndi.value(key("live")).toBool();
+    // Cue points: a list per item (older files: one number).
     const QVariantMap pauseAt = ndi.value(key("pauseAt")).toMap();
     for (QVariantMap::const_iterator p = pauseAt.constBegin(); p != pauseAt.constEnd(); ++p)
     {
-      const QStringList targets = projectItems.value(p.key(), QStringList(p.key()));
-      for (int t = 0; t < targets.size(); ++t)
+      QList<double> points;
+      const QVariantList values = (p.value().type() == QVariant::List) ? p.value().toList() : (QVariantList() << p.value());
+      for (int v = 0; v < values.size(); ++v)
       {
-        scene.ndiPauseAt.insert(targets.at(t), p.value().toDouble());
+        if (values.at(v).toDouble() >= 0 && !points.contains(values.at(v).toDouble()))
+        {
+          points << values.at(v).toDouble();
+        }
+      }
+      std::sort(points.begin(), points.end());
+      const QStringList targets = projectItems.value(p.key(), QStringList(p.key()));
+      for (int t = 0; t < targets.size() && !points.isEmpty(); ++t)
+      {
+        scene.ndiCuePoints.insert(targets.at(t), points);
       }
     }
     const QVariantMap loop = ndi.value(key("loop")).toMap();
@@ -264,9 +277,14 @@ bool SceneStore::saveNow()
     ndi.insert(key("alpha"), m_scenes.at(i).ndiAlpha);
     ndi.insert(key("live"), m_scenes.at(i).ndiLive);
     QVariantMap pauseAt;
-    for (QHash<QString, double>::const_iterator p = m_scenes.at(i).ndiPauseAt.constBegin(); p != m_scenes.at(i).ndiPauseAt.constEnd(); ++p)
+    for (QHash<QString, QList<double> >::const_iterator p = m_scenes.at(i).ndiCuePoints.constBegin(); p != m_scenes.at(i).ndiCuePoints.constEnd(); ++p)
     {
-      pauseAt.insert(p.key(), p.value());
+      QVariantList points;
+      for (int v = 0; v < p.value().size(); ++v)
+      {
+        points << p.value().at(v);
+      }
+      pauseAt.insert(p.key(), points);
     }
     ndi.insert(key("pauseAt"), pauseAt);
     QVariantMap loop;
@@ -607,18 +625,36 @@ void SceneStore::setNdiLive(const QString &id, bool live)
 
 void SceneStore::setNdiPauseAt(const QString &id, const QString &item, double seconds)
 {
+  setNdiCuePoints(id, item, (seconds < 0) ? QList<double>() : (QList<double>() << seconds));
+}
+
+void SceneStore::setNdiCuePoints(const QString &id, const QString &item, const QList<double> &seconds)
+{
   const int i = indexOf(id);
-  if (i < 0 || m_scenes.at(i).pauseAt(item) == seconds)
+  if (i < 0)
   {
     return;
   }
-  if (seconds < 0)
+  QList<double> points;
+  for (int p = 0; p < seconds.size(); ++p)
   {
-    m_scenes[i].ndiPauseAt.remove(item);
+    if (seconds.at(p) >= 0 && !points.contains(seconds.at(p)))
+    {
+      points << seconds.at(p);
+    }
+  }
+  std::sort(points.begin(), points.end());
+  if (m_scenes.at(i).cuePoints(item) == points)
+  {
+    return;
+  }
+  if (points.isEmpty())
+  {
+    m_scenes[i].ndiCuePoints.remove(item);
   }
   else
   {
-    m_scenes[i].ndiPauseAt.insert(item, seconds);
+    m_scenes[i].ndiCuePoints.insert(item, points);
   }
   changed();
   Q_EMIT ndiSettingsChanged(id, item);

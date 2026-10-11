@@ -7,6 +7,7 @@
 #include <QProcess>
 #include <QStringList>
 
+#include <algorithm>
 #include <cmath>
 
 namespace
@@ -33,8 +34,8 @@ PlayoutChannel::PlayoutChannel(const QString &sourceName,
       m_position(0),
       m_seekTo(-1),
       m_loop(false),
-      m_pauseAt(-1),
       m_pauseArmed(false),
+      m_pauseFrame(-1),
       m_cueMode(false),
       m_clearRequested(false),
       m_quit(false),
@@ -89,6 +90,19 @@ QString PlayoutChannel::stateName(State state)
   return QString();
 }
 
+int PlayoutChannel::nextPauseFrameLocked(int frame) const
+{
+  for (int i = 0; i < m_pausePoints.size(); ++i)
+  {
+    const int pauseFrame = int(std::floor(m_pausePoints.at(i) * m_media.fps() + 0.5));
+    if (pauseFrame > frame)
+    {
+      return pauseFrame;
+    }
+  }
+  return -1;
+}
+
 void PlayoutChannel::setStateLocked(State state, const QString &message)
 {
   m_state = state;
@@ -103,7 +117,8 @@ PlayoutChannel::Status PlayoutChannel::status() const
   s.position = m_position;
   s.frameCount = (m_state == eLive) ? m_position : m_media.frameCount;
   s.fps = (m_state == eLive) ? m_liveFps : m_media.fps();
-  s.pauseAt = m_pauseAt;
+  s.pauseAt = m_pausePoints.isEmpty() ? -1.0 : m_pausePoints.first();
+  s.pausePoints = m_pausePoints;
   s.loop = m_loop;
   s.connections = m_connections;
   s.message = m_message;
@@ -164,9 +179,9 @@ void PlayoutChannel::play()
       m_seekTo = 0;
       m_position = 0;
     }
-    // Continuing past the pause point: only re-arm if before it.
-    const int pauseFrame = m_pauseAt >= 0 ? int(std::floor(m_pauseAt * m_media.fps() + 0.5)) : -1;
-    m_pauseArmed = pauseFrame > m_position;
+    // Continuing past a pause point: stop at the next one.
+    m_pauseFrame = nextPauseFrameLocked(m_position);
+    m_pauseArmed = m_pauseFrame >= 0;
     setStateLocked(ePlaying);
   }
   Q_EMIT statusChanged();
@@ -241,7 +256,8 @@ void PlayoutChannel::cue()
     }
     m_position = 0;
     m_seekTo = 0;
-    m_pauseArmed = m_pauseAt >= 0;
+    m_pauseFrame = nextPauseFrameLocked(0);
+    m_pauseArmed = m_pauseFrame >= 0;
     m_cueMode = true;
     setStateLocked(ePlaying);
   }
@@ -259,11 +275,48 @@ void PlayoutChannel::setLoop(bool loop)
 
 void PlayoutChannel::setPauseAt(double seconds)
 {
+  setPausePoints(seconds < 0 ? QList<double>() : (QList<double>() << seconds));
+}
+
+void PlayoutChannel::setPausePoints(const QList<double> &seconds)
+{
   {
     QMutexLocker locker(&m_mutex);
-    m_pauseAt = seconds;
-    const int pauseFrame = seconds >= 0 ? int(std::floor(seconds * m_media.fps() + 0.5)) : -1;
-    m_pauseArmed = (m_state == ePlaying) && pauseFrame > m_position;
+    m_pausePoints.clear();
+    for (int i = 0; i < seconds.size(); ++i)
+    {
+      if (seconds.at(i) >= 0)
+      {
+        m_pausePoints << seconds.at(i);
+      }
+    }
+    std::sort(m_pausePoints.begin(), m_pausePoints.end());
+    m_pauseFrame = nextPauseFrameLocked(m_position);
+    m_pauseArmed = (m_state == ePlaying) && m_pauseFrame >= 0;
+  }
+  Q_EMIT statusChanged();
+}
+
+void PlayoutChannel::seek(double seconds)
+{
+  {
+    QMutexLocker locker(&m_mutex);
+    if (!m_outputError.isEmpty() || m_state == eLive || !m_media.ok || m_media.frameCount <= 0)
+    {
+      return;
+    }
+    const int frame = qBound(0, int(std::floor(seconds * m_media.fps() + 0.5)), m_media.frameCount - 1);
+    m_position = frame;
+    m_seekTo = frame;
+    if (m_pauseArmed)
+    {
+      m_pauseFrame = nextPauseFrameLocked(frame);
+      m_pauseArmed = m_pauseFrame >= 0;
+    }
+    if (m_state != ePlaying)
+    {
+      setStateLocked(ePaused); // holding the frame sought to
+    }
   }
   Q_EMIT statusChanged();
 }
@@ -369,6 +422,22 @@ QImage PlayoutChannel::preview(int maxWidth) const
   // BGRA bytes = ARGB32 on little-endian machines.
   const QImage image(reinterpret_cast<const uchar *>(frame.constData()), width, height, width * 4, QImage::Format_ARGB32);
   return (width > maxWidth) ? image.scaledToWidth(maxWidth, Qt::FastTransformation) : image.copy();
+}
+
+void PlayoutChannel::showFrame(int frame)
+{
+  int width, height;
+  {
+    QMutexLocker locker(&m_mutex);
+    width = m_media.width;
+    height = m_media.height;
+  }
+  QByteArray data;
+  if (startDecoder(frame) && readFrame(&data))
+  {
+    sendFrame(data, width, height);
+  }
+  stopDecoder(); // playing restarts it at the position
 }
 
 bool PlayoutChannel::currentFrame(QByteArray *bgra, int *width, int *height) const
@@ -618,6 +687,14 @@ void PlayoutChannel::run()
       continue;
     }
 
+    // Paused on a frame sought to (scrubbing): show it.
+    if (state == ePaused && seekTo >= 0)
+    {
+      showFrame(seekTo);
+      Q_EMIT statusChanged();
+      continue;
+    }
+
     if (state != ePlaying)
     {
       msleep(kIdleSleepMs);
@@ -665,9 +742,9 @@ void PlayoutChannel::run()
         {
           m_position = 0;
           m_seekTo = 0;
-          // Cue'd playback stops at the pause point on every pass.
-          const int pauseFrame = m_pauseAt >= 0 ? int(std::floor(m_pauseAt * m_media.fps() + 0.5)) : -1;
-          m_pauseArmed = m_cueMode && pauseFrame > 0;
+          // Cue'd playback stops at the pause points on every pass.
+          m_pauseFrame = nextPauseFrameLocked(0);
+          m_pauseArmed = m_cueMode && m_pauseFrame >= 0;
         }
         else if (m_state == ePlaying)
         {
@@ -713,8 +790,7 @@ void PlayoutChannel::run()
     {
       QMutexLocker locker(&m_mutex);
       ++m_position;
-      const int pauseFrame = m_pauseAt >= 0 ? int(std::floor(m_pauseAt * m_media.fps() + 0.5)) : -1;
-      if (m_pauseArmed && pauseFrame >= 0 && m_position >= pauseFrame)
+      if (m_pauseArmed && m_pauseFrame >= 0 && m_position >= m_pauseFrame)
       {
         m_pauseArmed = false;
         setStateLocked(ePaused, tr("Pause point"));

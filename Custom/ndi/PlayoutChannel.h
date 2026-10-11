@@ -14,8 +14,9 @@ class QProcess;
 
 // One output (NDI source) playing a rendered output with transport
 // controls, in its own thread:
-//   play / pause / stop / replay, loop, a pause point (stop at N seconds,
-//   then continue on play), and live frames (sent as they are rendered).
+//   play / pause / stop / replay, seek, loop, pause points (stop at each
+//   of them in turn, continuing on play), and live frames (sent as they
+//   are rendered).
 // Decoding: the bundled ffmpeg writes raw BGRA frames to a pipe.
 // All public methods are thread-safe; statusChanged() is emitted from the
 // channel thread (connect with a queued connection).
@@ -52,8 +53,12 @@ public:
   void stop();          // back to the start, clears the output
   void replay();        // from the start
   void cue();           // from the start, stopping at the pause point
+  // To a time: a playing channel goes on playing from there, otherwise it
+  // holds that frame (paused).
+  void seek(double seconds);
   void setLoop(bool loop);
-  void setPauseAt(double seconds); // < 0: no pause point
+  void setPauseAt(double seconds); // only this pause point; < 0: none
+  void setPausePoints(const QList<double> &seconds);
 
   // Information shown with the status (e.g. why live is not possible).
   void setMessage(const QString &message);
@@ -69,7 +74,8 @@ public:
     int position;       // frame index (0 = first)
     int frameCount;
     double fps;
-    double pauseAt;
+    double pauseAt;     // first pause point (-1: none)
+    QList<double> pausePoints;
     bool loop;
     int connections;    // NDI receivers (-1 unknown)
     QString message;    // error / info
@@ -102,7 +108,10 @@ private:
   bool readFrame(QByteArray *frame);
   void sendClearFrame();
   void sendFrame(const QByteArray &frame, int width, int height);
+  void showFrame(int frame); // decodes and sends one frame (seek while paused)
   void setStateLocked(State state, const QString &message = QString());
+  // First pause point after frame (-1: none).
+  int nextPauseFrameLocked(int frame) const;
 
   const QString m_name;
   const bool m_alpha;
@@ -117,8 +126,9 @@ private:
   int m_position;
   int m_seekTo;          // -1: none
   bool m_loop;
-  double m_pauseAt;
-  bool m_pauseArmed;     // stop at the pause point on this pass
+  QList<double> m_pausePoints; // seconds, ascending
+  bool m_pauseArmed;     // stop at m_pauseFrame
+  int m_pauseFrame;
   bool m_cueMode;        // started by cue(): each loop pass stops at the pause point too
   bool m_clearRequested;
   bool m_quit;

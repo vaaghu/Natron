@@ -595,7 +595,7 @@ QByteArray HttpServer::apiReference()
       "then <code>value</code> (<code>{key, value}</code>, value <code>null</code> when removed) "
       "and <code>keys</code> (<code>{keys}</code>).</td></tr>"
       "<tr><td><code>GET /ndi</code></td><td>NDI sources and their state.</td></tr>"
-      "<tr><td><code>POST /ndi</code></td><td><code>{scene, project?, writer?, action?, pauseAt?, loop?}</code>; "
+      "<tr><td><code>POST /ndi</code></td><td><code>{scene, project?, writer?, action?, pauseAt?, cuePoints?, loop?}</code>; "
       "actions: play, pause, stop, replay, cue, continue.</td></tr></table>"
       "<h2>Values</h2><pre>"
       "\"Text\" or 42                          shorthand for text\n"

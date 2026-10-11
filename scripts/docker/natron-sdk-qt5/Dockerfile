@@ -50,3 +50,21 @@ RUN set -e; \
 
 COPY shiboken2 /opt/Natron-sdk/bin/shiboken2
 RUN chmod +x /opt/Natron-sdk/bin/shiboken2 && /opt/Natron-sdk/bin/shiboken2 --version
+
+# The libraries and headers Natron compiles its bindings against: shiboken2
+# and PySide2 from the wheels, through pkg-config. The build's config.pri asks
+# for shiboken-py3 / pyside-py3 (the SDK's Qt 4 versions), global.pri for
+# shiboken2 / pyside2: all point to the Qt 5 ones here. Linker names for the
+# wheels' libraries in $SDK_HOME/lib, where the build looks for libraries.
+COPY shiboken2.pc /opt/Natron-sdk/lib/pkgconfig/shiboken2.pc
+COPY shiboken2.pc /opt/Natron-sdk/lib/pkgconfig/shiboken-py3.pc
+COPY pyside2.pc /opt/Natron-sdk/lib/pkgconfig/pyside2.pc
+COPY pyside2.pc /opt/Natron-sdk/lib/pkgconfig/pyside-py3.pc
+RUN set -e; \
+    SITE=/opt/Natron-sdk/lib/python3.10/site-packages; \
+    cd /opt/Natron-sdk/lib; \
+    ln -sf "$SITE/shiboken2/libshiboken2.abi3.so.5.15" libshiboken2.abi3.so.5.15; \
+    ln -sf libshiboken2.abi3.so.5.15 libshiboken2.abi3.so; \
+    ln -sf "$SITE/PySide2/libpyside2.abi3.so.5.15" libpyside2.abi3.so.5.15; \
+    ln -sf libpyside2.abi3.so.5.15 libpyside2.abi3.so; \
+    PKG_CONFIG_PATH=/opt/Natron-sdk/lib/pkgconfig pkg-config --cflags --libs pyside-py3

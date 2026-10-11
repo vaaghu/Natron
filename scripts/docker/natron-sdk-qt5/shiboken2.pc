@@ -1,0 +1,12 @@
+# shiboken2 (from the PySide2 / shiboken2-generator 5.15 wheels) for Natron's
+# Qt 5 builds. Installed as shiboken2.pc and as shiboken-py3.pc, the name the
+# build's config.pri asks for (in the SDK that is the Qt 4 shiboken 1.2).
+prefix=/opt/Natron-sdk
+libdir=${prefix}/lib
+includedir=${prefix}/lib/python3.10/site-packages/shiboken2_generator/include
+
+Name: shiboken2
+Description: Support library for Python bindings created with the Shiboken2 generator.
+Version: 5.15.2.1
+Libs: -L${libdir} -lshiboken2.abi3 -lpython3.10
+Cflags: -I${includedir} -I${prefix}/include/python3.10

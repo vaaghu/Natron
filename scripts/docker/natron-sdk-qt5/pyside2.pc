@@ -1,0 +1,13 @@
+# PySide2 (from the PySide2 5.15 wheel) for Natron's Qt 5 builds. Installed
+# as pyside2.pc and as pyside-py3.pc, the name the build's config.pri asks for
+# (in the SDK that is the Qt 4 PySide 1.2).
+prefix=/opt/Natron-sdk
+libdir=${prefix}/lib
+includedir=${prefix}/lib/python3.10/site-packages/PySide2/include
+
+Name: pyside2
+Description: Support library for Python bindings of Qt 5 (PySide2).
+Version: 5.15.2.1
+Requires: shiboken2
+Libs: -L${libdir} -lpyside2.abi3
+Cflags: -I${includedir} -I${includedir}/QtCore -I${includedir}/QtGui -I${includedir}/QtWidgets

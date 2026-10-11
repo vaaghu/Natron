@@ -1081,7 +1081,8 @@ ScenePanel::createTile(const QString& item,
     w.layer = new QPushButton(QString::fromUtf8("+"), tile);
     w.layer->setFocusPolicy(Qt::NoFocus);
     w.layer->setFixedSize( appPTR->adjustSizeToDPIX(kSceneControlButtonSize), appPTR->adjustSizeToDPIX(kSceneControlButtonSize) );
-    w.layer->setToolTip( tr("Add this input on top of Preview as a layer (Shift+%1)").arg(number) );
+    w.layer->setToolTip( tr("Add this input on top of Preview as a layer (Shift+%1). Preview shows one scene: "
+                             "if it holds another scene's inputs, it starts over with this one.").arg(number) );
     QHBoxLayout* row = tile->controlRow(0);
     row->addWidget(renderLabel);
     row->addWidget(w.render);

@@ -446,10 +446,12 @@ bool ProgramOutput::contains(Bus which, const Source &source) const
 
 void ProgramOutput::setLayers(Bus which, const Layers &layers)
 {
+  // A bus shows one scene: the layers of the scene of the last one given.
+  const QString sceneId = layers.isEmpty() ? QString() : layers.last().sceneId;
   Layers unique;
   for (int i = 0; i < layers.size(); ++i)
   {
-    if (!layers.at(i).isEmpty() && !unique.contains(layers.at(i)))
+    if (!layers.at(i).isEmpty() && layers.at(i).sceneId == sceneId && !unique.contains(layers.at(i)))
     {
       unique << layers.at(i);
     }
@@ -497,6 +499,7 @@ void ProgramOutput::addLayer(Bus which, const Source &source)
   {
     return;
   }
+  // From another scene: it starts a new stack (setLayers keeps its scene only).
   setLayers(which, bus(which) + (Layers() << source));
 }
 

@@ -19,6 +19,8 @@ class SceneStore;
 // Program output of the dashboard's switcher, like a vision mixer: one NDI
 // source of a fixed format (size, frame rate) showing the layers on
 // Program, with the layers on Preview ready to go on air.
+// A bus shows one scene: all its layers are items of the same scene (a
+// layer from another scene replaces them).
 // A layer is an input: an item of a scene (a Write node, see SceneItem),
 // played by its scene's NDI playout channel (see NdiManager); the mixer
 // takes the frames that channel sends, so the scene must have NDI output
@@ -82,7 +84,7 @@ public:
   Layers layers(Bus bus) const;
   bool contains(Bus bus, const Source &source) const;
   void setLayers(Bus bus, const Layers &layers);
-  void addLayer(Bus bus, const Source &source);    // on top; no change if there
+  void addLayer(Bus bus, const Source &source);    // on top; no change if there; another scene's: replaces the layers
   void removeLayer(Bus bus, const Source &source);
   void moveLayer(Bus bus, const Source &source, int steps); // > 0: up
 

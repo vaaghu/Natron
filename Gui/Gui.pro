@@ -52,6 +52,9 @@ DEPENDPATH  += $$PWD/../libs/OpenFX_extensions
 INCLUDEPATH += $$PWD/../libs/OpenFX/HostSupport/include
 DEPENDPATH  += $$PWD/../libs/OpenFX/HostSupport/include
 INCLUDEPATH += $$PWD/..
+# Also for dependencies: GUI files include "Custom/..." headers from the
+# repository root, and must be rebuilt when those change.
+DEPENDPATH += $$PWD/..
 INCLUDEPATH += $$PWD/../libs/SequenceParsing
 
 DEPENDPATH += $$PWD/../Engine

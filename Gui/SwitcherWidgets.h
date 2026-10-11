@@ -76,6 +76,9 @@ public:
     void setBorderColor(const QColor& color);
     // Picture shape (height for width), e.g. the output format.
     void setAspect(int width, int height);
+    // Shows the picture's frame, as the canvas of OBS: grey around it, a
+    // thin outline on its edge, the image fitted inside.
+    void setCanvasFrame(bool shown);
 
     virtual QSize sizeHint() const OVERRIDE;
     virtual QSize minimumSizeHint() const OVERRIDE;
@@ -95,6 +98,7 @@ private:
     QColor _border;
     int _aspectWidth;
     int _aspectHeight;
+    bool _canvasFrame;
 };
 
 /**

@@ -215,6 +215,7 @@ SwitcherPanel::createBus(::ProgramOutput::Bus bus,
     }
     w.monitor->setPlaceholder( (bus == ::ProgramOutput::ePreview) ? tr("Click an input box to put it on Preview; + adds layers")
                                                                 : tr("Nothing on air") );
+    w.monitor->setCanvasFrame(true);
     layout->addWidget(w.monitor, 1);
 
     // Layers, the top one first, with [up][down][remove].

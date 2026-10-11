@@ -103,6 +103,7 @@ VideoMonitor::VideoMonitor(QWidget* parent)
     , _border()
     , _aspectWidth(16)
     , _aspectHeight(9)
+    , _canvasFrame(false)
 {
     setAttribute(Qt::WA_OpaquePaintEvent);
     QSizePolicy policy(QSizePolicy::Expanding, QSizePolicy::Expanding);
@@ -156,6 +157,15 @@ VideoMonitor::setAspect(int width,
     }
 }
 
+void
+VideoMonitor::setCanvasFrame(bool shown)
+{
+    if (shown != _canvasFrame) {
+        _canvasFrame = shown;
+        update();
+    }
+}
+
 QSize
 VideoMonitor::sizeHint() const
 {
@@ -194,17 +204,26 @@ VideoMonitor::paintEvent(QPaintEvent* /*e*/)
     const QRect area = rect().adjusted(border, border, -border, -border);
 
     painter.fillRect( rect(), _border.isValid() ? _border : QColor(Qt::black) );
-    painter.fillRect( area, QColor(Qt::black) );
+    // Canvas frame: the picture in black on grey, so its edges show.
+    const QRect picture = _canvasFrame ? pictureRect() : area;
+    painter.fillRect( area, _canvasFrame ? QColor(58, 58, 58) : QColor(Qt::black) );
+    painter.fillRect( picture, QColor(Qt::black) );
 
     if ( !_image.isNull() ) {
         painter.setRenderHint(QPainter::SmoothPixmapTransform);
         QSize size = _image.size();
-        size.scale(area.size(), Qt::KeepAspectRatio); // QSize::scaled() is Qt 5 only
-        painter.drawImage( QRect(area.x() + (area.width() - size.width()) / 2, area.y() + (area.height() - size.height()) / 2,
+        size.scale(picture.size(), Qt::KeepAspectRatio); // QSize::scaled() is Qt 5 only
+        painter.drawImage( QRect(picture.x() + (picture.width() - size.width()) / 2, picture.y() + (picture.height() - size.height()) / 2,
                                  size.width(), size.height() ), _image );
-    } else if ( !_placeholder.isEmpty() ) {
+    }
+    if (_canvasFrame) {
+        painter.setPen( QColor(150, 150, 150) );
+        painter.setBrush(Qt::NoBrush);
+        painter.drawRect( picture.adjusted(0, 0, -1, -1) );
+    }
+    if ( _image.isNull() && !_placeholder.isEmpty() ) {
         painter.setPen( QColor(140, 140, 140) );
-        painter.drawText(area.adjusted(6, 6, -6, -6), Qt::AlignCenter | Qt::TextWordWrap, _placeholder);
+        painter.drawText(picture.adjusted(6, 6, -6, -6), Qt::AlignCenter | Qt::TextWordWrap, _placeholder);
     }
 
     if ( !_badge.isEmpty() ) {
@@ -214,7 +233,7 @@ VideoMonitor::paintEvent(QPaintEvent* /*e*/)
             painter.setFont(font);
         }
         const QRect text = painter.fontMetrics().boundingRect(_badge).adjusted(-4, -1, 4, 1);
-        const QRect box(area.left() + 4, area.bottom() - text.height() - 3, text.width(), text.height());
+        const QRect box(picture.left() + 4, picture.bottom() - text.height() - 3, text.width(), text.height());
         painter.fillRect( box, QColor(0, 0, 0, 170) );
         painter.setPen( QColor(220, 220, 220) );
         painter.drawText(box, Qt::AlignCenter, _badge);

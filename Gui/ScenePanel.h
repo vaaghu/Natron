@@ -38,6 +38,7 @@ CLANG_DIAG_OFF(uninitialized)
 CLANG_DIAG_ON(deprecated)
 CLANG_DIAG_ON(uninitialized)
 
+#include "Custom/ndi/ProgramOutput.h"
 #include "Custom/scene/ProjectInfo.h"
 #include "Custom/scene/SceneStore.h"
 
@@ -53,6 +54,7 @@ class QMenu;
 class QPoint;
 class QProgressBar;
 class QPushButton;
+class QScrollArea;
 class QStackedWidget;
 class QTableWidget;
 class QTableWidgetItem;
@@ -63,14 +65,19 @@ class StateStore; // Custom/state/StateStore.h
 
 NATRON_NAMESPACE_ENTER
 
+class InputTile;
+class TileGrid;
+
 /**
  * @brief Dashboard panel managing scenes: named groups of Write nodes of
  * projects ("items", see SceneItem) rendered together with the current state
  * store values.
  * It is made of separate parts the owner lays out (the panel itself stays
- * hidden): the scene list, the opened scene (one row per Write node with its
- * last render status and output thumbnail), the KVs of the scene, and its
- * NDI output.
+ * hidden): the scene list, the opened scene (one input box per Write node,
+ * like the inputs of a vision mixer: its picture, render status and
+ * controls, and its NDI playout), the KVs of the scene, and its NDI output.
+ * With a Program output (see ProgramOutput), clicking an input box puts it
+ * on Preview and its Cut button puts it on air.
  **/
 class ScenePanel
     : public QWidget
@@ -110,6 +117,10 @@ public:
     // NDI outputs of the scenes (optional).
     void setNdiManager(::NdiManager* ndi);
 
+    // The switcher's Program output (optional): input boxes go to Preview
+    // or Program, and show which ones are there.
+    void setProgramOutput(::ProgramOutput* program);
+
 Q_SIGNALS:
 
     void currentSceneChanged();
@@ -128,9 +139,19 @@ private Q_SLOTS:
     void onRenderClicked(); // the selected Write nodes, or all
     void onRenderSelectedClicked();
     void onStopClicked();
+    void onOpenOutputClicked();
     void onProjectSelectionChanged();
-    void onProjectCellDoubleClicked(int row, int column);
-    void onProjectTableContextMenu(const QPoint& pos);
+
+    // Input boxes.
+    void onTileClicked(const QString& item, Qt::KeyboardModifiers modifiers);
+    void onTileDoubleClicked(const QString& item);
+    void onTileContextMenu(const QString& item, const QPoint& globalPos);
+    void onTileGridContextMenu(const QPoint& pos);
+    void onTileCutClicked();         // the item is the sender's "item" property
+    void onPreviewSelectedClicked(); // the first selected input
+    void onCutSelectedClicked();
+    void onNumberShortcut();         // 1-9: Preview, Ctrl+1-9: Cut (the action's data)
+    void onBusChanged();
 
     // Per-row render controls (the item is the sender's "item" property).
     void onRowPauseToggled(bool paused);
@@ -185,9 +206,21 @@ private:
     void showScene();
     // Puts the change from before to now on the undo stack.
     void pushSceneChange(const ::SceneSnapshot& before, const QString& text);
-    void refreshProjectRow(int row);
+    InputTile* createTile(const QString& item, int number);
+    void refreshTile(const QString& item);
+    // The tile's picture: the frame its NDI source sends, or its last render.
+    void refreshTileImage(const QString& item);
+    void refreshTilesNdi(); // playout buttons and pictures of every tile
+    void refreshTileTally();
     void refreshRowRenderState(const QString& item);
-    QWidget* createRowControls(const QString& item);
+    void selectOnly(const QString& item);
+    // Switcher: the input goes to Preview, or straight to Program.
+    void previewInput(const QString& item);
+    void cutToInput(const QString& item);
+    // The opened scene plays its inputs through NDI: asks to turn it on if
+    // it is off (askAgain false: not if the user already said no for this
+    // scene). True if on.
+    bool ensureNdiEnabled(bool askAgain);
     void refreshKvTable();
     void refreshKvRow(int row, const ::Scene& scene);
 
@@ -220,16 +253,27 @@ private:
     QHash<QString, QString> _openProjectStates; // project -> its bindings in the editor (empty: not open)
     QHash<QString, bool> _unsavedBindings; // project -> its bindings in the editor differ from the file
 
-    // Widgets of an item row (created once per showScene()).
-    struct RowWidgets
+    // Widgets of an input box (created once per showScene()).
+    struct TileWidgets
     {
-        int row;
-        QProgressBar* progress;
+        InputTile* tile;
+        // render
         QPushButton* pause;
         QPushButton* render;
         QPushButton* stop;
+        // NDI playout
+        QPushButton* play;
+        QPushButton* playPause;
+        QPushButton* playStop;
+        QPushButton* replay;
+        QPushButton* loop;
+        QPushButton* cut;
+        bool live; // showing the NDI frame (else the last render)
     };
-    QHash<QString, RowWidgets> _rows; // item -> row widgets
+    QHash<QString, TileWidgets> _tiles; // item -> box widgets
+    QString _anchorItem; // Shift+click selects from here
+    ::ProgramOutput* _program;
+    QStringList _ndiDeclined; // scenes whose NDI output the user chose to keep off
 
     QWidget* _sceneListPart;
     QWidget* _kvPart;
@@ -251,7 +295,9 @@ private:
     QMenu* _parallelMenu;
     QPushButton* _renderButton;
     QPushButton* _stopButton;
-    QTableWidget* _projectTable;
+    QScrollArea* _tileScroll;
+    TileGrid* _tileGrid;
+    QLabel* _tileHint; // shown when the scene has no Write nodes
     QTableWidget* _kvTable;
     QLabel* _renderStatus;
 

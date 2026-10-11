@@ -71,6 +71,7 @@ CLANG_DIAG_ON(uninitialized)
 #include "Gui/HoverWidgets.h"
 #include "Gui/KvGuiUtils.h"
 #include "Gui/ScenePanel.h"
+#include "Gui/SwitcherPanel.h"
 
 #include "Custom/server/HttpServer.h"
 #include "Custom/state/Json.h"
@@ -86,7 +87,7 @@ CLANG_DIAG_ON(uninitialized)
 // QSettings keys of the dashboard window layout.
 #define kDashboardSettingsGeometry "dashboard/geometry"
 #define kDashboardSettingsState "dashboard/dockState"
-#define kDashboardLayoutVersion 1
+#define kDashboardLayoutVersion 2 // 2: Switcher panel
 
 // Tooltips show once the mouse has stayed still this long.
 #define kDashboardToolTipDelayMs 2000
@@ -221,6 +222,8 @@ DashboardWindow::DashboardWindow(::StateStore* store,
     , _sceneRenderer(renderer)
     , _recentList(0)
     , _scenePanel(0)
+    , _switcherBox(0)
+    , _switcherPanel(0)
     , _defaultLayout()
     , _serverStatusLabel(0)
     , _table(0)
@@ -239,7 +242,7 @@ DashboardWindow::DashboardWindow(::StateStore* store,
     , _updatingTable(false)
 {
     setWindowTitle( tr("%1 - Dashboard").arg( QString::fromUtf8(NATRON_APPLICATION_NAME) ) );
-    resize(1400, 800);
+    resize(1600, 960);
 
     createPanels();
     DelayedToolTips::install(this, kDashboardToolTipDelayMs);
@@ -271,10 +274,16 @@ DashboardWindow::~DashboardWindow()
 }
 
 void
-DashboardWindow::setNdiManager(::NdiManager* ndi)
+DashboardWindow::setNdiManager(::NdiManager* ndi,
+                               ::ProgramOutput* program)
 {
     if (_scenePanel) {
         _scenePanel->setNdiManager(ndi);
+        _scenePanel->setProgramOutput(program);
+    }
+    if (!_switcherPanel) {
+        _switcherPanel = new SwitcherPanel(program, ndi, _sceneStore, _switcherBox);
+        _switcherBox->layout()->addWidget(_switcherPanel);
     }
 }
 
@@ -315,28 +324,42 @@ DashboardWindow::createPanels()
         _scenePanel->setUndoStack(_undoStack);
     }
 
-    // Default layout:
-    //   Projects | Scene         | Data
-    //   Scenes   | KVs / NDI     |
+    // The switcher is made once the outputs are known (setNdiManager()).
+    _switcherBox = new QWidget(this);
+    QVBoxLayout* switcherLayout = new QVBoxLayout(_switcherBox);
+    switcherLayout->setContentsMargins(0, 0, 0, 0);
+
+    // Default layout, like vision mixers:
+    //   Scenes   | Switcher: Preview | transitions | Program | Data
+    //   Projects | Scene: input boxes                       |
+    //            | KVs / NDI                                 |
     QDockWidget* projects = addPanel( QString::fromUtf8("projects"), tr("Projects"), createProjectsPanel() );
+    QDockWidget* switcher = addPanel( QString::fromUtf8("switcher"), tr("Switcher"), _switcherBox );
     QDockWidget* data = addPanel( QString::fromUtf8("data"), tr("Data"), createDataPanel() );
-    addDockWidget(Qt::LeftDockWidgetArea, projects);
     addDockWidget(Qt::RightDockWidgetArea, data);
 
     QList<QDockWidget*> panels;
-    panels << projects;
     if (_scenePanel) {
         QDockWidget* scenes = addPanel( QString::fromUtf8("scenes"), tr("Scenes"), _scenePanel->sceneListPart() );
         QDockWidget* scene = addPanel( QString::fromUtf8("scene"), tr("Scene"), _scenePanel->scenePart() );
         QDockWidget* kvs = addPanel( QString::fromUtf8("kvs"), tr("KVs used in this scene"), _scenePanel->kvPart() );
         QDockWidget* ndi = addPanel( QString::fromUtf8("ndi"), tr("NDI output"), _scenePanel->ndiPart() );
-        addDockWidget(Qt::LeftDockWidgetArea, scene);
-        splitDockWidget(projects, scene, Qt::Horizontal);
-        splitDockWidget(projects, scenes, Qt::Vertical);
+        addDockWidget(Qt::LeftDockWidgetArea, scenes);
+        splitDockWidget(scenes, switcher, Qt::Horizontal);
+        splitDockWidget(scenes, projects, Qt::Vertical);
+        splitDockWidget(switcher, scene, Qt::Vertical);
         splitDockWidget(scene, kvs, Qt::Vertical);
         tabifyDockWidget(kvs, ndi);
         kvs->raise();
-        panels << scenes << scene << kvs << ndi;
+#if QT_VERSION >= QT_VERSION_CHECK(5, 6, 0)
+        resizeDocks(QList<QDockWidget*>() << scenes << switcher << data, QList<int>() << 220 << 1060 << 320, Qt::Horizontal);
+        resizeDocks(QList<QDockWidget*>() << switcher << scene << kvs, QList<int>() << 400 << 380 << 140, Qt::Vertical);
+#endif
+        panels << scenes << projects << switcher << scene << kvs << ndi;
+    } else {
+        addDockWidget(Qt::LeftDockWidgetArea, projects);
+        splitDockWidget(projects, switcher, Qt::Horizontal);
+        panels << projects << switcher;
     }
     panels << data;
 

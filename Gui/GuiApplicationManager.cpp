@@ -1215,7 +1215,7 @@ GuiApplicationManager::showStartWindow()
 {
     if (!_imp->dashboard) {
         _imp->dashboard.reset( new DashboardWindow( &_imp->stateStore, _imp->httpServer.get(), _imp->sceneStore.get(), _imp->sceneRenderer.get() ) );
-        _imp->dashboard->setNdiManager( _imp->ndiManager.get() );
+        _imp->dashboard->setNdiManager( _imp->ndiManager.get(), _imp->programOutput.get() );
     }
     _imp->dashboard->show();
     _imp->dashboard->raise();

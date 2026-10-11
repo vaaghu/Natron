@@ -210,6 +210,8 @@ SOURCES += \
     StateBindingTab.cpp \
     DashboardWindow.cpp \
     ScenePanel.cpp \
+    SwitcherPanel.cpp \
+    SwitcherWidgets.cpp \
     HoverWidgets.cpp \
     KvGuiUtils.cpp \
     ../Custom/server/HttpServer.cpp \
@@ -366,6 +368,8 @@ HEADERS += \
     StateBindingTab.h \
     DashboardWindow.h \
     ScenePanel.h \
+    SwitcherPanel.h \
+    SwitcherWidgets.h \
     HoverWidgets.h \
     KvGuiUtils.h \
     ../Custom/server/HttpServer.h \

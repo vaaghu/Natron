@@ -58,10 +58,12 @@ class HttpServer; // Custom/server/HttpServer.h
 class SceneRenderer; // Custom/scene/SceneRenderer.h
 class SceneStore; // Custom/scene/SceneStore.h
 class NdiManager; // Custom/ndi/NdiManager.h
+class ProgramOutput; // Custom/ndi/ProgramOutput.h
 
 NATRON_NAMESPACE_ENTER
 
 class ScenePanel;
+class SwitcherPanel;
 class HoverLineEdit;
 
 /**
@@ -70,7 +72,8 @@ class HoverLineEdit;
  * float, close and reopen from the Window menu; the layout is kept):
  *   Projects  recent projects, with New/Open buttons (each opens a project window)
  *   Scenes    the scene list
- *   Scene     the opened scene's Write nodes and renders
+ *   Switcher  Preview and Program monitors with the transitions (see SwitcherPanel)
+ *   Scene     the opened scene's Write nodes as input boxes, with their renders
  *   KVs       the keys the opened scene uses
  *   NDI       the opened scene's NDI output
  *   Data      the key/value pairs of the state store, editable
@@ -93,8 +96,9 @@ public:
 
     virtual ~DashboardWindow();
 
-    // NDI outputs, shown in the scene view.
-    void setNdiManager(::NdiManager* ndi);
+    // NDI outputs, shown in the scene view, and the switcher's Program
+    // output (either may be null).
+    void setNdiManager(::NdiManager* ndi, ::ProgramOutput* program);
 
 public Q_SLOTS:
 
@@ -167,6 +171,8 @@ private:
 
     QListWidget* _recentList;
     ScenePanel* _scenePanel;
+    QWidget* _switcherBox; // holds the SwitcherPanel once setNdiManager() gave its outputs
+    SwitcherPanel* _switcherPanel;
     QByteArray _defaultLayout; // dock layout before the saved one is restored
 
     QLabel* _serverStatusLabel;

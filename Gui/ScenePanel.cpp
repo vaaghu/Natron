@@ -28,6 +28,7 @@
 CLANG_DIAG_OFF(deprecated)
 CLANG_DIAG_OFF(uninitialized)
 #include <QBrush>
+#include <QCursor>
 #include <QCheckBox>
 #include <QColor>
 #include <QDoubleSpinBox>
@@ -58,6 +59,7 @@ CLANG_DIAG_OFF(uninitialized)
 #include <QPixmap>
 #include <QProgressBar>
 #include <QPushButton>
+#include <QScrollArea>
 #include <QSettings>
 #include <QStackedWidget>
 #include <QStandardItemModel>
@@ -89,6 +91,7 @@ CLANG_DIAG_ON(uninitialized)
 #include "Custom/state/StateStore.h"
 #include "Gui/HoverWidgets.h"
 #include "Gui/KvGuiUtils.h"
+#include "Gui/SwitcherWidgets.h"
 
 // QSettings key: renders run at once.
 #define kSceneSettingsParallelRenders "dashboard/parallelRenders"
@@ -105,18 +108,12 @@ CLANG_DIAG_ON(uninitialized)
 #define kNdiPreviewWidth 64
 #define kNdiPreviewHeight 36
 
-#define kSceneColumnPreview 0
-#define kSceneColumnProject 1
-#define kSceneColumnProgress 2
-#define kSceneColumnStatus 3
-#define kSceneColumnControls 4
-#define kSceneColumnCount 5
-
 #define kSceneControlButtonSize 22
 #define kSceneControlIconSize 20
 
-#define kSceneThumbnailWidth 128
-#define kSceneThumbnailHeight 72
+// Number keys put the first inputs on Preview (Ctrl: on Program).
+#define kSceneNumberShortcuts 9
+#define kSceneCutShortcutData 100
 
 NATRON_NAMESPACE_ENTER
 
@@ -435,7 +432,10 @@ ScenePanel::ScenePanel(::SceneStore* scenes,
     , _undoStack(0)
     , _projectWatcher(0)
     , _projectReloadTimer()
-    , _rows()
+    , _tiles()
+    , _anchorItem()
+    , _program(0)
+    , _ndiDeclined()
     , _sceneListPart(0)
     , _kvPart(0)
     , _ndiPart(0)
@@ -453,7 +453,9 @@ ScenePanel::ScenePanel(::SceneStore* scenes,
     , _parallelMenu(0)
     , _renderButton(0)
     , _stopButton(0)
-    , _projectTable(0)
+    , _tileScroll(0)
+    , _tileGrid(0)
+    , _tileHint(0)
     , _kvTable(0)
     , _renderStatus(0)
     , _ndi(0)
@@ -676,23 +678,23 @@ ScenePanel::createSceneDetail()
     header->addWidget(menuButton);
     layout->addLayout(header);
 
-    _projectTable = new QTableWidget(0, kSceneColumnCount, detail);
-    QStringList headers;
-    headers << tr("Preview") << tr("Project") << tr("Progress") << tr("Status") << tr("Controls");
-    _projectTable->setHorizontalHeaderLabels(headers);
-    KvGui::styleTable(_projectTable);
-    _projectTable->verticalHeader()->setDefaultSectionSize(kSceneThumbnailHeight + 8);
-    _projectTable->setIconSize( QSize(kSceneThumbnailWidth, kSceneThumbnailHeight) );
-    _projectTable->setEditTriggers(QAbstractItemView::NoEditTriggers);
-    _projectTable->setContextMenuPolicy(Qt::CustomContextMenu);
-    _projectTable->setColumnWidth(kSceneColumnPreview, kSceneThumbnailWidth + 12);
-    _projectTable->setColumnWidth(kSceneColumnProject, 170);
-    _projectTable->setColumnWidth(kSceneColumnProgress, 110);
-    _projectTable->setColumnWidth(kSceneColumnStatus, 220);
-    _projectTable->setToolTip( tr("Double-click a preview to view the output, or a project to open it. Right-click for more actions.") );
-    TableColumnMenu::install( _projectTable, QString::fromUtf8("dashboard/columns/scene"), QList<int>() );
-    EmptyViewHint::install( _projectTable, tr("No Write nodes. Right-click to add projects.") );
-    layout->addWidget(_projectTable, 1);
+    // The Write nodes as input boxes, in rows filling the width.
+    _tileScroll = new QScrollArea(detail);
+    _tileScroll->setWidgetResizable(true);
+    _tileScroll->setFrameShape(QFrame::NoFrame);
+    _tileScroll->setHorizontalScrollBarPolicy(Qt::ScrollBarAlwaysOff);
+    _tileGrid = new TileGrid;
+    _tileGrid->setContextMenuPolicy(Qt::CustomContextMenu);
+    _tileGrid->setToolTip( tr("Click an input to put it on Preview; its Cut button puts it on air. "
+                              "Keys 1-9: Preview, Ctrl+1-9: Cut. Right-click for more actions.") );
+    _tileScroll->setWidget(_tileGrid);
+    layout->addWidget(_tileScroll, 1);
+    _tileHint = KvGui::secondaryLabel(detail);
+    _tileHint->setText( tr("No Write nodes. Right-click to add projects.") );
+    _tileHint->setAlignment(Qt::AlignCenter);
+    _tileHint->setContextMenuPolicy(Qt::CustomContextMenu);
+    _tileHint->hide();
+    layout->addWidget(_tileHint, 1);
 
     QWidget* kvBox = new QWidget(this);
     QVBoxLayout* kvLayout = new QVBoxLayout(kvBox);
@@ -729,12 +731,17 @@ ScenePanel::createSceneDetail()
     _renderAction = makeShortcutAction( detail, tr("Render"), QKeySequence(Qt::CTRL + Qt::Key_R), this, SLOT(onRenderClicked()) );
     _openInEditorAction = makeShortcutAction( detail, tr("Open in Editor"), QKeySequence(Qt::CTRL + Qt::Key_E), this, SLOT(onOpenInEditorClicked()) );
     _removeProjectsAction = makeShortcutAction( detail, tr("Remove from Scene"), QKeySequence(QKeySequence::Delete), this, SLOT(onRemoveProjectsClicked()) );
+    for (int i = 0; i < kSceneNumberShortcuts; ++i) {
+        QAction* preview = makeShortcutAction( detail, tr("Preview Input %1").arg(i + 1), QKeySequence(Qt::Key_1 + i), this, SLOT(onNumberShortcut()) );
+        preview->setData(i);
+        QAction* cut = makeShortcutAction( detail, tr("Cut to Input %1").arg(i + 1), QKeySequence(Qt::CTRL + Qt::Key_1 + i), this, SLOT(onNumberShortcut()) );
+        cut->setData(kSceneCutShortcutData + i);
+    }
 
     QObject::connect( _renderButton, SIGNAL(clicked()), this, SLOT(onRenderClicked()) );
     QObject::connect( _stopButton, SIGNAL(clicked()), this, SLOT(onStopClicked()) );
-    QObject::connect( _projectTable, SIGNAL(itemSelectionChanged()), this, SLOT(onProjectSelectionChanged()) );
-    QObject::connect( _projectTable, SIGNAL(cellDoubleClicked(int,int)), this, SLOT(onProjectCellDoubleClicked(int,int)) );
-    QObject::connect( _projectTable, SIGNAL(customContextMenuRequested(QPoint)), this, SLOT(onProjectTableContextMenu(QPoint)) );
+    QObject::connect( _tileGrid, SIGNAL(customContextMenuRequested(QPoint)), this, SLOT(onTileGridContextMenu(QPoint)) );
+    QObject::connect( _tileHint, SIGNAL(customContextMenuRequested(QPoint)), this, SLOT(onTileGridContextMenu(QPoint)) );
 
     return _detailStack;
 }
@@ -923,13 +930,12 @@ QStringList
 ScenePanel::selectedItems() const
 {
     QStringList items;
-    QList<QTableWidgetItem*> selected = _projectTable->selectedItems();
+    const QStringList all = currentItems();
 
-    for (int i = 0; i < selected.size(); ++i) {
-        QTableWidgetItem* cell = _projectTable->item(selected.at(i)->row(), kSceneColumnProject);
-        const QString item = cell ? cell->data(Qt::UserRole).toString() : QString();
-        if ( !item.isEmpty() && !items.contains(item) ) {
-            items << item;
+    for (int i = 0; i < all.size(); ++i) {
+        QHash<QString, TileWidgets>::const_iterator it = _tiles.find( all.at(i) );
+        if ( ( it != _tiles.end() ) && it.value().tile->isSelected() && !items.contains( all.at(i) ) ) {
+            items << all.at(i);
         }
     }
 
@@ -983,6 +989,8 @@ ScenePanel::showScene()
 
     if ( !_scenes->scene(_currentSceneId, &scene) ) {
         _detailStack->setCurrentIndex(0);
+        _tiles.clear();
+        _tileGrid->setTiles( QList<QWidget*>() );
         refreshNdiTab();
         refreshButtons();
 
@@ -1019,92 +1027,116 @@ ScenePanel::showScene()
 
     const QStringList keepSelected = selectedItems();
 
-    _rows.clear();
-    _projectTable->setRowCount(0);
-    _projectTable->setRowCount( scene.items.size() );
-    for (int row = 0; row < scene.items.size(); ++row) {
-        const QString& item = scene.items.at(row);
-        QTableWidgetItem* projectItem = new QTableWidgetItem;
-        projectItem->setData(Qt::UserRole, item);
-        _projectTable->setItem(row, kSceneColumnProject, projectItem);
-
-        RowWidgets widgets;
-        widgets.row = row;
-        // A slim bar, centred in the (thumbnail-high) row.
-        QWidget* progressCell = new QWidget;
-        QVBoxLayout* progressLayout = new QVBoxLayout(progressCell);
-        progressLayout->setContentsMargins(4, 0, 4, 0);
-        widgets.progress = new QProgressBar(progressCell);
-        widgets.progress->setRange(0, 100);
-        widgets.progress->setAlignment(Qt::AlignCenter);
-        widgets.progress->setFixedHeight( progressCell->fontMetrics().height() + 4 );
-        progressLayout->addStretch();
-        progressLayout->addWidget(widgets.progress);
-        progressLayout->addStretch();
-        _projectTable->setCellWidget(row, kSceneColumnProgress, progressCell);
-        QWidget* controls = createRowControls(item);
-        _projectTable->setCellWidget(row, kSceneColumnControls, controls);
-        widgets.pause = controls->findChild<QPushButton*>( QString::fromUtf8("pause") );
-        widgets.render = controls->findChild<QPushButton*>( QString::fromUtf8("render") );
-        widgets.stop = controls->findChild<QPushButton*>( QString::fromUtf8("stop") );
-        _rows.insert(item, widgets);
-
-        refreshProjectRow(row);
-        if ( keepSelected.contains(item) ) {
-            _projectTable->selectRow(row);
-        }
+    // One input box per Write node, numbered in the scene's order.
+    _tiles.clear();
+    QList<QWidget*> tiles;
+    for (int i = 0; i < scene.items.size(); ++i) {
+        InputTile* tile = createTile(scene.items.at(i), i + 1);
+        tile->setSelected( keepSelected.contains( scene.items.at(i) ) );
+        tiles << tile;
     }
+    _tileGrid->setTiles(tiles);
+    for (int i = 0; i < scene.items.size(); ++i) {
+        refreshTile( scene.items.at(i) );
+    }
+    _tileScroll->setVisible( !scene.items.isEmpty() );
+    _tileHint->setVisible( scene.items.isEmpty() );
+    refreshTileTally();
 
     refreshKvTable();
     refreshNdiTab();
     refreshButtons();
 }
 
-QWidget*
-ScenePanel::createRowControls(const QString& item)
+InputTile*
+ScenePanel::createTile(const QString& item,
+                       int number)
 {
-    QWidget* w = new QWidget;
-    QHBoxLayout* layout = new QHBoxLayout(w);
-    layout->setContentsMargins(2, 0, 2, 0);
-    layout->setSpacing(2);
+    InputTile* tile = new InputTile(item, number);
+    TileWidgets w;
 
-    QPushButton* pause = makeControlButton( playerIcon(NATRON_ENUM::NATRON_PIXMAP_PLAYER_PAUSE_DISABLED, NATRON_ENUM::NATRON_PIXMAP_PLAYER_PAUSE_ENABLED),
-                                            tr("Pause or resume rendering"), w );
-    pause->setObjectName( QString::fromUtf8("pause") );
-    pause->setCheckable(true);
-    QPushButton* render = makeControlButton( playerIcon(NATRON_ENUM::NATRON_PIXMAP_PLAYER_PLAY_DISABLED, NATRON_ENUM::NATRON_PIXMAP_PLAYER_PLAY_DISABLED),
-                                             tr("Render this Write node"), w );
-    render->setObjectName( QString::fromUtf8("render") );
-    QPushButton* stop = makeControlButton( playerIcon(NATRON_ENUM::NATRON_PIXMAP_PLAYER_STOP_DISABLED, NATRON_ENUM::NATRON_PIXMAP_PLAYER_STOP_DISABLED),
-                                           tr("Stop or dequeue this render"), w );
-    stop->setObjectName( QString::fromUtf8("stop") );
+    w.tile = tile;
+    w.live = false;
 
-    pause->setProperty("item", item);
-    render->setProperty("item", item);
-    stop->setProperty("item", item);
+    // Render: [render][pause][stop]                 [Cut]
+    QLabel* renderLabel = KvGui::secondaryLabel(tile);
+    renderLabel->setText( tr("Render") );
+    w.render = makeControlButton( playerIcon(NATRON_ENUM::NATRON_PIXMAP_PLAYER_PLAY_DISABLED, NATRON_ENUM::NATRON_PIXMAP_PLAYER_PLAY_DISABLED),
+                                  tr("Render this Write node"), tile );
+    w.pause = makeControlButton( playerIcon(NATRON_ENUM::NATRON_PIXMAP_PLAYER_PAUSE_DISABLED, NATRON_ENUM::NATRON_PIXMAP_PLAYER_PAUSE_ENABLED),
+                                 tr("Pause or resume rendering"), tile );
+    w.pause->setCheckable(true);
+    w.stop = makeControlButton( playerIcon(NATRON_ENUM::NATRON_PIXMAP_PLAYER_STOP_DISABLED, NATRON_ENUM::NATRON_PIXMAP_PLAYER_STOP_DISABLED),
+                                tr("Stop or dequeue this render"), tile );
+    w.cut = new QPushButton(tr("Cut"), tile);
+    w.cut->setFocusPolicy(Qt::NoFocus);
+    w.cut->setFixedHeight( appPTR->adjustSizeToDPIX(kSceneControlButtonSize) );
+    w.cut->setToolTip( tr("Put this input on air (Program) at once (Ctrl+%1)").arg(number) );
+    QHBoxLayout* row = tile->controlRow(0);
+    row->addWidget(renderLabel);
+    row->addWidget(w.render);
+    row->addWidget(w.pause);
+    row->addWidget(w.stop);
+    row->addStretch();
+    row->addWidget(w.cut);
 
-    layout->addWidget(pause);
-    layout->addWidget(render);
-    layout->addWidget(stop);
-    layout->addStretch();
+    // NDI playout: [play][pause][stop][replay][loop] (named for onNdiRowAction)
+    QLabel* ndiLabel = KvGui::secondaryLabel(tile);
+    ndiLabel->setText( tr("NDI") );
+    w.play = makeControlButton( playerIcon(NATRON_ENUM::NATRON_PIXMAP_PLAYER_PLAY_DISABLED, NATRON_ENUM::NATRON_PIXMAP_PLAYER_PLAY_DISABLED),
+                                tr("Play on its NDI source, continuing past the pause point"), tile );
+    w.playPause = makeControlButton( playerIcon(NATRON_ENUM::NATRON_PIXMAP_PLAYER_PAUSE_DISABLED, NATRON_ENUM::NATRON_PIXMAP_PLAYER_PAUSE_ENABLED),
+                                     tr("Pause its NDI source"), tile );
+    w.playStop = makeControlButton( playerIcon(NATRON_ENUM::NATRON_PIXMAP_PLAYER_STOP_DISABLED, NATRON_ENUM::NATRON_PIXMAP_PLAYER_STOP_DISABLED),
+                                    tr("Stop its NDI source and clear the output"), tile );
+    w.replay = makeControlButton( playerIcon(NATRON_ENUM::NATRON_PIXMAP_PLAYER_FIRST_FRAME, NATRON_ENUM::NATRON_PIXMAP_PLAYER_FIRST_FRAME),
+                                  tr("Replay from the start"), tile );
+    w.loop = makeControlButton( playerIcon(NATRON_ENUM::NATRON_PIXMAP_PLAYER_LOOP_MODE, NATRON_ENUM::NATRON_PIXMAP_PLAYER_LOOP_MODE),
+                                tr("Loop"), tile );
+    w.loop->setCheckable(true);
+    row = tile->controlRow(1);
+    row->addWidget(ndiLabel);
+    QPushButton* playout[] = { w.play, w.playPause, w.playStop, w.replay, w.loop };
+    const char* names[] = { "play", "pause", "stop", "replay", "loop" };
+    for (int b = 0; b < 5; ++b) {
+        playout[b]->setObjectName( QString::fromUtf8(names[b]) );
+        row->addWidget(playout[b]);
+    }
+    row->addStretch();
 
-    QObject::connect( pause, SIGNAL(toggled(bool)), this, SLOT(onRowPauseToggled(bool)) );
-    QObject::connect( render, SIGNAL(clicked()), this, SLOT(onRowRenderClicked()) );
-    QObject::connect( stop, SIGNAL(clicked()), this, SLOT(onRowStopClicked()) );
+    QPushButton* buttons[] = { w.render, w.pause, w.stop, w.cut, w.play, w.playPause, w.playStop, w.replay, w.loop };
+    for (int b = 0; b < 9; ++b) {
+        buttons[b]->setProperty("item", item);
+    }
 
-    return w;
+    QObject::connect( w.render, SIGNAL(clicked()), this, SLOT(onRowRenderClicked()) );
+    QObject::connect( w.pause, SIGNAL(toggled(bool)), this, SLOT(onRowPauseToggled(bool)) );
+    QObject::connect( w.stop, SIGNAL(clicked()), this, SLOT(onRowStopClicked()) );
+    QObject::connect( w.cut, SIGNAL(clicked()), this, SLOT(onTileCutClicked()) );
+    QObject::connect( w.play, SIGNAL(clicked()), this, SLOT(onNdiRowAction()) );
+    QObject::connect( w.playPause, SIGNAL(clicked()), this, SLOT(onNdiRowAction()) );
+    QObject::connect( w.playStop, SIGNAL(clicked()), this, SLOT(onNdiRowAction()) );
+    QObject::connect( w.replay, SIGNAL(clicked()), this, SLOT(onNdiRowAction()) );
+    QObject::connect( w.loop, SIGNAL(toggled(bool)), this, SLOT(onNdiLoopToggled(bool)) );
+    QObject::connect( tile, SIGNAL(clicked(QString,Qt::KeyboardModifiers)), this, SLOT(onTileClicked(QString,Qt::KeyboardModifiers)) );
+    QObject::connect( tile, SIGNAL(doubleClicked(QString)), this, SLOT(onTileDoubleClicked(QString)) );
+    QObject::connect( tile, SIGNAL(contextMenuRequested(QString,QPoint)), this, SLOT(onTileContextMenu(QString,QPoint)) );
+
+    _tiles.insert(item, w);
+
+    return tile;
 }
 
 void
-ScenePanel::refreshProjectRow(int row)
+ScenePanel::refreshTile(const QString& item)
 {
-    QTableWidgetItem* projectItem = _projectTable->item(row, kSceneColumnProject);
+    QHash<QString, TileWidgets>::const_iterator it = _tiles.find(item);
 
-    if (!projectItem) {
+    if ( it == _tiles.end() ) {
         return;
     }
 
-    const QString item = projectItem->data(Qt::UserRole).toString();
+    InputTile* tile = it.value().tile;
     const QString path = ::SceneItem::project(item);
     const QString writer = ::SceneItem::writer(item);
     const QFileInfo fi(path);
@@ -1116,54 +1148,123 @@ ScenePanel::refreshProjectRow(int row)
     if ( name.endsWith(ext) ) {
         name.chop( ext.size() );
     }
-    projectItem->setText( fi.exists() ? name : tr("%1 (missing)").arg(name) );
+    if ( !fi.exists() ) {
+        name = tr("%1 (missing)").arg(name);
+    }
     projectInfo(path); // fills _unsavedBindings
     const bool unsaved = _unsavedBindings.value(path);
     if (unsaved) {
-        projectItem->setText( projectItem->text() + QString::fromUtf8(" *") );
+        name += QString::fromUtf8(" *");
     }
 
-    // The Write node, in grey under the project name (its output in the tooltip)
+    // The Write node after the project name (its output in the tooltip)
     const ProjectInfo& info = projectInfo(path);
     QString writerText = writer.isEmpty() ? tr("(no Write node)") : writer;
     const bool writerMissing = !writer.isEmpty() && fi.exists() && !info.writers.contains(writer);
     if (writerMissing) {
         writerText = tr("%1 (missing)").arg(writer);
     }
-    projectItem->setData(PlainItemDelegate::kSecondaryTextRole, writerText);
-    if ( !fi.exists() || writerMissing ) {
-        projectItem->setForeground( QColor(230, 90, 80) );
-    }
+    tile->setTitle( name, writerText, !fi.exists() || writerMissing );
     const QString output = info.writerOutputs.value(writer);
-    projectItem->setToolTip( ( unsaved ? tr("* Unsaved changes in the editor: renders use the saved file. Save to include them.\n") : QString() ) +
-                             tr("%1\nWrite node: %2\n%3").arg( QDir::toNativeSeparators(path) ).arg(writerText)
-                             .arg( output.isEmpty() ? tr("No output file") : tr("Output: %1").arg( QDir::toNativeSeparators(output) ) ) );
+    tile->setToolTip( ( unsaved ? tr("* Unsaved changes in the editor: renders use the saved file. Save to include them.\n") : QString() ) +
+                      tr("%1\nWrite node: %2\n%3").arg( QDir::toNativeSeparators(path) ).arg(writerText)
+                      .arg( output.isEmpty() ? tr("No output file") : tr("Output: %1").arg( QDir::toNativeSeparators(output) ) ) +
+                      ( record.output.isEmpty() ? tr("\nNot rendered yet.") : tr("\nLast render: %1").arg( QDir::toNativeSeparators(record.output) ) ) );
 
-    // Preview: thumbnail of the last rendered output
-    QTableWidgetItem* previewItem = new QTableWidgetItem;
-    QPixmap thumb;
-    if ( !record.thumbnail.isEmpty() && thumb.load(record.thumbnail) ) {
-        previewItem->setData( Qt::DecorationRole, thumb.scaled(kSceneThumbnailWidth, kSceneThumbnailHeight, Qt::KeepAspectRatio, Qt::SmoothTransformation) );
-    } else {
-        previewItem->setText( record.output.isEmpty() ? tr("no output yet") : tr("no preview") );
-    }
-    previewItem->setToolTip( record.output.isEmpty() ? tr("Not rendered yet.")
-                                                     : tr("Output: %1\nDouble-click to open.").arg( QDir::toNativeSeparators(record.output) ) );
-    _projectTable->setItem(row, kSceneColumnPreview, previewItem);
-
+    refreshTileImage(item);
     refreshRowRenderState(item);
+}
+
+void
+ScenePanel::refreshTileImage(const QString& item)
+{
+    QHash<QString, TileWidgets>::iterator it = _tiles.find(item);
+
+    if ( it == _tiles.end() ) {
+        return;
+    }
+
+    TileWidgets& w = it.value();
+    VideoMonitor* monitor = w.tile->monitor();
+    ::PlayoutChannel* channel = _ndi ? _ndi->channel(_currentSceneId, item) : 0;
+    const QString state = channel ? ::PlayoutChannel::stateName( channel->status().state ) : QString();
+
+    // What its NDI source sends, while it sends something.
+    if ( channel && (channel->status().state != ::PlayoutChannel::eStopped) ) {
+        const QImage frame = channel->preview( monitor->width() );
+        if ( !frame.isNull() ) {
+            w.live = true;
+            monitor->setImage(frame);
+            monitor->setBadge(state);
+
+            return;
+        }
+    }
+
+    // Otherwise the last render.
+    w.live = false;
+    const ::RenderRecord record = _scenes->renderRecord(_currentSceneId, item);
+    QImage thumbnail;
+    if ( !record.thumbnail.isEmpty() ) {
+        thumbnail.load(record.thumbnail);
+    }
+    monitor->setImage(thumbnail);
+    monitor->setPlaceholder( record.output.isEmpty() ? tr("Not rendered yet") : tr("No preview") );
+    monitor->setBadge(state);
+}
+
+void
+ScenePanel::refreshTilesNdi()
+{
+    for (QHash<QString, TileWidgets>::iterator it = _tiles.begin(); it != _tiles.end(); ++it) {
+        const TileWidgets& w = it.value();
+        ::PlayoutChannel* c = _ndi ? _ndi->channel( _currentSceneId, it.key() ) : 0;
+        const ::PlayoutChannel::Status st = c ? c->status() : ::PlayoutChannel::Status();
+        const bool live = c && st.state == ::PlayoutChannel::eLive;
+        const bool playable = c && !live && st.duration() > 0;
+
+        w.play->setEnabled(playable && st.state != ::PlayoutChannel::ePlaying);
+        w.playPause->setEnabled(c && st.state == ::PlayoutChannel::ePlaying);
+        w.playStop->setEnabled(c && !live && st.state != ::PlayoutChannel::eStopped);
+        w.replay->setEnabled(playable);
+        w.loop->setEnabled(c != 0);
+        const bool blocked = w.loop->blockSignals(true);
+        w.loop->setChecked(c && st.loop);
+        w.loop->blockSignals(blocked);
+        w.cut->setEnabled(_program != 0);
+
+        // Live picture while it sends; back to the last render once stopped.
+        if ( w.live || ( c && (st.state != ::PlayoutChannel::eStopped) ) ) {
+            refreshTileImage( it.key() );
+        } else {
+            w.tile->monitor()->setBadge( c ? ::PlayoutChannel::stateName(st.state) : QString() );
+        }
+    }
+}
+
+void
+ScenePanel::refreshTileTally()
+{
+    const ::ProgramOutput::Source preview = _program ? _program->preview() : ::ProgramOutput::Source();
+    const ::ProgramOutput::Source program = _program ? _program->program() : ::ProgramOutput::Source();
+
+    for (QHash<QString, TileWidgets>::const_iterator it = _tiles.constBegin(); it != _tiles.constEnd(); ++it) {
+        const ::ProgramOutput::Source source( _currentSceneId, it.key() );
+        it.value().tile->setTally( (source == program) ? InputTile::eTallyProgram
+                                   : (source == preview) ? InputTile::eTallyPreview : InputTile::eTallyNone );
+    }
 }
 
 void
 ScenePanel::refreshRowRenderState(const QString& item)
 {
-    QHash<QString, RowWidgets>::const_iterator it = _rows.find(item);
+    QHash<QString, TileWidgets>::const_iterator it = _tiles.find(item);
 
-    if ( it == _rows.end() ) {
+    if ( it == _tiles.end() ) {
         return;
     }
 
-    const RowWidgets& w = it.value();
+    const TileWidgets& w = it.value();
     const ::RenderRecord record = _scenes->renderRecord(_currentSceneId, item);
     const ::RenderProgress progress = _renderer ? _renderer->progress(_currentSceneId, item) : ::RenderProgress();
     const bool queued = _renderer && _renderer->isQueued(_currentSceneId, item);
@@ -1210,16 +1311,14 @@ ScenePanel::refreshRowRenderState(const QString& item)
         }
     }
 
-    QTableWidgetItem* statusItem = new QTableWidgetItem(status);
-    statusItem->setData(PlainItemDelegate::kSecondaryTextRole, detail);
-    statusItem->setToolTip( record.message.isEmpty() || progress.active ? status : record.message );
-    if ( !progress.active && !queued && (record.status == ::RenderRecord::eFailed) ) {
-        statusItem->setForeground( QColor(230, 90, 80) );
+    QString tooltip = (record.message.isEmpty() || progress.active) ? status : record.message;
+    if ( !detail.isEmpty() && (tooltip == status) ) {
+        tooltip += QString::fromUtf8("\n") + detail;
     }
-    _projectTable->setItem(w.row, kSceneColumnStatus, statusItem);
+    w.tile->setStatus( status, tooltip, !progress.active && !queued && (record.status == ::RenderRecord::eFailed) );
 
-    w.progress->setValue(percent);
-    w.progress->setFormat( tr("%p%") ); // the bar is too small for more
+    w.tile->progressBar()->setValue(percent);
+    w.tile->progressBar()->setFormat( tr("%p%") ); // the bar is too small for more
 
     const bool rendering = progress.active;
     const bool wasBlocked = w.pause->blockSignals(true);
@@ -1816,48 +1915,234 @@ ScenePanel::onProjectSelectionChanged()
 }
 
 void
-ScenePanel::onProjectCellDoubleClicked(int row,
-                                       int column)
+ScenePanel::onOpenOutputClicked()
 {
-    QTableWidgetItem* projectItem = _projectTable->item(row, kSceneColumnProject);
+    const QStringList items = selectedItems();
 
-    if (!projectItem) {
-        return;
-    }
-    const QString item = projectItem->data(Qt::UserRole).toString();
-
-    if (column == kSceneColumnPreview) {
-        const QString output = _scenes->renderRecord(_currentSceneId, item).output;
+    for (int i = 0; i < items.size(); ++i) {
+        const QString output = _scenes->renderRecord( _currentSceneId, items.at(i) ).output;
         if ( !output.isEmpty() && QFileInfo(output).exists() ) {
             QDesktopServices::openUrl( QUrl::fromLocalFile(output) );
         }
+    }
+}
 
+// ----- Input boxes -----
+
+void
+ScenePanel::selectOnly(const QString& item)
+{
+    for (QHash<QString, TileWidgets>::const_iterator it = _tiles.constBegin(); it != _tiles.constEnd(); ++it) {
+        it.value().tile->setSelected(it.key() == item);
+    }
+}
+
+void
+ScenePanel::onTileClicked(const QString& item,
+                          Qt::KeyboardModifiers modifiers)
+{
+    QHash<QString, TileWidgets>::const_iterator it = _tiles.find(item);
+
+    if ( it == _tiles.end() ) {
         return;
     }
 
+    if (modifiers & Qt::ControlModifier) {
+        // Add to or remove from the selection.
+        it.value().tile->setSelected( !it.value().tile->isSelected() );
+        _anchorItem = item;
+    } else if ( (modifiers & Qt::ShiftModifier) && _tiles.contains(_anchorItem) ) {
+        // Select from the last clicked input to this one.
+        const QStringList items = currentItems();
+        const int from = qMin( items.indexOf(_anchorItem), items.indexOf(item) );
+        const int to = qMax( items.indexOf(_anchorItem), items.indexOf(item) );
+        for (int i = 0; i < items.size(); ++i) {
+            QHash<QString, TileWidgets>::const_iterator t = _tiles.find( items.at(i) );
+            if ( t != _tiles.end() ) {
+                t.value().tile->setSelected(i >= from && i <= to);
+            }
+        }
+    } else {
+        selectOnly(item);
+        _anchorItem = item;
+        refreshButtons();
+        previewInput(item); // may rebuild the boxes (turning NDI on)
+
+        return;
+    }
+    refreshButtons();
+}
+
+void
+ScenePanel::onTileDoubleClicked(const QString& item)
+{
     appPTR->openProjectWindow( ::SceneItem::project(item) );
 }
 
 void
-ScenePanel::onProjectTableContextMenu(const QPoint& pos)
+ScenePanel::onTileContextMenu(const QString& item,
+                              const QPoint& globalPos)
 {
-    const int row = _projectTable->indexAt(pos).row();
+    QHash<QString, TileWidgets>::const_iterator it = _tiles.find(item);
+
+    if ( it == _tiles.end() ) {
+        return;
+    }
+    // Right-clicking outside the selection acts on the clicked input only.
+    if ( !it.value().tile->isSelected() ) {
+        selectOnly(item);
+        _anchorItem = item;
+        refreshButtons();
+    }
+
+    QMenu menu(this);
+    QAction* preview = menu.addAction( tr("Preview"), this, SLOT(onPreviewSelectedClicked()) );
+    QAction* cut = menu.addAction( tr("Cut to Program"), this, SLOT(onCutSelectedClicked()) );
+    preview->setEnabled(_program != 0);
+    cut->setEnabled(_program != 0);
+    menu.addSeparator();
+    _renderAction->setEnabled(_renderer != 0);
+    menu.addAction(_renderAction); // the selection, which now holds the input
+    menu.addAction(_openInEditorAction);
+    QAction* openOutput = menu.addAction( tr("Open Output"), this, SLOT(onOpenOutputClicked()) );
+    openOutput->setEnabled( !_scenes->renderRecord(_currentSceneId, item).output.isEmpty() );
+    menu.addSeparator();
+    menu.addAction(_removeProjectsAction);
+    menu.exec(globalPos);
+}
+
+void
+ScenePanel::onTileGridContextMenu(const QPoint& /*pos*/)
+{
     QMenu menu(this);
 
-    if (row >= 0) {
-        // Right-clicking outside the selection acts on the clicked row only.
-        if ( !_projectTable->selectionModel()->isRowSelected( row, QModelIndex() ) ) {
-            _projectTable->selectRow(row);
-        }
-        _renderAction->setEnabled(_renderer != 0);
-        menu.addAction(_renderAction); // the selection, which now holds the row
-        menu.addAction(_openInEditorAction);
-        menu.addSeparator();
-        menu.addAction(_removeProjectsAction);
-    } else {
-        menu.addAction( tr("Add Projects..."), this, SLOT(onAddProjectsClicked()) );
+    menu.addAction( tr("Add Projects..."), this, SLOT(onAddProjectsClicked()) );
+    menu.exec( QCursor::pos() );
+}
+
+void
+ScenePanel::onTileCutClicked()
+{
+    const QString item = sender() ? sender()->property("item").toString() : QString();
+
+    cutToInput(item);
+}
+
+void
+ScenePanel::onPreviewSelectedClicked()
+{
+    const QStringList items = selectedItems();
+
+    if ( !items.isEmpty() ) {
+        previewInput( items.front() );
     }
-    menu.exec( _projectTable->viewport()->mapToGlobal(pos) );
+}
+
+void
+ScenePanel::onCutSelectedClicked()
+{
+    const QStringList items = selectedItems();
+
+    if ( !items.isEmpty() ) {
+        cutToInput( items.front() );
+    }
+}
+
+void
+ScenePanel::onNumberShortcut()
+{
+    QAction* action = qobject_cast<QAction*>( sender() );
+    const QStringList items = currentItems();
+
+    if (!action) {
+        return;
+    }
+    const int data = action->data().toInt();
+    const bool cut = data >= kSceneCutShortcutData;
+    const int index = cut ? data - kSceneCutShortcutData : data;
+    if ( index >= items.size() ) {
+        return;
+    }
+    if (cut) {
+        cutToInput( items.at(index) );
+    } else {
+        selectOnly( items.at(index) );
+        _anchorItem = items.at(index);
+        refreshButtons();
+        previewInput( items.at(index) );
+    }
+}
+
+bool
+ScenePanel::ensureNdiEnabled(bool askAgain)
+{
+    ::Scene scene;
+
+    if ( !_ndi || !_scenes->scene(_currentSceneId, &scene) ) {
+        return false;
+    }
+    if (scene.ndiEnabled) {
+        return true;
+    }
+    if ( !askAgain && _ndiDeclined.contains(scene.id) ) {
+        return false;
+    }
+    if ( QMessageBox::question( this, tr("NDI Output"),
+                                tr("Preview and Program play the inputs of \"%1\" through its NDI output, which is off.\n\n"
+                                   "Turn it on? Each Write node of the scene becomes an NDI source on the network.").arg(scene.name),
+                                QMessageBox::Yes | QMessageBox::No, QMessageBox::Yes ) != QMessageBox::Yes ) {
+        if ( !_ndiDeclined.contains(scene.id) ) {
+            _ndiDeclined << scene.id;
+        }
+
+        return false;
+    }
+    _ndiDeclined.removeAll(scene.id);
+    _scenes->setNdiEnabled(scene.id, true);
+
+    return true;
+}
+
+void
+ScenePanel::previewInput(const QString& item)
+{
+    if ( !_program || item.isEmpty() ) {
+        return;
+    }
+    // Without NDI it still shows its last render.
+    const QString sceneId = _currentSceneId;
+    ensureNdiEnabled(false);
+    _program->setPreview( ::ProgramOutput::Source(sceneId, item) );
+}
+
+void
+ScenePanel::cutToInput(const QString& item)
+{
+    if ( !_program || item.isEmpty() ) {
+        return;
+    }
+    // Without NDI there would be nothing to put on air.
+    const QString sceneId = _currentSceneId;
+    if ( ensureNdiEnabled(true) ) {
+        _program->cutTo( ::ProgramOutput::Source(sceneId, item) );
+    }
+}
+
+void
+ScenePanel::setProgramOutput(::ProgramOutput* program)
+{
+    _program = program;
+    if (_program) {
+        QObject::connect( _program, SIGNAL(busChanged()), this, SLOT(onBusChanged()) );
+    }
+    refreshTileTally();
+    refreshTilesNdi();
+}
+
+void
+ScenePanel::onBusChanged()
+{
+    refreshTileTally();
 }
 
 void
@@ -1868,9 +2153,7 @@ ScenePanel::onRenderRecordChanged(const QString& sceneId,
         return;
     }
 
-    const int row = currentItems().indexOf(item);
-
-    if (row < 0) {
+    if ( !_tiles.contains(item) ) {
         return;
     }
 
@@ -1880,9 +2163,7 @@ ScenePanel::onRenderRecordChanged(const QString& sceneId,
         _infos.remove( ::SceneItem::project(item) );
     }
 
-    if ( row < _projectTable->rowCount() ) {
-        refreshProjectRow(row);
-    }
+    refreshTile(item);
     refreshKvTable();
 }
 
@@ -1890,7 +2171,7 @@ void
 ScenePanel::onRendererStatusChanged()
 {
     // Queue / pause changes affect every row's controls.
-    for (QHash<QString, RowWidgets>::const_iterator it = _rows.constBegin(); it != _rows.constEnd(); ++it) {
+    for (QHash<QString, TileWidgets>::const_iterator it = _tiles.constBegin(); it != _tiles.constEnd(); ++it) {
         refreshRowRenderState( it.key() );
     }
     refreshButtons();
@@ -2051,6 +2332,8 @@ ScenePanel::refreshNdiTab()
                             : !scene.ndiEnabled ? tr("Enable NDI output to list this scene's sources.")
                             : tr("This scene has no Write nodes.") );
     if (!active) {
+        refreshTilesNdi();
+
         return;
     }
     _ndiTable->setRowCount( scene.items.size() );
@@ -2174,6 +2457,7 @@ ScenePanel::refreshNdiRows()
 
         _ndiTable->setItem( r.row, kNdiColumnReceivers, new QTableWidgetItem( st.connections < 0 ? tr("-") : QString::number(st.connections) ) );
     }
+    refreshTilesNdi();
 }
 
 void

@@ -13,6 +13,8 @@
 #              builds first if that build is not of the current source
 #   plugins    re-clone and rebuild the OFX plug-ins (otherwise built once and kept)
 #   status     show what the cache holds
+#   sdk        build the Qt 5 SDK image (natron-sdk-qt5:latest, see
+#              scripts/docker/natron-sdk-qt5/Dockerfile)
 #   clean      delete the cache (the next run starts from scratch)
 #
 # Options:
@@ -25,8 +27,9 @@
 #   --no-portable  installer only, no portable .tar.xz archive (saves a few minutes)
 #   --rebuild      compile even if the cache holds a build of this source
 #   --committed    refuse to build with uncommitted changes (build = HEAD)
-#   --qt4, --qt5   Qt to build against (default: 4; the natron-sdk image has no
-#                  shiboken2 generator, which Qt 5 builds need for the Python bindings)
+#   --qt4, --qt5   Qt to build against (default: 4). Qt 5 needs the shiboken2
+#                  generator, which natrongithub/natron-sdk lacks: --qt5 builds in
+#                  natron-sdk-qt5:latest (make it once with the sdk mode)
 #
 # Platforms: the build scripts (tools/jenkins) build for the machine they run
 # on; they cannot cross-compile. Each platform is built on its own host:
@@ -40,7 +43,8 @@
 #   NATRON_BUILD_CACHE  cache directory (default: ../natron-build-cache next to this repo,
 #                       or ../natron-build-cache-<platform> for windows and macos)
 #   NATRON_BUILD_OUT    output directory (default: ../builds next to this repo)
-#   NATRON_SDK_IMAGE    linux SDK image (default: natrongithub/natron-sdk:latest)
+#   NATRON_SDK_IMAGE    linux SDK image (default: natrongithub/natron-sdk:latest,
+#                       natron-sdk-qt5:latest with --qt5)
 #
 # What is reused between runs (all under the cache directory):
 #   tmp/Natron         sources and object files: only changed files are recompiled
@@ -60,7 +64,8 @@ set -euo pipefail
 
 SRC="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 OUT="${NATRON_BUILD_OUT:-$(dirname "$SRC")/builds}"
-IMAGE="${NATRON_SDK_IMAGE:-natrongithub/natron-sdk:latest}"
+IMAGE="${NATRON_SDK_IMAGE:-}" # chosen once the Qt version is known
+QT5_IMAGE="natron-sdk-qt5:latest"
 CONTAINER="natron-build"
 
 case "$(uname -s)" in
@@ -134,6 +139,9 @@ fi
 if [ "$PLATFORM" = "linux" ]; then
     CACHE="${NATRON_BUILD_CACHE:-$(dirname "$SRC")/natron-build-cache}"
     QT="${QT:-4}" # the scripts would otherwise pick it from the branch name
+    if [ -z "$IMAGE" ]; then
+        IMAGE="$([ "$QT" = "5" ] && echo "$QT5_IMAGE" || echo natrongithub/natron-sdk:latest)"
+    fi
 else
     CACHE="${NATRON_BUILD_CACHE:-$(dirname "$SRC")/natron-build-cache-$PLATFORM}"
 fi
@@ -149,6 +157,14 @@ running() {
 }
 
 case "$MODE" in
+    sdk)
+        if [ "$PLATFORM" != "linux" ]; then
+            echo "The SDK image is for linux builds." >&2
+            exit 1
+        fi
+        docker build -t "$QT5_IMAGE" "$SRC/scripts/docker/natron-sdk-qt5"
+        exit $?
+        ;;
     status)
         echo "Platform: $PLATFORM"
         echo "Cache:    $CACHE"
@@ -195,6 +211,12 @@ esac
 if running; then
     echo "A build is already running (docker logs -f $CONTAINER)." >&2
     exit 1
+fi
+if [ "$PLATFORM" = "linux" ] && ! docker image inspect "$IMAGE" >/dev/null 2>&1; then
+    if [ "$IMAGE" = "$QT5_IMAGE" ]; then
+        echo "No $QT5_IMAGE image yet: make it with \`$0 sdk\` (once)." >&2
+        exit 1
+    fi
 fi
 # What a build is made of: the commit, the uncommitted changes (tracked and
 # untracked, as copied into the cache) and the Qt version. Recorded in the

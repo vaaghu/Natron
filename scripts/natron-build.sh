@@ -368,6 +368,13 @@ INFO
             $(awk '$1 == "path" {print "--exclude=/" $3 "/"}' "$src/.gitmodules") \
             "$src/" "$tmp/Natron/"
         write_build_info
+        # Qt 5: build-natron.sh runs shiboken2 on Engine/Pyside2_Engine_Python.h
+        # and Gui/Pyside2_Gui_Python.h, but the files are PySide2_*: on a
+        # case-sensitive file system, add the names it uses (in the copy only).
+        if [ "${QT_VERSION_MAJOR:-}" = "5" ]; then
+            ln -sf PySide2_Engine_Python.h "$tmp/Natron/Engine/Pyside2_Engine_Python.h"
+            ln -sf PySide2_Gui_Python.h "$tmp/Natron/Gui/Pyside2_Gui_Python.h"
+        fi
         # With DEBUG_SCRIPTS=1, an existing binary means "already built".
         rm -f "$tmp/$natron_bin"
         # An interrupted build can leave empty object files that make takes

@@ -356,6 +356,9 @@ INFO
             find "$tmp/Natron" -type f \( -name '*.o' -o -name '*.a' -o -name '*.so' -o -name 'moc_*' -o -name 'qrc_*' \
                                 -o -name 'Makefile' -o -name 'Makefile.*' -o -name '.qmake.stash' \) -delete
         fi
+        # From now on the objects are of this Qt version (also if this build
+        # fails: a retry must not remove what it compiled).
+        echo "${QT_VERSION_MAJOR:-}" > "$tmp/.built-qt"
         mkdir -p "$tmp/Natron"
         # .git with mtimes (cheap on later runs). Submodules are left to the
         # checkout step, which updates them in the cache like the CI does.
@@ -400,7 +403,6 @@ INFO
     all|build)
         if [ -f "$tmp/$natron_bin" ]; then
             echo "$SOURCE_STAMP" > "$tmp/.built-source"
-            echo "${QT_VERSION_MAJOR:-}" > "$tmp/.built-qt"
         fi
         ;;
     esac

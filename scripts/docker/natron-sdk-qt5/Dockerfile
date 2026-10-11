@@ -13,12 +13,28 @@ FROM natrongithub/natron-sdk:latest
 # Same version as the PySide2 of the SDK.
 ARG SHIBOKEN2_VERSION=5.15.2.1
 ARG GENERATOR=/opt/Natron-sdk/lib/python3.10/site-packages/shiboken2_generator
+# Clang's built-in headers (stddef.h, limits.h...) for the generator's
+# libclang 6: the wheel does not have them, nor does the SDK's LLVM. Taken
+# from Qt's prebuilt libclang 6.0.1 for RHEL 7 (only the headers are kept).
+ARG LIBCLANG_URL=https://download.qt.io/development_releases/prebuilt/libclang/libclang-release_60-linux-Rhel7.2-gcc5.3-x86_64-clazy.7z
+ARG LIBCLANG_DIR=/opt/Natron-sdk/libclang
+
+# Its own layer: the archive is large (300 MB), keep it out of rebuilds.
+RUN set -e; \
+    /opt/Natron-sdk/bin/pip3.10 install --no-cache-dir py7zr; \
+    cd /tmp; \
+    curl -sSL -o libclang.7z "${LIBCLANG_URL}"; \
+    /opt/Natron-sdk/bin/python3.10 -c "import py7zr, re; z = py7zr.SevenZipFile('libclang.7z'); z.extract(path='/tmp/libclang', targets=[n for n in z.getnames() if re.match(r'libclang/lib/clang/[^/]+/include/', n)])"; \
+    mkdir -p "${LIBCLANG_DIR}"; \
+    mv /tmp/libclang/libclang/lib "${LIBCLANG_DIR}/"; \
+    rm -rf libclang.7z /tmp/libclang; \
+    ls "${LIBCLANG_DIR}"/lib/clang/*/include/stddef.h
 
 # 1. The generator wheel from Qt.
 # 2. Its own Qt libraries need ICU 56, which the SDK does not have: use the
 #    SDK's Qt 5 instead (as pyside2.sh does for PySide2).
 # 3. A shiboken2 command on the build scripts' PATH ($SDK_HOME/bin), with the
-#    SDK's ICU, then check that it runs.
+#    SDK's ICU and the clang headers, then check that it runs.
 RUN set -e; \
     /opt/Natron-sdk/bin/pip3.10 install --no-cache-dir \
         --index-url=https://download.qt.io/official_releases/QtForPython/ \
@@ -31,7 +47,7 @@ RUN set -e; \
             ln -s "/opt/Natron-sdk/qt5/lib/$lib" .; \
         fi; \
     done; \
-    printf '#!/bin/sh\nLD_LIBRARY_PATH="/opt/Natron-sdk/lib${LD_LIBRARY_PATH:+:$LD_LIBRARY_PATH}" exec %s/shiboken2 "$@"\n' "${GENERATOR}" \
+    printf '#!/bin/sh\nLLVM_INSTALL_DIR=%s LD_LIBRARY_PATH="/opt/Natron-sdk/lib${LD_LIBRARY_PATH:+:$LD_LIBRARY_PATH}" exec %s/shiboken2 "$@"\n' "${LIBCLANG_DIR}" "${GENERATOR}" \
         > /opt/Natron-sdk/bin/shiboken2; \
     chmod +x /opt/Natron-sdk/bin/shiboken2; \
     /opt/Natron-sdk/bin/shiboken2 --version

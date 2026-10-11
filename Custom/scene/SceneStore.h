@@ -22,6 +22,27 @@ QString writer(const QString &item);
 QStringList allOf(const QString &project);
 }
 
+// Where a layer of the switcher sits in the output, in fractions of it:
+// its centre (0.5, 0.5: centred) and its size (1: fitted into the output,
+// aspect ratio kept).
+struct LayerPlacement
+{
+  double x;
+  double y;
+  double scale;
+
+  LayerPlacement()
+      : x(0.5),
+        y(0.5),
+        scale(1)
+  {
+  }
+
+  bool isDefault() const { return x == 0.5 && y == 0.5 && scale == 1; }
+  bool operator==(const LayerPlacement &other) const { return x == other.x && y == other.y && scale == other.scale; }
+  bool operator!=(const LayerPlacement &other) const { return !(*this == other); }
+};
+
 // A named group of Write nodes of Natron projects, rendered together.
 struct Scene
 {
@@ -45,6 +66,8 @@ struct Scene
   // after the other (the first one is the item's "pause point").
   QHash<QString, QList<double> > ndiCuePoints;
   QHash<QString, bool> ndiLoop;      // item -> loop
+  // item -> where it goes when layered in the switcher (default: fitted, centred)
+  QHash<QString, LayerPlacement> layerPlacements;
 
   Scene()
       : ndiEnabled(false),
@@ -161,6 +184,7 @@ public:
   void setNdiPauseAt(const QString &id, const QString &item, double seconds); // only this point; < 0: none
   void setNdiCuePoints(const QString &id, const QString &item, const QList<double> &seconds); // sorted, negative ones dropped
   void setNdiLoop(const QString &id, const QString &item, bool loop);
+  void setLayerPlacement(const QString &id, const QString &item, const LayerPlacement &placement);
 
   // Renders are per scene: the same item renders differently (other keys,
   // other output folder) in another scene.

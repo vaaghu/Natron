@@ -82,6 +82,7 @@ public:
     QByteArray frame;
     int width;
     int height;
+    LayerPlacement placement;
 
     Layer()
         : width(0),
@@ -269,8 +270,9 @@ protected:
   }
 
 private:
-  // The layers over black, each fitted into width x height (aspect ratio
-  // kept, centred), with their transparency. Opaque BGRA.
+  // The layers over black, each at its placement in width x height (by
+  // default fitted, aspect ratio kept, and centred), with their
+  // transparency. Opaque BGRA.
   static QByteArray composite(const QList<Layer> &layers, int width, int height)
   {
     QImage canvas(width, height, QImage::Format_ARGB32_Premultiplied);
@@ -288,7 +290,7 @@ private:
         // BGRA bytes = ARGB32 on little-endian machines.
         const QImage image(reinterpret_cast<const uchar *>(layer.frame.constData()), layer.width, layer.height,
                            layer.width * 4, QImage::Format_ARGB32);
-        if (layer.width == width && layer.height == height)
+        if (layer.width == width && layer.height == height && layer.placement.isDefault())
         {
           painter.drawImage(0, 0, image);
         }
@@ -296,7 +298,9 @@ private:
         {
           QSize size = image.size();
           size.scale(width, height, Qt::KeepAspectRatio); // QSize::scaled() is Qt 5 only
-          painter.drawImage(QRect((width - size.width()) / 2, (height - size.height()) / 2, size.width(), size.height()), image);
+          const double w = size.width() * layer.placement.scale;
+          const double h = size.height() * layer.placement.scale;
+          painter.drawImage(QRectF(layer.placement.x * width - w / 2, layer.placement.y * height - h / 2, w, h), image);
         }
       }
     }
@@ -331,8 +335,9 @@ namespace
 {
 // The frames the layers' channels send now. Layers without a channel, or
 // stopped (sending a clear frame), are left out.
-QList<ProgramMixer::Layer> framesOf(NdiManager *ndi, const ProgramOutput::Layers &layers)
+QList<ProgramMixer::Layer> framesOf(NdiManager *ndi, const ProgramOutput &output, ProgramOutput::Bus bus)
 {
+  const ProgramOutput::Layers layers = output.layers(bus);
   QList<ProgramMixer::Layer> frames;
   for (int i = 0; i < layers.size(); ++i)
   {
@@ -341,6 +346,7 @@ QList<ProgramMixer::Layer> framesOf(NdiManager *ndi, const ProgramOutput::Layers
     if (channel && channel->status().state != PlayoutChannel::eStopped &&
         channel->currentFrame(&layer.frame, &layer.width, &layer.height))
     {
+      layer.placement = output.placement(bus, layers.at(i));
       frames << layer;
     }
   }
@@ -461,6 +467,26 @@ void ProgramOutput::setLayers(Bus which, const Layers &layers)
     stopTransition();
     playLayers(unique);
   }
+  // Placements: kept for the layers staying; new ones get the scene's (on
+  // Program, the one they have on Preview, if they are there).
+  QHash<QString, LayerPlacement> placements;
+  for (int i = 0; i < unique.size(); ++i)
+  {
+    const QString key = placementKey(unique.at(i));
+    if (m_placements[which].contains(key))
+    {
+      placements.insert(key, m_placements[which].value(key));
+    }
+    else if (which == eProgram && m_placements[ePreview].contains(key))
+    {
+      placements.insert(key, m_placements[ePreview].value(key));
+    }
+    else
+    {
+      placements.insert(key, savedPlacement(unique.at(i)));
+    }
+  }
+  m_placements[which] = placements;
   bus(which) = unique;
   Q_EMIT busChanged();
 }
@@ -497,6 +523,30 @@ void ProgramOutput::moveLayer(Bus which, const Source &source, int steps)
     layers.move(from, to);
     bus(which) = layers;
     Q_EMIT busChanged();
+  }
+}
+
+QString ProgramOutput::placementKey(const Source &source)
+{
+  return source.sceneId + QLatin1Char('|') + source.item;
+}
+
+LayerPlacement ProgramOutput::savedPlacement(const Source &source) const
+{
+  Scene scene;
+  return m_scenes->scene(source.sceneId, &scene) ? scene.layerPlacements.value(source.item) : LayerPlacement();
+}
+
+LayerPlacement ProgramOutput::placement(Bus which, const Source &source) const
+{
+  return m_placements[which].value(placementKey(source));
+}
+
+void ProgramOutput::setPlacement(Bus which, const Source &source, const LayerPlacement &placement)
+{
+  if (layers(which).contains(source) && placement.scale > 0)
+  {
+    m_placements[which].insert(placementKey(source), placement);
   }
 }
 
@@ -686,6 +736,9 @@ void ProgramOutput::swap()
   const Layers program = m_program;
   m_program = m_preview;
   m_preview = program;
+  const QHash<QString, LayerPlacement> placements = m_placements[eProgram];
+  m_placements[eProgram] = m_placements[ePreview];
+  m_placements[ePreview] = placements;
   Q_EMIT busChanged();
 }
 
@@ -719,7 +772,7 @@ void ProgramOutput::onTick()
     }
   }
 
-  m_mixer->setInputs(framesOf(m_ndi, m_program), framesOf(m_ndi, m_preview), m_position, m_black);
+  m_mixer->setInputs(framesOf(m_ndi, *this, eProgram), framesOf(m_ndi, *this, ePreview), m_position, m_black);
 
   if (changed)
   {

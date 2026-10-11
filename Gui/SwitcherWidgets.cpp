@@ -31,6 +31,7 @@ CLANG_DIAG_OFF(uninitialized)
 #include <QContextMenuEvent>
 #include <QFont>
 #include <QHBoxLayout>
+#include <QKeyEvent>
 #include <QLabel>
 #include <QMenu>
 #include <QMouseEvent>
@@ -173,6 +174,18 @@ VideoMonitor::heightForWidth(int width) const
     return width * _aspectHeight / _aspectWidth;
 }
 
+QRect
+VideoMonitor::pictureRect() const
+{
+    const int border = _border.isValid() ? 3 : 0;
+    const QRect area = rect().adjusted(border, border, -border, -border);
+    QSize size(_aspectWidth, _aspectHeight);
+
+    size.scale(area.size(), Qt::KeepAspectRatio); // QSize::scaled() is Qt 5 only
+
+    return QRect( area.x() + (area.width() - size.width()) / 2, area.y() + (area.height() - size.height()) / 2, size.width(), size.height() );
+}
+
 void
 VideoMonitor::paintEvent(QPaintEvent* /*e*/)
 {
@@ -205,6 +218,325 @@ VideoMonitor::paintEvent(QPaintEvent* /*e*/)
         painter.fillRect( box, QColor(0, 0, 0, 170) );
         painter.setPen( QColor(220, 220, 220) );
         painter.drawText(box, Qt::AlignCenter, _badge);
+    }
+}
+
+// ----- LayerMonitor -----
+
+// Corner handles: half size, and how far from the centre lines a drag snaps.
+#define kLayerHandleSize 4
+#define kLayerSnapPixels 6
+
+LayerMonitor::LayerMonitor(QWidget* parent)
+    : VideoMonitor(parent)
+    , _canvasWidth(1920)
+    , _canvasHeight(1080)
+    , _boxes()
+    , _selected()
+    , _drag(eDragNone)
+    , _pressPos()
+    , _pressPlacement()
+{
+    setFocusPolicy(Qt::ClickFocus); // arrow keys
+    setMouseTracking(true);
+}
+
+void
+LayerMonitor::setCanvas(int width,
+                        int height)
+{
+    if ( (width > 0) && (height > 0) ) {
+        _canvasWidth = width;
+        _canvasHeight = height;
+        setAspect(width, height);
+    }
+}
+
+void
+LayerMonitor::setBoxes(const QList<Box>& boxes)
+{
+    if (_drag != eDragNone) {
+        return;
+    }
+    _boxes = boxes;
+    if (indexOf(_selected) < 0) {
+        _selected.clear();
+    }
+    update();
+}
+
+void
+LayerMonitor::setSelected(const QString& key)
+{
+    if (key != _selected) {
+        _selected = key;
+        update();
+    }
+}
+
+QString
+LayerMonitor::selected() const
+{
+    return _selected;
+}
+
+int
+LayerMonitor::indexOf(const QString& key) const
+{
+    for (int i = 0; i < _boxes.size(); ++i) {
+        if (_boxes.at(i).key == key) {
+            return i;
+        }
+    }
+
+    return -1;
+}
+
+QRectF
+LayerMonitor::boxRect(const Box& box) const
+{
+    const QRect picture = pictureRect();
+    const double toWidget = double( picture.width() ) / _canvasWidth;
+    QSize fitted = box.size.isValid() ? box.size : QSize(_canvasWidth, _canvasHeight);
+
+    fitted.scale(_canvasWidth, _canvasHeight, Qt::KeepAspectRatio);
+    const double w = fitted.width() * box.placement.scale * toWidget;
+    const double h = fitted.height() * box.placement.scale * toWidget;
+
+    return QRectF(picture.x() + box.placement.x * picture.width() - w / 2,
+                  picture.y() + box.placement.y * picture.height() - h / 2, w, h);
+}
+
+int
+LayerMonitor::boxAt(const QPoint& pos) const
+{
+    for (int i = _boxes.size() - 1; i >= 0; --i) {
+        if ( boxRect( _boxes.at(i) ).contains(pos) ) {
+            return i;
+        }
+    }
+
+    return -1;
+}
+
+bool
+LayerMonitor::onHandle(const QPoint& pos) const
+{
+    const int index = indexOf(_selected);
+
+    if (index < 0) {
+        return false;
+    }
+    const QRectF r = boxRect( _boxes.at(index) );
+    const QPointF corners[] = { r.topLeft(), r.topRight(), r.bottomLeft(), r.bottomRight() };
+    for (int i = 0; i < 4; ++i) {
+        if ( (qAbs(corners[i].x() - pos.x()) <= kLayerHandleSize + 2) && (qAbs(corners[i].y() - pos.y()) <= kLayerHandleSize + 2) ) {
+            return true;
+        }
+    }
+
+    return false;
+}
+
+void
+LayerMonitor::place(int index,
+                    const LayerPlacement& placement,
+                    bool done)
+{
+    if ( (index < 0) || (index >= _boxes.size()) ) {
+        return;
+    }
+    _boxes[index].placement = placement;
+    update();
+    if (done) {
+        Q_EMIT placementChanged(_boxes.at(index).key, placement);
+    } else {
+        Q_EMIT placementChanging(_boxes.at(index).key, placement);
+    }
+}
+
+void
+LayerMonitor::paintEvent(QPaintEvent* e)
+{
+    VideoMonitor::paintEvent(e);
+    if ( _boxes.isEmpty() ) {
+        return;
+    }
+
+    QPainter painter(this);
+    painter.setClipRect( rect() );
+    // Every layer faintly; the selected one with its handles and name.
+    for (int i = 0; i < _boxes.size(); ++i) {
+        if (_boxes.at(i).key == _selected) {
+            continue;
+        }
+        painter.setPen( QPen(QColor(255, 255, 255, 70), 1, Qt::DashLine) );
+        painter.setBrush(Qt::NoBrush);
+        painter.drawRect( boxRect( _boxes.at(i) ) );
+    }
+    const int index = indexOf(_selected);
+    if (index < 0) {
+        return;
+    }
+    const QColor accent = Switcher::previewColor();
+    const QRectF r = boxRect( _boxes.at(index) );
+    painter.setPen( QPen(accent, 1) );
+    painter.drawRect(r);
+    const QPointF corners[] = { r.topLeft(), r.topRight(), r.bottomLeft(), r.bottomRight() };
+    painter.setBrush(accent);
+    for (int i = 0; i < 4; ++i) {
+        painter.drawRect( QRectF(corners[i].x() - kLayerHandleSize, corners[i].y() - kLayerHandleSize, 2 * kLayerHandleSize, 2 * kLayerHandleSize) );
+    }
+    const QString label = _boxes.at(index).label;
+    const QRect text = painter.fontMetrics().boundingRect(label).adjusted(-4, -1, 4, 1);
+    const QRect tag( int( r.left() ), int( r.top() ) - text.height() - 1, text.width(), text.height() );
+    painter.fillRect(tag.translated(0, (tag.top() < 0) ? text.height() + 2 : 0), accent);
+    painter.setPen(Qt::black);
+    painter.drawText(tag.translated(0, (tag.top() < 0) ? text.height() + 2 : 0), Qt::AlignCenter, label);
+
+    // Centre lines while moving a layer onto them.
+    if (_drag == eDragMove) {
+        const QRect picture = pictureRect();
+        painter.setPen( QPen(QColor(255, 255, 255, 120), 1, Qt::DotLine) );
+        if (_boxes.at(index).placement.x == 0.5) {
+            painter.drawLine( picture.center().x(), picture.top(), picture.center().x(), picture.bottom() );
+        }
+        if (_boxes.at(index).placement.y == 0.5) {
+            painter.drawLine( picture.left(), picture.center().y(), picture.right(), picture.center().y() );
+        }
+    }
+}
+
+void
+LayerMonitor::mousePressEvent(QMouseEvent* e)
+{
+    if (e->button() != Qt::LeftButton) {
+        VideoMonitor::mousePressEvent(e);
+
+        return;
+    }
+    if ( onHandle( e->pos() ) ) {
+        _drag = eDragScale;
+    } else {
+        const int index = boxAt( e->pos() );
+        if (index < 0) {
+            return;
+        }
+        if (_boxes.at(index).key != _selected) {
+            _selected = _boxes.at(index).key;
+            Q_EMIT layerSelected(_selected);
+        }
+        _drag = eDragMove;
+    }
+    _pressPos = e->pos();
+    _pressPlacement = _boxes.at( indexOf(_selected) ).placement;
+    update();
+}
+
+void
+LayerMonitor::mouseMoveEvent(QMouseEvent* e)
+{
+    const int index = indexOf(_selected);
+
+    if ( (_drag == eDragNone) || (index < 0) ) {
+        setCursor( onHandle( e->pos() ) ? Qt::SizeFDiagCursor : (boxAt( e->pos() ) >= 0) ? Qt::SizeAllCursor : Qt::ArrowCursor );
+
+        return;
+    }
+
+    const QRect picture = pictureRect();
+    if ( picture.isEmpty() ) {
+        return;
+    }
+    LayerPlacement placement = _pressPlacement;
+    if (_drag == eDragMove) {
+        placement.x += double( e->pos().x() - _pressPos.x() ) / picture.width();
+        placement.y += double( e->pos().y() - _pressPos.y() ) / picture.height();
+        // Snap to the centre lines.
+        if (qAbs(placement.x - 0.5) * picture.width() < kLayerSnapPixels) {
+            placement.x = 0.5;
+        }
+        if (qAbs(placement.y - 0.5) * picture.height() < kLayerSnapPixels) {
+            placement.y = 0.5;
+        }
+    } else {
+        // Scale by how far the mouse is from the layer's centre.
+        const QPointF centre( picture.x() + _pressPlacement.x * picture.width(), picture.y() + _pressPlacement.y * picture.height() );
+        const double from = std::sqrt( std::pow(_pressPos.x() - centre.x(), 2) + std::pow(_pressPos.y() - centre.y(), 2) );
+        const double to = std::sqrt( std::pow(e->pos().x() - centre.x(), 2) + std::pow(e->pos().y() - centre.y(), 2) );
+        if (from > 1) {
+            placement.scale = qBound(0.02, _pressPlacement.scale * to / from, 20.0);
+        }
+    }
+    place(index, placement, false);
+}
+
+void
+LayerMonitor::mouseReleaseEvent(QMouseEvent* e)
+{
+    const int index = indexOf(_selected);
+
+    if ( (_drag != eDragNone) && (index >= 0) ) {
+        _drag = eDragNone;
+        if (_boxes.at(index).placement != _pressPlacement) {
+            place(index, _boxes.at(index).placement, true);
+        }
+        update();
+    }
+    _drag = eDragNone;
+    VideoMonitor::mouseReleaseEvent(e);
+}
+
+void
+LayerMonitor::keyPressEvent(QKeyEvent* e)
+{
+    const int index = indexOf(_selected);
+    const int step = (e->modifiers() & Qt::ShiftModifier) ? 10 : 1; // pixels of the output
+    int dx = 0, dy = 0;
+
+    switch ( e->key() ) {
+    case Qt::Key_Left: dx = -step; break;
+    case Qt::Key_Right: dx = step; break;
+    case Qt::Key_Up: dy = -step; break;
+    case Qt::Key_Down: dy = step; break;
+    default:
+        VideoMonitor::keyPressEvent(e);
+
+        return;
+    }
+    if ( (index < 0) || (_drag != eDragNone) ) {
+        return;
+    }
+    LayerPlacement placement = _boxes.at(index).placement;
+    placement.x += double(dx) / _canvasWidth;
+    placement.y += double(dy) / _canvasHeight;
+    place(index, placement, true);
+}
+
+void
+LayerMonitor::contextMenuEvent(QContextMenuEvent* e)
+{
+    const int index = boxAt( e->pos() );
+
+    if (index < 0) {
+        return;
+    }
+    if (_boxes.at(index).key != _selected) {
+        _selected = _boxes.at(index).key;
+        Q_EMIT layerSelected(_selected);
+        update();
+    }
+    QMenu menu(this);
+    QAction* centre = menu.addAction( tr("Centre") );
+    QAction* reset = menu.addAction( tr("Reset Position and Size") );
+    QAction* chosen = menu.exec( e->globalPos() );
+    if (chosen == centre) {
+        LayerPlacement placement = _boxes.at(index).placement;
+        placement.x = 0.5;
+        placement.y = 0.5;
+        place(index, placement, true);
+    } else if (chosen == reset) {
+        place(index, LayerPlacement(), true);
     }
 }
 

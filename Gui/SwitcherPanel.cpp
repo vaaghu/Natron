@@ -116,6 +116,7 @@ SwitcherPanel::SwitcherPanel(::ProgramOutput* program,
     , _program(program)
     , _ndi(ndi)
     , _scenes(scenes)
+    , _layerMonitor(0)
     , _onAirLabel(0)
     , _formatCombo(0)
     , _fpsCombo(0)
@@ -202,7 +203,16 @@ SwitcherPanel::createBus(::ProgramOutput::Bus bus,
                             .arg( rgb(color) ) );
     layout->addWidget(w.title);
 
-    w.monitor = new VideoMonitor(box);
+    if (bus == ::ProgramOutput::ePreview) {
+        _layerMonitor = new LayerMonitor(box);
+        _layerMonitor->setToolTip( tr("Drag a layer to move it, a corner to resize it; arrow keys nudge it. Right-click to centre or reset it.") );
+        w.monitor = _layerMonitor;
+        QObject::connect( _layerMonitor, SIGNAL(layerSelected(QString)), this, SLOT(onMonitorLayerSelected(QString)) );
+        QObject::connect( _layerMonitor, SIGNAL(placementChanging(QString,LayerPlacement)), this, SLOT(onPlacementChanging(QString,LayerPlacement)) );
+        QObject::connect( _layerMonitor, SIGNAL(placementChanged(QString,LayerPlacement)), this, SLOT(onPlacementChanged(QString,LayerPlacement)) );
+    } else {
+        w.monitor = new VideoMonitor(box);
+    }
     w.monitor->setPlaceholder( (bus == ::ProgramOutput::ePreview) ? tr("Click an input box to put it on Preview; + adds layers")
                                                                 : tr("Nothing on air") );
     layout->addWidget(w.monitor, 1);
@@ -490,6 +500,14 @@ SwitcherPanel::refreshTimeline(BusWidgets& w)
 void
 SwitcherPanel::onBusChanged()
 {
+    // Labels of the layers now on the buses (scene renames included).
+    _labels.clear();
+    for (int b = 0; b < 2; ++b) {
+        const ::ProgramOutput::Layers layers = _program ? _program->layers( ::ProgramOutput::Bus(b) ) : ::ProgramOutput::Layers();
+        for (int i = 0; i < layers.size(); ++i) {
+            _labels.insert( layerKey( layers.at(i) ), sourceLabel( layers.at(i) ) );
+        }
+    }
     for (int b = 0; b < 2; ++b) {
         refreshLayerList(_buses[b]);
     }
@@ -570,6 +588,7 @@ SwitcherPanel::onRefreshTimer()
                                : QString() );
     refreshTimeline(preview);
     refreshTimeline(program);
+    refreshLayerBoxes();
 
     const QString error = _program->outputError();
     if ( !error.isEmpty() ) {
@@ -655,6 +674,7 @@ SwitcherPanel::applyFormat(int width,
     for (int b = 0; b < 2; ++b) {
         _buses[b].monitor->setAspect(width, height);
     }
+    _layerMonitor->setCanvas(width, height);
 
     // Show it in the combos (a custom size gets its own entry).
     int index = _formatCombo->findData( QSize(width, height) );
@@ -720,7 +740,96 @@ SwitcherPanel::onFpsChosen(int index)
 void
 SwitcherPanel::onLayerSelectionChanged()
 {
+    BusWidgets& w = busOf( sender() );
+
+    if (w.bus == ::ProgramOutput::ePreview) {
+        const ::ProgramOutput::Source source = selectedLayer(w);
+        _layerMonitor->setSelected( source.isEmpty() ? QString() : layerKey(source) );
+    }
     refreshButtons();
+}
+
+// ----- Placing Preview layers -----
+
+QString
+SwitcherPanel::layerKey(const ::ProgramOutput::Source& source)
+{
+    return source.sceneId + QLatin1Char('|') + source.item;
+}
+
+::ProgramOutput::Source
+SwitcherPanel::previewLayer(const QString& key) const
+{
+    const ::ProgramOutput::Layers layers = _program ? _program->layers(::ProgramOutput::ePreview) : ::ProgramOutput::Layers();
+
+    for (int i = 0; i < layers.size(); ++i) {
+        if (layerKey( layers.at(i) ) == key) {
+            return layers.at(i);
+        }
+    }
+
+    return ::ProgramOutput::Source();
+}
+
+void
+SwitcherPanel::refreshLayerBoxes()
+{
+    QList<LayerMonitor::Box> boxes;
+    const QList<QPair< ::ProgramOutput::Source, ::PlayoutChannel*> > list = channels(::ProgramOutput::ePreview);
+
+    for (int i = 0; i < list.size(); ++i) {
+        LayerMonitor::Box box;
+        box.key = layerKey(list.at(i).first);
+        box.label = _labels.value(box.key);
+        box.placement = _program->placement(::ProgramOutput::ePreview, list.at(i).first);
+        // Its frame's size, to fit it as the mixer does.
+        QByteArray frame;
+        int width = 0, height = 0;
+        if ( list.at(i).second && list.at(i).second->currentFrame(&frame, &width, &height) ) {
+            box.size = QSize(width, height);
+        }
+        boxes << box;
+    }
+    _layerMonitor->setBoxes(boxes);
+}
+
+void
+SwitcherPanel::onMonitorLayerSelected(const QString& key)
+{
+    BusWidgets& w = _buses[::ProgramOutput::ePreview];
+
+    for (int i = 0; i < w.layers->count(); ++i) {
+        QListWidgetItem* item = w.layers->item(i);
+        const ::ProgramOutput::Source source( item->data(Qt::UserRole).toString(), item->data(Qt::UserRole + 1).toString() );
+        item->setSelected(layerKey(source) == key);
+    }
+}
+
+void
+SwitcherPanel::onPlacementChanging(const QString& key,
+                                   const LayerPlacement& placement)
+{
+    const ::ProgramOutput::Source source = previewLayer(key);
+
+    if ( _program && !source.isEmpty() ) {
+        _program->setPlacement(::ProgramOutput::ePreview, source, placement);
+    }
+}
+
+void
+SwitcherPanel::onPlacementChanged(const QString& key,
+                                  const LayerPlacement& placement)
+{
+    const ::ProgramOutput::Source source = previewLayer(key);
+
+    if ( !_program || source.isEmpty() ) {
+        return;
+    }
+    _program->setPlacement(::ProgramOutput::ePreview, source, placement);
+    // Where it goes next time it is layered.
+    if (_scenes) {
+        _scenes->setLayerPlacement(source.sceneId, source.item, placement);
+    }
 }
 
 void

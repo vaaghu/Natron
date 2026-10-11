@@ -39,6 +39,8 @@ CLANG_DIAG_OFF(uninitialized)
 CLANG_DIAG_ON(deprecated)
 CLANG_DIAG_ON(uninitialized)
 
+#include "Custom/scene/SceneStore.h" // LayerPlacement
+
 class QHBoxLayout;
 class QLabel;
 class QProgressBar;
@@ -82,6 +84,8 @@ public:
 protected:
 
     virtual void paintEvent(QPaintEvent* e) OVERRIDE;
+    // Where the picture goes: the widget, less the border, at the aspect ratio.
+    QRect pictureRect() const;
 
 private:
 
@@ -91,6 +95,80 @@ private:
     QColor _border;
     int _aspectWidth;
     int _aspectHeight;
+};
+
+/**
+ * @brief The Preview monitor: also shows the layers' outlines and lets the
+ * user place them (in the output format set with setCanvas()):
+ *   click            selects the top layer under the mouse
+ *   drag             moves it (snaps to the centre lines)
+ *   drag a corner    scales it, aspect ratio kept
+ *   arrow keys       nudge it by a pixel of the output (Shift: 10)
+ *   right-click      centre it, or reset it (fitted, centred)
+ **/
+class LayerMonitor
+    : public VideoMonitor
+{
+GCC_DIAG_SUGGEST_OVERRIDE_OFF
+    Q_OBJECT
+GCC_DIAG_SUGGEST_OVERRIDE_ON
+
+public:
+
+    struct Box
+    {
+        QString key;     // the layer
+        QString label;
+        QSize size;      // its frame, to fit it (invalid: the output's)
+        LayerPlacement placement;
+    };
+
+    explicit LayerMonitor(QWidget* parent = 0);
+
+    void setCanvas(int width, int height); // also the aspect ratio
+    // Bottom layer first. Ignored while the user drags one.
+    void setBoxes(const QList<Box>& boxes);
+    void setSelected(const QString& key);
+    QString selected() const;
+
+Q_SIGNALS:
+
+    void layerSelected(const QString& key);
+    // While dragging (live), then once done (drag released, nudge, menu).
+    void placementChanging(const QString& key, const LayerPlacement& placement);
+    void placementChanged(const QString& key, const LayerPlacement& placement);
+
+protected:
+
+    virtual void paintEvent(QPaintEvent* e) OVERRIDE;
+    virtual void mousePressEvent(QMouseEvent* e) OVERRIDE;
+    virtual void mouseMoveEvent(QMouseEvent* e) OVERRIDE;
+    virtual void mouseReleaseEvent(QMouseEvent* e) OVERRIDE;
+    virtual void keyPressEvent(QKeyEvent* e) OVERRIDE;
+    virtual void contextMenuEvent(QContextMenuEvent* e) OVERRIDE;
+
+private:
+
+    enum DragEnum
+    {
+        eDragNone,
+        eDragMove,
+        eDragScale
+    };
+
+    int indexOf(const QString& key) const;
+    QRectF boxRect(const Box& box) const; // in widget coordinates
+    int boxAt(const QPoint& pos) const;   // top-most, -1: none
+    bool onHandle(const QPoint& pos) const; // a corner of the selected layer
+    void place(int index, const LayerPlacement& placement, bool done);
+
+    int _canvasWidth;
+    int _canvasHeight;
+    QList<Box> _boxes;
+    QString _selected;
+    DragEnum _drag;
+    QPoint _pressPos;
+    LayerPlacement _pressPlacement;
 };
 
 /**

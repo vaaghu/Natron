@@ -202,6 +202,19 @@ bool SceneStore::loadAndAutoSave(const QString &path)
         scene.ndiLoop.insert(targets.at(t), l.value().toBool());
       }
     }
+    const QVariantMap placements = s.value(key("layerPlacement")).toMap();
+    for (QVariantMap::const_iterator p = placements.constBegin(); p != placements.constEnd(); ++p)
+    {
+      const QVariantMap v = p.value().toMap();
+      LayerPlacement placement;
+      placement.x = v.value(key("x"), 0.5).toDouble();
+      placement.y = v.value(key("y"), 0.5).toDouble();
+      placement.scale = v.value(key("scale"), 1.0).toDouble();
+      if (placement.scale > 0)
+      {
+        scene.layerPlacements.insert(p.key(), placement);
+      }
+    }
     if (!scene.id.isEmpty())
     {
       m_scenes << scene;
@@ -294,6 +307,16 @@ bool SceneStore::saveNow()
     }
     ndi.insert(key("loop"), loop);
     s.insert(key("ndi"), ndi);
+    QVariantMap placements;
+    for (QHash<QString, LayerPlacement>::const_iterator p = m_scenes.at(i).layerPlacements.constBegin(); p != m_scenes.at(i).layerPlacements.constEnd(); ++p)
+    {
+      QVariantMap v;
+      v.insert(key("x"), p.value().x);
+      v.insert(key("y"), p.value().y);
+      v.insert(key("scale"), p.value().scale);
+      placements.insert(p.key(), v);
+    }
+    s.insert(key("layerPlacement"), placements);
     scenes << s;
   }
 
@@ -670,6 +693,24 @@ void SceneStore::setNdiLoop(const QString &id, const QString &item, bool loop)
   m_scenes[i].ndiLoop.insert(item, loop);
   changed();
   Q_EMIT ndiSettingsChanged(id, item);
+}
+
+void SceneStore::setLayerPlacement(const QString &id, const QString &item, const LayerPlacement &placement)
+{
+  const int i = indexOf(id);
+  if (i < 0 || m_scenes.at(i).layerPlacements.value(item) == placement)
+  {
+    return;
+  }
+  if (placement.isDefault())
+  {
+    m_scenes[i].layerPlacements.remove(item);
+  }
+  else
+  {
+    m_scenes[i].layerPlacements.insert(item, placement);
+  }
+  changed(); // saved; no signal: only the switcher reads it, when layering
 }
 
 RenderRecord SceneStore::renderRecord(const QString &sceneId, const QString &item) const

@@ -1,6 +1,9 @@
 #pragma once
 
 #include "FrameSink.h"
+#include "../scene/SceneStore.h" // LayerPlacement
+
+#include <QHash>
 
 #include <QElapsedTimer>
 #include <QImage>
@@ -19,8 +22,10 @@ class SceneStore;
 // A layer is an input: an item of a scene (a Write node, see SceneItem),
 // played by its scene's NDI playout channel (see NdiManager); the mixer
 // takes the frames that channel sends, so the scene must have NDI output
-// enabled. The layers of a bus are fitted into the format and composited
-// in order (the first at the bottom), with their transparency, over black.
+// enabled. The layers of a bus are composited in order (the first at the
+// bottom), with their transparency, over black, each at its placement in
+// the format (fitted and centred by default). A layer taken to a bus gets
+// its scene's saved placement; Cut and Fade carry the placements along.
 //   cut()                 Preview goes on air at once; the old Program goes to Preview
 //   fade(ms)              crossfades from Program to Preview, then swaps them
 //   setManualPosition(t)  the T-bar: 0..1 of the crossfade, 1 completes it
@@ -81,6 +86,10 @@ public:
   void removeLayer(Bus bus, const Source &source);
   void moveLayer(Bus bus, const Source &source, int steps); // > 0: up
 
+  // Where a layer of a bus sits in the output.
+  LayerPlacement placement(Bus bus, const Source &source) const;
+  void setPlacement(Bus bus, const Source &source, const LayerPlacement &placement);
+
   // Only this input on Preview.
   void setPreview(const Source &source);
   // Only this input on Program; Preview stays (unless it is just that input: then like cut()).
@@ -116,6 +125,8 @@ private Q_SLOTS:
 
 private:
   Layers &bus(Bus bus);
+  static QString placementKey(const Source &source);
+  LayerPlacement savedPlacement(const Source &source) const; // the scene's
   void cueLayers(const Layers &layers);  // stopped ones hold their first frame
   void playLayers(const Layers &layers); // going on air
   void stopTransition();
@@ -128,6 +139,7 @@ private:
   QTimer m_tick;
   Layers m_preview;
   Layers m_program;
+  QHash<QString, LayerPlacement> m_placements[2]; // per Bus: placementKey() -> placement
   int m_width;
   int m_height;
   double m_fps;

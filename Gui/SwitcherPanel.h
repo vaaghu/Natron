@@ -30,6 +30,7 @@
 
 CLANG_DIAG_OFF(deprecated)
 CLANG_DIAG_OFF(uninitialized)
+#include <QHash>
 #include <QList>
 #include <QPair>
 #include <QString>
@@ -55,15 +56,17 @@ class SceneStore; // Custom/scene/SceneStore.h
 NATRON_NAMESPACE_ENTER
 
 class BusTimeline;
+class LayerMonitor;
 class VideoMonitor;
 
 /**
  * @brief Dashboard panel switching the Program output (see ProgramOutput),
  * laid out like vision mixers:
  *   Preview bus | format, Cut, Fade, duration, Fade to Black, T-bar | Program bus
- * Each bus shows its layers composited in the output format, the list of
- * its layers (reordered and removed here; added from the input boxes of
- * the scene panel), and a timeline like the editor's: a playhead scrubbing
+ * Each bus shows its layers composited in the output format (on Preview,
+ * dragged into place with the mouse), the list of its layers (reordered
+ * and removed here; added from the input boxes of the scene panel), and a
+ * timeline like the editor's: a playhead scrubbing
  * all its layers, transport controls, and the layers' cue points as
  * keyframes (where Cue and Play stop).
  **/
@@ -110,6 +113,11 @@ private Q_SLOTS:
     void onMarkerMoved(double from, double to);
     void onMarkerRemoved(double seconds);
 
+    // Preview monitor: placing layers.
+    void onMonitorLayerSelected(const QString& key);
+    void onPlacementChanging(const QString& key, const LayerPlacement& placement);
+    void onPlacementChanged(const QString& key, const LayerPlacement& placement);
+
 private:
 
     struct BusWidgets
@@ -142,12 +150,17 @@ private:
     // or remove one (to < 0).
     void editCuePoints(::ProgramOutput::Bus bus, double from, double to);
     void applyFormat(int width, int height, double fps);
+    static QString layerKey(const ::ProgramOutput::Source& source);
+    ::ProgramOutput::Source previewLayer(const QString& key) const; // empty: not on Preview
+    void refreshLayerBoxes();
 
     ::ProgramOutput* _program;
     ::NdiManager* _ndi;
     ::SceneStore* _scenes;
 
     BusWidgets _buses[2]; // indexed by ProgramOutput::Bus
+    LayerMonitor* _layerMonitor; // the Preview bus's monitor
+    QHash<QString, QString> _labels; // layerKey() -> NDI source name (reading it parses the project)
     QLabel* _onAirLabel;
 
     QComboBox* _formatCombo;

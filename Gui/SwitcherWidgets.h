@@ -72,6 +72,8 @@ public:
     void setBadge(const QString& text);
     // Invalid color: no border.
     void setBorderColor(const QColor& color);
+    // Picture shape (height for width), e.g. the output format.
+    void setAspect(int width, int height);
 
     virtual QSize sizeHint() const OVERRIDE;
     virtual QSize minimumSizeHint() const OVERRIDE;
@@ -87,6 +89,78 @@ private:
     QString _placeholder;
     QString _badge;
     QColor _border;
+    int _aspectWidth;
+    int _aspectHeight;
+};
+
+/**
+ * @brief Timeline of a switcher bus, drawn like the editor's: frame ruler,
+ * playhead, and cue points as keyframe diamonds.
+ *   click / drag            moves the playhead (seekRequested)
+ *   drag a diamond          moves that cue point
+ *   double-click            adds a cue point there, or removes the one clicked
+ *   right-click             add / delete / go to cue points
+ **/
+class BusTimeline
+    : public QWidget
+{
+GCC_DIAG_SUGGEST_OVERRIDE_OFF
+    Q_OBJECT
+GCC_DIAG_SUGGEST_OVERRIDE_ON
+
+public:
+
+    explicit BusTimeline(QWidget* parent = 0);
+
+    // Length (0: nothing to show) and frame rate of the bus.
+    void setRange(double duration, double fps);
+    // Ignored while the user drags the playhead.
+    void setPosition(double seconds);
+    void setMarkers(const QList<double>& seconds);
+
+    double duration() const;
+    double fps() const;
+    double position() const;
+    const QList<double>& markers() const;
+    // Nearest cue point before / after the playhead (-1: none).
+    double previousMarker() const;
+    double nextMarker() const;
+
+    virtual QSize sizeHint() const OVERRIDE;
+    virtual QSize minimumSizeHint() const OVERRIDE;
+
+Q_SIGNALS:
+
+    void seekRequested(double seconds);
+    void markerAdded(double seconds);
+    void markerMoved(double from, double to);
+    void markerRemoved(double seconds);
+
+protected:
+
+    virtual void paintEvent(QPaintEvent* e) OVERRIDE;
+    virtual void mousePressEvent(QMouseEvent* e) OVERRIDE;
+    virtual void mouseMoveEvent(QMouseEvent* e) OVERRIDE;
+    virtual void mouseReleaseEvent(QMouseEvent* e) OVERRIDE;
+    virtual void mouseDoubleClickEvent(QMouseEvent* e) OVERRIDE;
+    virtual void contextMenuEvent(QContextMenuEvent* e) OVERRIDE;
+
+private:
+
+    QRect track() const;
+    double secondsAt(int x) const; // snapped to a frame
+    int xAt(double seconds) const;
+    int markerAt(const QPoint& pos) const; // index, -1: none
+    void scrubTo(int x);
+
+    double _duration;
+    double _fps;
+    double _position;
+    QList<double> _markers;
+    bool _scrubbing;
+    int _dragMarker;       // index of the cue point being dragged, -1: none
+    double _dragFrom;      // its time before the drag
+    bool _dragMoved;
 };
 
 /**

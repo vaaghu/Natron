@@ -15,60 +15,13 @@
 
 namespace
 {
-const int kTickMs = 15;           // transitions and frame hand-over to the mixer
-const int kReopenDelayMs = 5000;  // the NDI source could not be opened: try again this often
-const int kConnectionsMs = 1000;  // receivers are counted this often
-const int kDefaultWidth = 1920;   // output size before any input had a frame
+const int kTickMs = 15;              // transitions and frame hand-over to the mixer
+const int kReopenDelayMs = 5000;     // the NDI source could not be opened: try again this often
+const int kConnectionsMs = 1000;     // receivers are counted this often
+const int kPreviewMonitorWidth = 960; // Preview is composited this small when not on air
+const int kDefaultWidth = 1920;
 const int kDefaultHeight = 1080;
 const double kDefaultFps = 30;
-
-// Opaque black BGRA frame.
-QByteArray blackFrame(int width, int height)
-{
-  QByteArray frame(width * height * 4, '\0');
-  char *p = frame.data();
-  for (int i = 3; i < frame.size(); i += 4)
-  {
-    p[i] = char(0xff);
-  }
-  return frame;
-}
-
-// Composites a frame with transparency over black: the output is opaque.
-void flatten(QByteArray *frame)
-{
-  uchar *p = reinterpret_cast<uchar *>(frame->data());
-  const int size = frame->size() - 3;
-  for (int i = 0; i < size; i += 4)
-  {
-    const int alpha = p[i + 3];
-    if (alpha != 255)
-    {
-      p[i] = uchar(p[i] * alpha / 255);
-      p[i + 1] = uchar(p[i + 1] * alpha / 255);
-      p[i + 2] = uchar(p[i + 2] * alpha / 255);
-      p[i + 3] = 255;
-    }
-  }
-}
-
-// frame (width x height) fitted into outWidth x outHeight, keeping its
-// aspect ratio, with black bars.
-QByteArray fit(const QByteArray &frame, int width, int height, int outWidth, int outHeight)
-{
-  // BGRA bytes = ARGB32 on little-endian machines.
-  const QImage source(reinterpret_cast<const uchar *>(frame.constData()), width, height, width * 4, QImage::Format_ARGB32);
-  QImage out(outWidth, outHeight, QImage::Format_ARGB32);
-  out.fill(0xff000000);
-  {
-    QPainter painter(&out);
-    painter.setRenderHint(QPainter::SmoothPixmapTransform);
-    QSize size = source.size();
-    size.scale(outWidth, outHeight, Qt::KeepAspectRatio); // QSize::scaled() is Qt 5 only
-    painter.drawImage(QRect((outWidth - size.width()) / 2, (outHeight - size.height()) / 2, size.width(), size.height()), source);
-  }
-  return QByteArray(reinterpret_cast<const char *>(out.constBits()), outWidth * outHeight * 4);
-}
 
 // a = a * (1 - k) + b * k, k in 0..256 (same sizes).
 void blend(QByteArray *a, const QByteArray &b, int k)
@@ -95,28 +48,44 @@ void darken(QByteArray *frame, int k)
   }
 }
 
+// Frame rate as a fraction (29.97 -> 30000/1001).
+void fpsFraction(double fps, int *num, int *den)
+{
+  const double ntsc = fps * 1.001;
+  if (std::fabs(ntsc - qRound(ntsc)) < 0.01 && std::fabs(fps - qRound(fps)) > 0.01)
+  {
+    *num = qRound(ntsc) * 1000;
+    *den = 1001;
+  }
+  else
+  {
+    *num = qRound(fps * 1000);
+    *den = 1000;
+  }
+}
+
 QString trProgram(const char *text)
 {
   return QCoreApplication::translate("ProgramOutput", text);
 }
 }
 
-// Mixes the Program and Preview frames handed over by ProgramOutput and
-// sends the result to the NDI source, at the Program input's frame rate.
+// Composites the layers of Program and Preview handed over by
+// ProgramOutput, mixes them, and sends the result to the NDI source at the
+// output frame rate.
 class ProgramMixer : public QThread
 {
 public:
-  struct Input
+  // A layer's frame (BGRA, with its transparency).
+  struct Layer
   {
-    QByteArray frame; // BGRA
+    QByteArray frame;
     int width;
     int height;
-    bool alpha;       // composite over black
 
-    Input()
+    Layer()
         : width(0),
-          height(0),
-          alpha(false)
+          height(0)
     {
     }
 
@@ -129,12 +98,14 @@ public:
         m_mix(0),
         m_black(0),
         m_fps(kDefaultFps),
+        m_width(kDefaultWidth),
+        m_height(kDefaultHeight),
         m_quit(false),
         m_outputWidth(0),
         m_outputHeight(0),
-        m_connections(-1),
-        m_lastWidth(kDefaultWidth),
-        m_lastHeight(kDefaultHeight)
+        m_previewWidth(0),
+        m_previewHeight(0),
+        m_connections(-1)
   {
   }
 
@@ -147,28 +118,31 @@ public:
     wait();
   }
 
+  void setFormat(int width, int height, double fps)
+  {
+    QMutexLocker locker(&m_mutex);
+    m_width = width;
+    m_height = height;
+    m_fps = fps > 0 ? fps : kDefaultFps;
+  }
+
   // The frames of the next output frames (mix: 0 Program .. 1 Preview).
-  void setInputs(const Input &program, const Input &preview, double mix, double black, double fps)
+  void setInputs(const QList<Layer> &program, const QList<Layer> &preview, double mix, double black)
   {
     QMutexLocker locker(&m_mutex);
     m_program = program;
     m_preview = preview;
     m_mix = mix;
     m_black = black;
-    m_fps = fps > 0 ? fps : kDefaultFps;
   }
 
-  bool output(QByteArray *frame, int *width, int *height) const
+  bool output(bool preview, QByteArray *frame, int *width, int *height) const
   {
     QMutexLocker locker(&m_mutex);
-    if (m_outputWidth <= 0 || m_outputHeight <= 0)
-    {
-      return false;
-    }
-    *frame = m_output;
-    *width = m_outputWidth;
-    *height = m_outputHeight;
-    return true;
+    *frame = preview ? m_previewOutput : m_output;
+    *width = preview ? m_previewWidth : m_outputWidth;
+    *height = preview ? m_previewHeight : m_outputHeight;
+    return *width > 0 && *height > 0;
   }
 
   QString error() const
@@ -196,8 +170,9 @@ protected:
 
     for (;;)
     {
-      Input program, preview;
+      QList<Layer> program, preview;
       double mix, black, fps;
+      int width, height;
       {
         QMutexLocker locker(&m_mutex);
         if (m_quit)
@@ -209,10 +184,12 @@ protected:
         mix = m_mix;
         black = m_black;
         fps = m_fps;
+        width = m_width;
+        height = m_height;
       }
 
       // Open the output; if it cannot be opened (NDI runtime missing...),
-      // keep mixing for the dashboard's monitor and try again later.
+      // keep mixing for the dashboard's monitors and try again later.
       if (!sink && (!reopen.isValid() || reopen.elapsed() > kReopenDelayMs))
       {
         QString error;
@@ -233,18 +210,36 @@ protected:
         }
       }
 
-      int width, height;
-      const QByteArray frame = compose(program, preview, mix, black, &width, &height);
+      // Preview: at the output size while it is mixed in, else monitor size.
+      const bool previewOnAir = mix > 0;
+      const int previewWidth = previewOnAir ? width : qMin(width, kPreviewMonitorWidth);
+      const int previewHeight = previewOnAir ? height : qMax(1, height * previewWidth / width);
+      const QByteArray previewFrame = composite(preview, previewWidth, previewHeight);
+
+      QByteArray frame = (mix >= 1) ? previewFrame : composite(program, width, height);
+      if (mix > 0 && mix < 1)
+      {
+        blend(&frame, previewFrame, int(mix * 256 + 0.5));
+      }
+      if (black > 0)
+      {
+        darken(&frame, int(black * 256 + 0.5));
+      }
       {
         QMutexLocker locker(&m_mutex);
         m_output = frame;
         m_outputWidth = width;
         m_outputHeight = height;
+        m_previewOutput = previewFrame;
+        m_previewWidth = previewWidth;
+        m_previewHeight = previewHeight;
       }
 
       if (sink)
       {
-        sink->sendFrame(frame, width, height, qRound(fps * 1000), 1000);
+        int num, den;
+        fpsFraction(fps, &num, &den);
+        sink->sendFrame(frame, width, height, num, den);
         if (connectionsTimer.elapsed() > kConnectionsMs)
         {
           connectionsTimer.restart();
@@ -274,60 +269,39 @@ protected:
   }
 
 private:
-  // An input at the output size, opaque; black if it has no frame.
-  QByteArray prepare(const Input &input, int width, int height)
+  // The layers over black, each fitted into width x height (aspect ratio
+  // kept, centred), with their transparency. Opaque BGRA.
+  static QByteArray composite(const QList<Layer> &layers, int width, int height)
   {
-    if (!input.isValid())
+    QImage canvas(width, height, QImage::Format_ARGB32_Premultiplied);
+    canvas.fill(0xff000000);
     {
-      if (m_blackFrame.size() != width * height * 4)
+      QPainter painter(&canvas);
+      painter.setRenderHint(QPainter::SmoothPixmapTransform);
+      for (int i = 0; i < layers.size(); ++i)
       {
-        m_blackFrame = blackFrame(width, height);
+        const Layer &layer = layers.at(i);
+        if (!layer.isValid())
+        {
+          continue;
+        }
+        // BGRA bytes = ARGB32 on little-endian machines.
+        const QImage image(reinterpret_cast<const uchar *>(layer.frame.constData()), layer.width, layer.height,
+                           layer.width * 4, QImage::Format_ARGB32);
+        if (layer.width == width && layer.height == height)
+        {
+          painter.drawImage(0, 0, image);
+        }
+        else
+        {
+          QSize size = image.size();
+          size.scale(width, height, Qt::KeepAspectRatio); // QSize::scaled() is Qt 5 only
+          painter.drawImage(QRect((width - size.width()) / 2, (height - size.height()) / 2, size.width(), size.height()), image);
+        }
       }
-      return m_blackFrame;
     }
-    QByteArray frame = input.frame;
-    if (input.alpha)
-    {
-      flatten(&frame);
-    }
-    if (input.width != width || input.height != height)
-    {
-      frame = fit(frame, input.width, input.height, width, height);
-    }
-    return frame;
-  }
-
-  QByteArray compose(const Input &program, const Input &preview, double mix, double black, int *width, int *height)
-  {
-    // Output size: the Program input's, else the Preview input's while it
-    // shows, else the last one.
-    if (program.isValid())
-    {
-      m_lastWidth = program.width;
-      m_lastHeight = program.height;
-    }
-    else if (preview.isValid() && mix > 0)
-    {
-      m_lastWidth = preview.width;
-      m_lastHeight = preview.height;
-    }
-    *width = m_lastWidth;
-    *height = m_lastHeight;
-
-    QByteArray out = prepare(program, m_lastWidth, m_lastHeight);
-    if (mix >= 1)
-    {
-      out = prepare(preview, m_lastWidth, m_lastHeight);
-    }
-    else if (mix > 0)
-    {
-      blend(&out, prepare(preview, m_lastWidth, m_lastHeight), int(mix * 256 + 0.5));
-    }
-    if (black > 0)
-    {
-      darken(&out, int(black * 256 + 0.5));
-    }
-    return out;
+    // Opaque: premultiplied and straight alpha are the same bytes.
+    return QByteArray(reinterpret_cast<const char *>(canvas.constBits()), width * height * 4);
   }
 
   const QString m_name;
@@ -335,40 +309,52 @@ private:
 
   mutable QMutex m_mutex;
   // shared state (m_mutex)
-  Input m_program;
-  Input m_preview;
+  QList<Layer> m_program;
+  QList<Layer> m_preview;
   double m_mix;
   double m_black;
   double m_fps;
+  int m_width;
+  int m_height;
   bool m_quit;
   QByteArray m_output;
   int m_outputWidth;
   int m_outputHeight;
+  QByteArray m_previewOutput;
+  int m_previewWidth;
+  int m_previewHeight;
   QString m_error;
   int m_connections;
-
-  // mixer thread
-  int m_lastWidth;
-  int m_lastHeight;
-  QByteArray m_blackFrame;
 };
 
 namespace
 {
-// The frame an input's channel sends now (invalid without a channel or frame).
-ProgramMixer::Input inputOf(NdiManager *ndi, const ProgramOutput::Source &source, double *fps)
+// The frames the layers' channels send now. Layers without a channel, or
+// stopped (sending a clear frame), are left out.
+QList<ProgramMixer::Layer> framesOf(NdiManager *ndi, const ProgramOutput::Layers &layers)
 {
-  ProgramMixer::Input input;
-  PlayoutChannel *channel = source.isEmpty() ? nullptr : ndi->channel(source.sceneId, source.item);
-  if (channel && channel->currentFrame(&input.frame, &input.width, &input.height))
+  QList<ProgramMixer::Layer> frames;
+  for (int i = 0; i < layers.size(); ++i)
   {
-    input.alpha = channel->alpha();
-    if (fps && *fps <= 0)
+    PlayoutChannel *channel = ndi->channel(layers.at(i).sceneId, layers.at(i).item);
+    ProgramMixer::Layer layer;
+    if (channel && channel->status().state != PlayoutChannel::eStopped &&
+        channel->currentFrame(&layer.frame, &layer.width, &layer.height))
     {
-      *fps = channel->status().fps;
+      frames << layer;
     }
   }
-  return input;
+  return frames;
+}
+
+QImage imageOf(const QByteArray &frame, int width, int height, int maxWidth)
+{
+  if (width <= 0 || height <= 0 || frame.size() < width * height * 4)
+  {
+    return QImage();
+  }
+  const QImage image(reinterpret_cast<const uchar *>(frame.constData()), width, height, width * 4, QImage::Format_ARGB32);
+  return (width > maxWidth) ? image.scaledToWidth(maxWidth, Qt::FastTransformation) : image.copy();
 }
 }
 
@@ -382,6 +368,9 @@ ProgramOutput::ProgramOutput(NdiManager *ndi,
       m_scenes(scenes),
       m_name(sourceName),
       m_mixer(new ProgramMixer(sourceName, sinkFactory)),
+      m_width(kDefaultWidth),
+      m_height(kDefaultHeight),
+      m_fps(kDefaultFps),
       m_position(0),
       m_fadeMs(0),
       m_fadeFrom(0),
@@ -407,41 +396,127 @@ QString ProgramOutput::sourceName() const
   return m_name;
 }
 
-ProgramOutput::Source ProgramOutput::preview() const
+void ProgramOutput::setFormat(int width, int height, double fps)
 {
-  return m_preview;
+  if (width <= 0 || height <= 0)
+  {
+    return;
+  }
+  m_width = width;
+  m_height = height;
+  m_fps = fps > 0 ? fps : kDefaultFps;
+  m_mixer->setFormat(m_width, m_height, m_fps);
 }
 
-ProgramOutput::Source ProgramOutput::program() const
+int ProgramOutput::width() const
 {
-  return m_program;
+  return m_width;
+}
+
+int ProgramOutput::height() const
+{
+  return m_height;
+}
+
+double ProgramOutput::fps() const
+{
+  return m_fps;
+}
+
+ProgramOutput::Layers &ProgramOutput::bus(Bus which)
+{
+  return (which == ePreview) ? m_preview : m_program;
+}
+
+ProgramOutput::Layers ProgramOutput::layers(Bus which) const
+{
+  return (which == ePreview) ? m_preview : m_program;
+}
+
+bool ProgramOutput::contains(Bus which, const Source &source) const
+{
+  return layers(which).contains(source);
+}
+
+void ProgramOutput::setLayers(Bus which, const Layers &layers)
+{
+  Layers unique;
+  for (int i = 0; i < layers.size(); ++i)
+  {
+    if (!layers.at(i).isEmpty() && !unique.contains(layers.at(i)))
+    {
+      unique << layers.at(i);
+    }
+  }
+  if (unique == bus(which))
+  {
+    return;
+  }
+  if (which == ePreview)
+  {
+    cueLayers(unique);
+  }
+  else
+  {
+    stopTransition();
+    playLayers(unique);
+  }
+  bus(which) = unique;
+  Q_EMIT busChanged();
+}
+
+void ProgramOutput::addLayer(Bus which, const Source &source)
+{
+  if (source.isEmpty() || bus(which).contains(source))
+  {
+    return;
+  }
+  setLayers(which, bus(which) + (Layers() << source));
+}
+
+void ProgramOutput::removeLayer(Bus which, const Source &source)
+{
+  Layers layers = bus(which);
+  if (layers.removeAll(source) > 0)
+  {
+    setLayers(which, layers);
+  }
+}
+
+void ProgramOutput::moveLayer(Bus which, const Source &source, int steps)
+{
+  Layers layers = bus(which);
+  const int from = layers.indexOf(source);
+  if (from < 0)
+  {
+    return;
+  }
+  const int to = qBound(0, from + steps, layers.size() - 1);
+  if (to != from)
+  {
+    layers.move(from, to);
+    bus(which) = layers;
+    Q_EMIT busChanged();
+  }
 }
 
 void ProgramOutput::setPreview(const Source &source)
 {
-  if (source == m_preview)
-  {
-    return;
-  }
-  m_preview = source;
-  Q_EMIT busChanged();
+  setLayers(ePreview, source.isEmpty() ? Layers() : (Layers() << source));
 }
 
 void ProgramOutput::cutTo(const Source &source)
 {
-  if (source.isEmpty() || source == m_program)
+  if (source.isEmpty() || m_program == (Layers() << source))
   {
     return;
   }
-  if (source == m_preview)
+  if (m_preview == (Layers() << source))
   {
     cut();
     return;
   }
-  stopTransition();
-  startPlaying(source);
-  m_program = source;
-  Q_EMIT busChanged();
+  setLayers(eProgram, Layers() << source);
 }
 
 void ProgramOutput::cut()
@@ -451,7 +526,7 @@ void ProgramOutput::cut()
     return;
   }
   stopTransition();
-  startPlaying(m_preview);
+  playLayers(m_preview);
   swap();
 }
 
@@ -466,7 +541,7 @@ void ProgramOutput::fade(int durationMs)
     cut();
     return;
   }
-  startPlaying(m_preview);
+  playLayers(m_preview);
   // From where the T-bar is, in the time left.
   m_fadeFrom = m_position;
   m_fadeMs = qMax(1, int(durationMs * (1.0 - m_fadeFrom)));
@@ -484,7 +559,7 @@ void ProgramOutput::setManualPosition(double position)
   m_fadeMs = 0; // the T-bar takes over
   if (m_position <= 0 && position > 0)
   {
-    startPlaying(m_preview);
+    playLayers(m_preview);
   }
   if (position >= 1)
   {
@@ -545,12 +620,14 @@ QImage ProgramOutput::outputPreview(int maxWidth) const
 {
   QByteArray frame;
   int width, height;
-  if (!m_mixer->output(&frame, &width, &height))
-  {
-    return QImage();
-  }
-  const QImage image(reinterpret_cast<const uchar *>(frame.constData()), width, height, width * 4, QImage::Format_ARGB32);
-  return (width > maxWidth) ? image.scaledToWidth(maxWidth, Qt::FastTransformation) : image.copy();
+  return m_mixer->output(false, &frame, &width, &height) ? imageOf(frame, width, height, maxWidth) : QImage();
+}
+
+QImage ProgramOutput::previewImage(int maxWidth) const
+{
+  QByteArray frame;
+  int width, height;
+  return m_mixer->output(true, &frame, &width, &height) ? imageOf(frame, width, height, maxWidth) : QImage();
 }
 
 QString ProgramOutput::outputError() const
@@ -563,19 +640,33 @@ int ProgramOutput::connections() const
   return m_mixer->connections();
 }
 
-void ProgramOutput::startPlaying(const Source &source)
+void ProgramOutput::cueLayers(const Layers &layers)
 {
-  PlayoutChannel *channel = source.isEmpty() ? nullptr : m_ndi->channel(source.sceneId, source.item);
-  if (!channel)
+  for (int i = 0; i < layers.size(); ++i)
   {
-    return;
+    PlayoutChannel *channel = m_ndi->channel(layers.at(i).sceneId, layers.at(i).item);
+    if (channel && channel->status().state == PlayoutChannel::eStopped)
+    {
+      channel->seek(0);
+    }
   }
-  // Stopped, or holding its last frame: play (from the start).
-  const PlayoutChannel::Status status = channel->status();
-  const bool atEnd = status.state == PlayoutChannel::ePaused && status.frameCount > 0 && status.position >= status.frameCount;
-  if (status.state == PlayoutChannel::eStopped || atEnd)
+}
+
+void ProgramOutput::playLayers(const Layers &layers)
+{
+  for (int i = 0; i < layers.size(); ++i)
   {
-    channel->play();
+    PlayoutChannel *channel = m_ndi->channel(layers.at(i).sceneId, layers.at(i).item);
+    if (!channel)
+    {
+      continue;
+    }
+    // Stopped, cued, held or at its end: play (from the start at the end).
+    const PlayoutChannel::State state = channel->status().state;
+    if (state == PlayoutChannel::eStopped || state == PlayoutChannel::ePaused)
+    {
+      channel->play();
+    }
   }
 }
 
@@ -592,7 +683,7 @@ void ProgramOutput::stopTransition()
 
 void ProgramOutput::swap()
 {
-  const Source program = m_program;
+  const Layers program = m_program;
   m_program = m_preview;
   m_preview = program;
   Q_EMIT busChanged();
@@ -628,10 +719,7 @@ void ProgramOutput::onTick()
     }
   }
 
-  double fps = 0;
-  const ProgramMixer::Input program = inputOf(m_ndi, m_program, &fps);
-  const ProgramMixer::Input preview = (m_position > 0) ? inputOf(m_ndi, m_preview, &fps) : ProgramMixer::Input();
-  m_mixer->setInputs(program, preview, m_position, m_black, fps);
+  m_mixer->setInputs(framesOf(m_ndi, m_program), framesOf(m_ndi, m_preview), m_position, m_black);
 
   if (changed)
   {
@@ -641,21 +729,28 @@ void ProgramOutput::onTick()
 
 void ProgramOutput::onScenesChanged()
 {
-  // Inputs whose scene or Write node was removed are cleared.
-  Source *sources[] = { &m_preview, &m_program };
+  // Layers whose scene or Write node was removed go.
   bool changed = false;
-  for (int i = 0; i < 2; ++i)
+  Layers *buses[] = { &m_preview, &m_program };
+  for (int b = 0; b < 2; ++b)
   {
-    Scene scene;
-    if (!sources[i]->isEmpty() && (!m_scenes->scene(sources[i]->sceneId, &scene) || !scene.items.contains(sources[i]->item)))
+    for (int i = buses[b]->size() - 1; i >= 0; --i)
     {
-      *sources[i] = Source();
-      changed = true;
+      Scene scene;
+      const Source &source = buses[b]->at(i);
+      if (!m_scenes->scene(source.sceneId, &scene) || !scene.items.contains(source.item))
+      {
+        buses[b]->removeAt(i);
+        changed = true;
+      }
     }
   }
   if (changed)
   {
-    stopTransition();
+    if (m_preview.isEmpty())
+    {
+      stopTransition();
+    }
     Q_EMIT busChanged();
   }
 }

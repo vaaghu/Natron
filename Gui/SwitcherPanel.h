@@ -30,8 +30,8 @@
 
 CLANG_DIAG_OFF(deprecated)
 CLANG_DIAG_OFF(uninitialized)
-#include <QHash>
-#include <QImage>
+#include <QList>
+#include <QPair>
 #include <QString>
 #include <QTimer>
 #include <QWidget>
@@ -41,24 +41,31 @@ CLANG_DIAG_ON(uninitialized)
 #include "Custom/ndi/ProgramOutput.h"
 
 class QColor;
+class QComboBox;
 class QLabel;
+class QListWidget;
 class QPushButton;
 class QSlider;
 class QSpinBox;
+class QToolButton;
 class NdiManager; // Custom/ndi/NdiManager.h
+class PlayoutChannel; // Custom/ndi/PlayoutChannel.h
 class SceneStore; // Custom/scene/SceneStore.h
 
 NATRON_NAMESPACE_ENTER
 
+class BusTimeline;
 class VideoMonitor;
 
 /**
  * @brief Dashboard panel switching the Program output (see ProgramOutput),
  * laid out like vision mixers:
- *   Preview monitor | Cut, Fade, duration, Fade to Black, T-bar | Program monitor
- * Inputs are put on Preview (or straight on Program) from the input boxes of
- * the scene panel. The Program monitor shows what the Program NDI source
- * sends.
+ *   Preview bus | format, Cut, Fade, duration, Fade to Black, T-bar | Program bus
+ * Each bus shows its layers composited in the output format, the list of
+ * its layers (reordered and removed here; added from the input boxes of
+ * the scene panel), and a timeline like the editor's: a playhead scrubbing
+ * all its layers, transport controls, and the layers' cue points as
+ * keyframes (where Cue and Play stop).
  **/
 class SwitcherPanel
     : public QWidget
@@ -89,30 +96,62 @@ private Q_SLOTS:
     void onTBarMoved(int value);
     void onTBarReleased();
     void onDurationChanged(int ms);
+    void onFormatChosen(int index);
+    void onFpsChosen(int index);
+
+    // Per bus (the sender's "bus" property).
+    void onLayerSelectionChanged();
+    void onLayerUpClicked();
+    void onLayerDownClicked();
+    void onLayerRemoveClicked();
+    void onTransportClicked(); // the sender's object name: play, pause, stop, cue, continue, previous, next, addCue
+    void onTimelineSeek(double seconds);
+    void onMarkerAdded(double seconds);
+    void onMarkerMoved(double from, double to);
+    void onMarkerRemoved(double seconds);
 
 private:
 
-    // [title bar] [monitor] [status line]
-    QWidget* createBus(const QString& title, const QColor& color, QLabel** titleLabel, VideoMonitor** monitor, QLabel** status);
+    struct BusWidgets
+    {
+        ::ProgramOutput::Bus bus;
+        QLabel* title;
+        VideoMonitor* monitor;
+        QListWidget* layers;
+        QToolButton* up;
+        QToolButton* down;
+        QToolButton* remove;
+        BusTimeline* timeline;
+        QLabel* time;
+        QLabel* status;
+    };
+
+    // [title] [monitor] [layers] [timeline] [transport] [status]
+    QWidget* createBus(::ProgramOutput::Bus bus, const QString& title, const QColor& color);
+    QWidget* createTransitions();
+    BusWidgets& busOf(QObject* sender);
     QString sourceLabel(const ::ProgramOutput::Source& source) const;
-    // What an input shows now: its channel's frame, or its last render.
-    QImage inputImage(const ::ProgramOutput::Source& source, int width);
-    // Its playback state, for the corner of the monitor ("Playing 0:03.2 / 0:10.0").
-    QString inputState(const ::ProgramOutput::Source& source) const;
+    // The layers of a bus with their channels (null without NDI output).
+    QList<QPair< ::ProgramOutput::Source, ::PlayoutChannel*> > channels(::ProgramOutput::Bus bus) const;
+    // The selected layer of a bus (empty: none).
+    ::ProgramOutput::Source selectedLayer(const BusWidgets& w) const;
+    void refreshLayerList(BusWidgets& w);
+    void refreshTimeline(BusWidgets& w);
     void refreshButtons();
+    // Cue points of every layer of a bus: add one, move one (from -> to),
+    // or remove one (to < 0).
+    void editCuePoints(::ProgramOutput::Bus bus, double from, double to);
+    void applyFormat(int width, int height, double fps);
 
     ::ProgramOutput* _program;
     ::NdiManager* _ndi;
     ::SceneStore* _scenes;
 
-    QLabel* _previewTitle;
-    VideoMonitor* _previewMonitor;
-    QLabel* _previewStatus;
-    QLabel* _programTitle;
-    VideoMonitor* _programMonitor;
-    QLabel* _programStatus;
+    BusWidgets _buses[2]; // indexed by ProgramOutput::Bus
     QLabel* _onAirLabel;
 
+    QComboBox* _formatCombo;
+    QComboBox* _fpsCombo;
     QPushButton* _cutButton;
     QPushButton* _fadeButton;
     QSpinBox* _durationSpin;
@@ -121,7 +160,6 @@ private:
     bool _tbarLatched; // the T-bar completed a transition: ignored until released
 
     QTimer _refreshTimer;
-    QHash<QString, QImage> _thumbnails; // render thumbnail file -> image
 };
 
 NATRON_NAMESPACE_EXIT

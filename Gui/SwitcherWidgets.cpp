@@ -32,19 +32,27 @@ CLANG_DIAG_OFF(uninitialized)
 #include <QFont>
 #include <QHBoxLayout>
 #include <QLabel>
+#include <QMenu>
 #include <QMouseEvent>
 #include <QPainter>
 #include <QPalette>
+#include <QPolygon>
 #include <QProgressBar>
 #include <QResizeEvent>
 #include <QVBoxLayout>
 CLANG_DIAG_ON(deprecated)
 CLANG_DIAG_ON(uninitialized)
 
+#include <cmath>
+
 // Input boxes: picture width (the box adds its margins), 16:9.
 #define kTileMonitorWidth 224
 #define kTileSpacing 6
 #define kTileBorder 2
+
+// Timeline: cue point diamonds (half size) and how close a click picks one.
+#define kTimelineMarkerSize 5
+#define kTimelinePickDistance 7
 
 NATRON_NAMESPACE_ENTER
 
@@ -92,6 +100,8 @@ VideoMonitor::VideoMonitor(QWidget* parent)
     , _placeholder()
     , _badge()
     , _border()
+    , _aspectWidth(16)
+    , _aspectHeight(9)
 {
     setAttribute(Qt::WA_OpaquePaintEvent);
     QSizePolicy policy(QSizePolicy::Expanding, QSizePolicy::Expanding);
@@ -133,10 +143,22 @@ VideoMonitor::setBorderColor(const QColor& color)
     }
 }
 
+void
+VideoMonitor::setAspect(int width,
+                        int height)
+{
+    if ( (width > 0) && (height > 0) && ( (width != _aspectWidth) || (height != _aspectHeight) ) ) {
+        _aspectWidth = width;
+        _aspectHeight = height;
+        updateGeometry();
+        update();
+    }
+}
+
 QSize
 VideoMonitor::sizeHint() const
 {
-    return QSize(480, 270);
+    return QSize( 480, heightForWidth(480) );
 }
 
 QSize
@@ -148,7 +170,7 @@ VideoMonitor::minimumSizeHint() const
 int
 VideoMonitor::heightForWidth(int width) const
 {
-    return width * 9 / 16;
+    return width * _aspectHeight / _aspectWidth;
 }
 
 void
@@ -183,6 +205,358 @@ VideoMonitor::paintEvent(QPaintEvent* /*e*/)
         painter.fillRect( box, QColor(0, 0, 0, 170) );
         painter.setPen( QColor(220, 220, 220) );
         painter.drawText(box, Qt::AlignCenter, _badge);
+    }
+}
+
+// ----- BusTimeline -----
+
+BusTimeline::BusTimeline(QWidget* parent)
+    : QWidget(parent)
+    , _duration(0)
+    , _fps(25)
+    , _position(0)
+    , _markers()
+    , _scrubbing(false)
+    , _dragMarker(-1)
+    , _dragFrom(0)
+    , _dragMoved(false)
+{
+    setMouseTracking(true);
+    setSizePolicy(QSizePolicy::Expanding, QSizePolicy::Fixed);
+}
+
+void
+BusTimeline::setRange(double duration,
+                      double fps)
+{
+    if ( (duration != _duration) || (fps != _fps) ) {
+        _duration = qMax(0.0, duration);
+        _fps = (fps > 0) ? fps : 25;
+        update();
+    }
+}
+
+void
+BusTimeline::setPosition(double seconds)
+{
+    if ( !_scrubbing && (seconds != _position) ) {
+        _position = seconds;
+        update();
+    }
+}
+
+void
+BusTimeline::setMarkers(const QList<double>& seconds)
+{
+    if ( (_dragMarker < 0) && (seconds != _markers) ) {
+        _markers = seconds;
+        update();
+    }
+}
+
+double
+BusTimeline::duration() const
+{
+    return _duration;
+}
+
+double
+BusTimeline::fps() const
+{
+    return _fps;
+}
+
+double
+BusTimeline::position() const
+{
+    return _position;
+}
+
+const QList<double>&
+BusTimeline::markers() const
+{
+    return _markers;
+}
+
+double
+BusTimeline::previousMarker() const
+{
+    double found = -1;
+    const double frame = 0.5 / _fps;
+
+    for (int i = 0; i < _markers.size(); ++i) {
+        if (_markers.at(i) < _position - frame) {
+            found = qMax(found, _markers.at(i));
+        }
+    }
+
+    return found;
+}
+
+double
+BusTimeline::nextMarker() const
+{
+    double found = -1;
+    const double frame = 0.5 / _fps;
+
+    for (int i = 0; i < _markers.size(); ++i) {
+        if ( (_markers.at(i) > _position + frame) && ( (found < 0) || (_markers.at(i) < found) ) ) {
+            found = _markers.at(i);
+        }
+    }
+
+    return found;
+}
+
+QSize
+BusTimeline::sizeHint() const
+{
+    return QSize( 400, fontMetrics().height() + 26 );
+}
+
+QSize
+BusTimeline::minimumSizeHint() const
+{
+    return QSize( 120, fontMetrics().height() + 26 );
+}
+
+QRect
+BusTimeline::track() const
+{
+    // Margins so the playhead and the diamonds at the ends are whole.
+    return rect().adjusted(8, 0, -8, 0);
+}
+
+double
+BusTimeline::secondsAt(int x) const
+{
+    const QRect t = track();
+
+    if ( (_duration <= 0) || (t.width() <= 0) ) {
+        return 0;
+    }
+    const double seconds = qBound( 0.0, double(x - t.left()) / t.width() * _duration, _duration );
+
+    return std::floor(seconds * _fps + 0.5) / _fps;
+}
+
+int
+BusTimeline::xAt(double seconds) const
+{
+    const QRect t = track();
+
+    return (_duration <= 0) ? t.left() : t.left() + int(seconds / _duration * t.width() + 0.5);
+}
+
+int
+BusTimeline::markerAt(const QPoint& pos) const
+{
+    int found = -1;
+    int best = kTimelinePickDistance + 1;
+
+    for (int i = 0; i < _markers.size(); ++i) {
+        const int distance = qAbs( xAt( _markers.at(i) ) - pos.x() );
+        if (distance < best) {
+            best = distance;
+            found = i;
+        }
+    }
+
+    return found;
+}
+
+void
+BusTimeline::scrubTo(int x)
+{
+    const double seconds = secondsAt(x);
+
+    if (seconds != _position) {
+        _position = seconds;
+        update();
+        Q_EMIT seekRequested(seconds);
+    }
+}
+
+void
+BusTimeline::paintEvent(QPaintEvent* /*e*/)
+{
+    QPainter painter(this);
+    const QPalette pal = palette();
+    const QRect t = track();
+    const int rulerBottom = height() - 1;
+    const QColor tickColor = pal.color(QPalette::Text).darker(150);
+
+    painter.fillRect( rect(), pal.color(QPalette::Base).darker(120) );
+    if (_duration <= 0) {
+        painter.setPen(tickColor);
+        painter.drawText( rect(), Qt::AlignCenter, tr("No layers playing") );
+
+        return;
+    }
+
+    // Played part.
+    painter.fillRect( QRect( t.left(), 0, xAt(_position) - t.left(), height() ), pal.color(QPalette::Highlight).darker(250) );
+
+    // Ruler: frame ticks every few pixels, numbered ones far enough apart
+    // (in frames, as the editor's timeline).
+    const double frames = _duration * _fps;
+    const double pixelsPerFrame = t.width() / qMax(1.0, frames);
+    static const int steps[] = { 1, 2, 5, 10, 25, 50, 100, 250, 500, 1000, 2500, 5000, 10000, 25000, 50000, 100000 };
+    const int stepCount = int( sizeof(steps) / sizeof(steps[0]) );
+    int minor = steps[stepCount - 1];
+    int major = steps[stepCount - 1];
+    for (int i = stepCount - 1; i >= 0; --i) {
+        if (steps[i] * pixelsPerFrame >= 6) {
+            minor = steps[i];
+        }
+        if ( steps[i] * pixelsPerFrame >= painter.fontMetrics().width( QString::number( int(frames) ) ) + 16 ) {
+            major = steps[i];
+        }
+    }
+    painter.setPen(tickColor);
+    for (int frame = 0; frame <= int(frames); frame += minor) {
+        const int x = xAt(frame / _fps);
+        const bool numbered = (frame % major) == 0;
+        painter.drawLine(x, rulerBottom, x, rulerBottom - (numbered ? 8 : 4) );
+        if (numbered) {
+            painter.drawText(x + 2, rulerBottom - 9, QString::number(frame) );
+        }
+    }
+
+    // Cue points: keyframe diamonds.
+    painter.setRenderHint(QPainter::Antialiasing);
+    const int middle = height() / 2 + 2;
+    for (int i = 0; i < _markers.size(); ++i) {
+        const int x = xAt( _markers.at(i) );
+        QPolygon diamond;
+        diamond << QPoint(x, middle - kTimelineMarkerSize) << QPoint(x + kTimelineMarkerSize, middle)
+                << QPoint(x, middle + kTimelineMarkerSize) << QPoint(x - kTimelineMarkerSize, middle);
+        painter.setPen( QColor(20, 20, 20) );
+        painter.setBrush( (i == _dragMarker) ? QColor(255, 255, 255) : QColor(120, 200, 255) );
+        painter.drawPolygon(diamond);
+    }
+    painter.setRenderHint(QPainter::Antialiasing, false);
+
+    // Playhead with its frame.
+    const QColor playhead(255, 150, 40);
+    const int x = xAt(_position);
+    painter.setPen(playhead);
+    painter.drawLine( x, 0, x, height() );
+    QPolygon handle;
+    handle << QPoint(x - 5, 0) << QPoint(x + 5, 0) << QPoint(x, 6);
+    painter.setBrush(playhead);
+    painter.drawPolygon(handle);
+    const QString label = QString::number( int(_position * _fps + 0.5) );
+    const int labelWidth = painter.fontMetrics().width(label) + 6;
+    const QRect box( qMin(x + 4, width() - labelWidth), 1, labelWidth, painter.fontMetrics().height() );
+    painter.fillRect(box, playhead);
+    painter.setPen(Qt::black);
+    painter.drawText(box, Qt::AlignCenter, label);
+}
+
+void
+BusTimeline::mousePressEvent(QMouseEvent* e)
+{
+    if ( (e->button() != Qt::LeftButton) || (_duration <= 0) ) {
+        QWidget::mousePressEvent(e);
+
+        return;
+    }
+    _dragMarker = markerAt( e->pos() );
+    if (_dragMarker >= 0) {
+        _dragFrom = _markers.at(_dragMarker);
+        _dragMoved = false;
+        update();
+
+        return;
+    }
+    _scrubbing = true;
+    scrubTo( e->pos().x() );
+}
+
+void
+BusTimeline::mouseMoveEvent(QMouseEvent* e)
+{
+    if (_dragMarker >= 0) {
+        const double seconds = secondsAt( e->pos().x() );
+        if (seconds != _markers.at(_dragMarker) ) {
+            _markers[_dragMarker] = seconds;
+            _dragMoved = true;
+            update();
+        }
+    } else if (_scrubbing) {
+        scrubTo( e->pos().x() );
+    } else if (_duration > 0) {
+        setCursor( (markerAt( e->pos() ) >= 0) ? Qt::SizeHorCursor : Qt::ArrowCursor );
+    }
+}
+
+void
+BusTimeline::mouseReleaseEvent(QMouseEvent* e)
+{
+    if (_dragMarker >= 0) {
+        const double to = _markers.at(_dragMarker);
+        const bool moved = _dragMoved && (to != _dragFrom);
+        _dragMarker = -1;
+        update();
+        if (moved) {
+            Q_EMIT markerMoved(_dragFrom, to);
+        } else {
+            // A click on a cue point goes there.
+            _position = _dragFrom;
+            Q_EMIT seekRequested(_dragFrom);
+        }
+    } else if (_scrubbing) {
+        _scrubbing = false;
+    }
+    QWidget::mouseReleaseEvent(e);
+}
+
+void
+BusTimeline::mouseDoubleClickEvent(QMouseEvent* e)
+{
+    if ( (e->button() != Qt::LeftButton) || (_duration <= 0) ) {
+        return;
+    }
+    const int marker = markerAt( e->pos() );
+    if (marker >= 0) {
+        Q_EMIT markerRemoved( _markers.at(marker) );
+    } else {
+        Q_EMIT markerAdded( secondsAt( e->pos().x() ) );
+    }
+}
+
+void
+BusTimeline::contextMenuEvent(QContextMenuEvent* e)
+{
+    if (_duration <= 0) {
+        return;
+    }
+    const int marker = markerAt( e->pos() );
+    const double here = secondsAt( e->pos().x() );
+    QMenu menu(this);
+    QAction* add = menu.addAction( tr("Add Cue Point Here") );
+    QAction* addAtPlayhead = menu.addAction( tr("Add Cue Point at Playhead") );
+    QAction* remove = 0;
+    if (marker >= 0) {
+        remove = menu.addAction( tr("Delete Cue Point") );
+    }
+    menu.addSeparator();
+    QAction* removeAll = menu.addAction( tr("Delete All Cue Points") );
+    removeAll->setEnabled( !_markers.isEmpty() );
+
+    QAction* chosen = menu.exec( e->globalPos() );
+    if (chosen == add) {
+        Q_EMIT markerAdded(here);
+    } else if (chosen == addAtPlayhead) {
+        Q_EMIT markerAdded(_position);
+    } else if ( remove && (chosen == remove) ) {
+        Q_EMIT markerRemoved( _markers.at(marker) );
+    } else if (chosen == removeAll) {
+        const QList<double> all = _markers;
+        for (int i = 0; i < all.size(); ++i) {
+            Q_EMIT markerRemoved( all.at(i) );
+        }
     }
 }
 

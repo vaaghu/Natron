@@ -114,6 +114,7 @@ CLANG_DIAG_ON(uninitialized)
 // Number keys put the first inputs on Preview (Ctrl: on Program).
 #define kSceneNumberShortcuts 9
 #define kSceneCutShortcutData 100
+#define kSceneLayerShortcutData 200
 
 NATRON_NAMESPACE_ENTER
 
@@ -669,6 +670,7 @@ ScenePanel::createSceneDetail()
     menuButton->setToolTip( tr("Scene actions") );
     QAction* addProjects = menu->addAction( tr("Add Projects..."), this, SLOT(onAddProjectsClicked()) );
     addProjects->setToolTip( tr("Add the Write nodes of one or more projects to this scene.") );
+    menu->addAction( tr("Preview All as Layers"), this, SLOT(onPreviewSceneClicked()) );
     menu->addSeparator();
     menu->addAction( tr("Choose Output Folder..."), this, SLOT(onChooseOutputDirClicked()) );
     _clearOutputDirAction = menu->addAction( tr("Use a Scene Folder Next to Each Output"), this, SLOT(onClearOutputDirClicked()) );
@@ -686,8 +688,8 @@ ScenePanel::createSceneDetail()
     _tileScroll->setHorizontalScrollBarPolicy(Qt::ScrollBarAlwaysOff);
     _tileGrid = new TileGrid;
     _tileGrid->setContextMenuPolicy(Qt::CustomContextMenu);
-    _tileGrid->setToolTip( tr("Click an input to put it on Preview; its Cut button puts it on air. "
-                              "Keys 1-9: Preview, Ctrl+1-9: Cut. Right-click for more actions.") );
+    _tileGrid->setToolTip( tr("Click an input to put only it on Preview, + adds it as a layer, Cut puts it on air. "
+                              "Keys 1-9: Preview, Shift+1-9: add as layer, Ctrl+1-9: Cut. Right-click for more actions.") );
     _tileScroll->setWidget(_tileGrid);
     layout->addWidget(_tileScroll, 1);
     _tileHint = KvGui::secondaryLabel(detail);
@@ -737,6 +739,8 @@ ScenePanel::createSceneDetail()
         preview->setData(i);
         QAction* cut = makeShortcutAction( detail, tr("Cut to Input %1").arg(i + 1), QKeySequence(Qt::CTRL + Qt::Key_1 + i), this, SLOT(onNumberShortcut()) );
         cut->setData(kSceneCutShortcutData + i);
+        QAction* layer = makeShortcutAction( detail, tr("Layer Input %1 on Preview").arg(i + 1), QKeySequence(Qt::SHIFT + Qt::Key_1 + i), this, SLOT(onNumberShortcut()) );
+        layer->setData(kSceneLayerShortcutData + i);
     }
 
     QObject::connect( _renderButton, SIGNAL(clicked()), this, SLOT(onRenderClicked()) );
@@ -1073,13 +1077,18 @@ ScenePanel::createTile(const QString& item,
     w.cut = new QPushButton(tr("Cut"), tile);
     w.cut->setFocusPolicy(Qt::NoFocus);
     w.cut->setFixedHeight( appPTR->adjustSizeToDPIX(kSceneControlButtonSize) );
-    w.cut->setToolTip( tr("Put this input on air (Program) at once (Ctrl+%1)").arg(number) );
+    w.cut->setToolTip( tr("Put only this input on air (Program) at once (Ctrl+%1)").arg(number) );
+    w.layer = new QPushButton(QString::fromUtf8("+"), tile);
+    w.layer->setFocusPolicy(Qt::NoFocus);
+    w.layer->setFixedSize( appPTR->adjustSizeToDPIX(kSceneControlButtonSize), appPTR->adjustSizeToDPIX(kSceneControlButtonSize) );
+    w.layer->setToolTip( tr("Add this input on top of Preview as a layer (Shift+%1)").arg(number) );
     QHBoxLayout* row = tile->controlRow(0);
     row->addWidget(renderLabel);
     row->addWidget(w.render);
     row->addWidget(w.pause);
     row->addWidget(w.stop);
     row->addStretch();
+    row->addWidget(w.layer);
     row->addWidget(w.cut);
 
     // NDI playout: [play][pause][stop][replay][loop] (named for onNdiRowAction)
@@ -1106,8 +1115,8 @@ ScenePanel::createTile(const QString& item,
     }
     row->addStretch();
 
-    QPushButton* buttons[] = { w.render, w.pause, w.stop, w.cut, w.play, w.playPause, w.playStop, w.replay, w.loop };
-    for (int b = 0; b < 9; ++b) {
+    QPushButton* buttons[] = { w.render, w.pause, w.stop, w.cut, w.layer, w.play, w.playPause, w.playStop, w.replay, w.loop };
+    for (int b = 0; b < 10; ++b) {
         buttons[b]->setProperty("item", item);
     }
 
@@ -1115,6 +1124,7 @@ ScenePanel::createTile(const QString& item,
     QObject::connect( w.pause, SIGNAL(toggled(bool)), this, SLOT(onRowPauseToggled(bool)) );
     QObject::connect( w.stop, SIGNAL(clicked()), this, SLOT(onRowStopClicked()) );
     QObject::connect( w.cut, SIGNAL(clicked()), this, SLOT(onTileCutClicked()) );
+    QObject::connect( w.layer, SIGNAL(clicked()), this, SLOT(onTileLayerClicked()) );
     QObject::connect( w.play, SIGNAL(clicked()), this, SLOT(onNdiRowAction()) );
     QObject::connect( w.playPause, SIGNAL(clicked()), this, SLOT(onNdiRowAction()) );
     QObject::connect( w.playStop, SIGNAL(clicked()), this, SLOT(onNdiRowAction()) );
@@ -1234,6 +1244,7 @@ ScenePanel::refreshTilesNdi()
         w.loop->setChecked(c && st.loop);
         w.loop->blockSignals(blocked);
         w.cut->setEnabled(_program != 0);
+        w.layer->setEnabled(_program != 0);
 
         // Live picture while it sends; back to the last render once stopped.
         if ( w.live || ( c && (st.state != ::PlayoutChannel::eStopped) ) ) {
@@ -1247,13 +1258,11 @@ ScenePanel::refreshTilesNdi()
 void
 ScenePanel::refreshTileTally()
 {
-    const ::ProgramOutput::Source preview = _program ? _program->preview() : ::ProgramOutput::Source();
-    const ::ProgramOutput::Source program = _program ? _program->program() : ::ProgramOutput::Source();
-
     for (QHash<QString, TileWidgets>::const_iterator it = _tiles.constBegin(); it != _tiles.constEnd(); ++it) {
         const ::ProgramOutput::Source source( _currentSceneId, it.key() );
-        it.value().tile->setTally( (source == program) ? InputTile::eTallyProgram
-                                   : (source == preview) ? InputTile::eTallyPreview : InputTile::eTallyNone );
+        const bool onProgram = _program && _program->contains(::ProgramOutput::eProgram, source);
+        const bool onPreview = _program && _program->contains(::ProgramOutput::ePreview, source);
+        it.value().tile->setTally( onProgram ? InputTile::eTallyProgram : onPreview ? InputTile::eTallyPreview : InputTile::eTallyNone );
     }
 }
 
@@ -1999,9 +2008,13 @@ ScenePanel::onTileContextMenu(const QString& item,
 
     QMenu menu(this);
     QAction* preview = menu.addAction( tr("Preview"), this, SLOT(onPreviewSelectedClicked()) );
+    QAction* layer = menu.addAction( tr("Add to Preview as Layers"), this, SLOT(onLayerSelectedClicked()) );
     QAction* cut = menu.addAction( tr("Cut to Program"), this, SLOT(onCutSelectedClicked()) );
+    QAction* all = menu.addAction( tr("Preview All as Layers"), this, SLOT(onPreviewSceneClicked()) );
     preview->setEnabled(_program != 0);
+    layer->setEnabled(_program != 0);
     cut->setEnabled(_program != 0);
+    all->setEnabled(_program != 0);
     menu.addSeparator();
     _renderAction->setEnabled(_renderer != 0);
     menu.addAction(_renderAction); // the selection, which now holds the input
@@ -2019,6 +2032,8 @@ ScenePanel::onTileGridContextMenu(const QPoint& /*pos*/)
     QMenu menu(this);
 
     menu.addAction( tr("Add Projects..."), this, SLOT(onAddProjectsClicked()) );
+    QAction* all = menu.addAction( tr("Preview All as Layers"), this, SLOT(onPreviewSceneClicked()) );
+    all->setEnabled( _program && !currentItems().isEmpty() );
     menu.exec( QCursor::pos() );
 }
 
@@ -2041,6 +2056,51 @@ ScenePanel::onPreviewSelectedClicked()
 }
 
 void
+ScenePanel::onTileLayerClicked()
+{
+    layerInput( sender() ? sender()->property("item").toString() : QString() );
+}
+
+void
+ScenePanel::onLayerSelectedClicked()
+{
+    const QStringList items = selectedItems();
+
+    for (int i = 0; i < items.size(); ++i) {
+        layerInput( items.at(i) );
+    }
+}
+
+void
+ScenePanel::onPreviewSceneClicked()
+{
+    const QStringList items = currentItems();
+
+    if ( !_program || items.isEmpty() ) {
+        return;
+    }
+    // In the scene's order: the first Write node at the bottom.
+    const QString sceneId = _currentSceneId;
+    ensureNdiEnabled(false);
+    ::ProgramOutput::Layers layers;
+    for (int i = 0; i < items.size(); ++i) {
+        layers << ::ProgramOutput::Source( sceneId, items.at(i) );
+    }
+    _program->setLayers(::ProgramOutput::ePreview, layers);
+}
+
+void
+ScenePanel::layerInput(const QString& item)
+{
+    if ( !_program || item.isEmpty() ) {
+        return;
+    }
+    const QString sceneId = _currentSceneId;
+    ensureNdiEnabled(false);
+    _program->addLayer( ::ProgramOutput::ePreview, ::ProgramOutput::Source(sceneId, item) );
+}
+
+void
 ScenePanel::onCutSelectedClicked()
 {
     const QStringList items = selectedItems();
@@ -2060,12 +2120,15 @@ ScenePanel::onNumberShortcut()
         return;
     }
     const int data = action->data().toInt();
-    const bool cut = data >= kSceneCutShortcutData;
-    const int index = cut ? data - kSceneCutShortcutData : data;
+    const bool layer = data >= kSceneLayerShortcutData;
+    const bool cut = !layer && data >= kSceneCutShortcutData;
+    const int index = layer ? data - kSceneLayerShortcutData : cut ? data - kSceneCutShortcutData : data;
     if ( index >= items.size() ) {
         return;
     }
-    if (cut) {
+    if (layer) {
+        layerInput( items.at(index) );
+    } else if (cut) {
         cutToInput( items.at(index) );
     } else {
         selectOnly( items.at(index) );

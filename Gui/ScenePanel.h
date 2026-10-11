@@ -150,6 +150,9 @@ private Q_SLOTS:
     void onTileCutClicked();         // the item is the sender's "item" property
     void onPreviewSelectedClicked(); // the first selected input
     void onCutSelectedClicked();
+    void onTileLayerClicked();       // the item is the sender's "item" property
+    void onLayerSelectedClicked();
+    void onPreviewSceneClicked();    // every input of the scene as Preview layers
     void onNumberShortcut();         // 1-9: Preview, Ctrl+1-9: Cut (the action's data)
     void onBusChanged();
 
@@ -218,6 +221,7 @@ private:
     // Switcher: the input goes to Preview, or straight to Program.
     void previewInput(const QString& item);
     void cutToInput(const QString& item);
+    void layerInput(const QString& item); // on top of Preview
     // The opened scene plays its inputs through NDI: asks to turn it on if
     // it is off (askAgain false: not if the user already said no for this
     // scene). True if on.
@@ -269,6 +273,7 @@ private:
         QPushButton* replay;
         QPushButton* loop;
         QPushButton* cut;
+        QPushButton* layer;
         bool live; // showing the NDI frame (else the last render)
     };
     QHash<QString, TileWidgets> _tiles; // item -> box widgets

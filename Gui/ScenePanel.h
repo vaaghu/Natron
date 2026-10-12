@@ -149,7 +149,6 @@ private Q_SLOTS:
     void onTileGridContextMenu(const QPoint& pos);
     void onTileCutClicked();         // the item is the sender's "item" property
     void onPreviewSelectedClicked(); // the first selected input
-    void onCutSelectedClicked();
     void onTileLayerClicked();       // the item is the sender's "item" property
     void onLayerSelectedClicked();
     void onPreviewSceneClicked();    // every input of the scene as Preview layers

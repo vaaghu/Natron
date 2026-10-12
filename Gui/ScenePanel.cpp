@@ -1977,11 +1977,9 @@ ScenePanel::onTileContextMenu(const QString& item,
     QMenu menu(this);
     QAction* preview = menu.addAction( tr("Preview"), this, SLOT(onPreviewSelectedClicked()) );
     QAction* layer = menu.addAction( tr("Add to Preview as Layers"), this, SLOT(onLayerSelectedClicked()) );
-    QAction* cut = menu.addAction( tr("Cut to Program"), this, SLOT(onCutSelectedClicked()) );
     QAction* all = menu.addAction( tr("Preview All as Layers"), this, SLOT(onPreviewSceneClicked()) );
     preview->setEnabled(_program != 0);
     layer->setEnabled(_program != 0);
-    cut->setEnabled(_program != 0);
     all->setEnabled(_program != 0);
     menu.addSeparator();
     _renderAction->setEnabled(_renderer != 0);
@@ -2066,16 +2064,6 @@ ScenePanel::layerInput(const QString& item)
     const QString sceneId = _currentSceneId;
     ensureNdiEnabled(false);
     _program->addLayer( ::ProgramOutput::ePreview, ::ProgramOutput::Source(sceneId, item) );
-}
-
-void
-ScenePanel::onCutSelectedClicked()
-{
-    const QStringList items = selectedItems();
-
-    if ( !items.isEmpty() ) {
-        cutToInput( items.front() );
-    }
 }
 
 void

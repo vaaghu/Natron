@@ -45,6 +45,7 @@
 #   NATRON_BUILD_OUT    output directory (default: ../builds next to this repo)
 #   NATRON_SDK_IMAGE    linux SDK image (default: natrongithub/natron-sdk:latest,
 #                       natron-sdk-qt5:latest with --qt5)
+#   NATRON_LICENSE      GPL or COMMERCIAL (default: GPL)
 #
 # What is reused between runs (all under the cache directory):
 #   tmp/Natron         sources and object files: only changed files are recompiled
@@ -414,6 +415,9 @@ export MODE STEPS SOURCE_STAMP RELINK
 export GIT_URL=https://github.com/vaaghu/Natron.git
 export GIT_URL_IS_NATRON=1
 export GIT_BRANCH="$BRANCH"
+# The linux SDK image sets GPL; on windows and macos nothing does, and the
+# scripts stop without it.
+export NATRON_LICENSE="${NATRON_LICENSE:-GPL}"
 if [ "$MODE" = "installer" ]; then
     # The checkout step is skipped, and it is what records the commit for the
     # file names: give the commit of the build being packaged.
@@ -461,7 +465,7 @@ prepare_and_build /src /home $NATRON_BIN"
         --mount type=bind,src="$CACHE/tmp",target=/home/tmp
         --mount type=bind,src="$CACHE/src",target=/home/src
         --mount type=bind,src="$OUT",target=/home/builds_archive)
-    for v in MODE STEPS SOURCE_STAMP RELINK GIT_URL GIT_URL_IS_NATRON GIT_BRANCH GIT_COMMIT BUILD_NAME BUILD_NUMBER MKJOBS \
+    for v in MODE STEPS SOURCE_STAMP RELINK GIT_URL GIT_URL_IS_NATRON GIT_BRANCH GIT_COMMIT NATRON_LICENSE BUILD_NAME BUILD_NUMBER MKJOBS \
              UNIT_TESTS DEBUG_SCRIPTS SKIP_NATRON_TESTS DISABLE_PORTABLE_ARCHIVE XZ_OPT QT_VERSION_MAJOR; do
         [ -n "${!v+x}" ] && RUN_OPTS+=(--env "$v=${!v}")
     done

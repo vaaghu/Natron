@@ -47,6 +47,7 @@ CLANG_DIAG_ON(uninitialized)
 #include "Engine/OSGLContext.h" // OpenGLRendererInfo
 #include "Gui/KvGuiUtils.h"
 
+#include "Custom/ndi/NdiOutput.h"
 #include "Custom/ndi/ProgramOutput.h"
 #include "Custom/scene/SceneRenderer.h"
 
@@ -177,9 +178,10 @@ DashboardSettingsDialog::DashboardSettingsDialog(::SceneRenderer* renderer,
     const bool cardClock = _program && !port.isEmpty() ? _program->sdiCardClock()
                            : settings.value(QString::fromUtf8(kSettingsSdiCardClock), false).toBool();
     _clockCombo->setCurrentIndex( cardClock ? 0 : 1 );
-    onSdiEnabledToggled( _sdiCheck->isChecked() );
+    updateAvailability();
 
-    QObject::connect( _sdiCheck, SIGNAL(toggled(bool)), this, SLOT(onSdiEnabledToggled(bool)) );
+    QObject::connect( _ndiCheck, SIGNAL(toggled(bool)), this, SLOT(updateAvailability()) );
+    QObject::connect( _sdiCheck, SIGNAL(toggled(bool)), this, SLOT(updateAvailability()) );
     QObject::connect( _refreshButton, SIGNAL(clicked()), this, SLOT(onRefreshPortsClicked()) );
     QObject::connect( _portCombo, SIGNAL(currentIndexChanged(int)), this, SLOT(onPortChosen(int)) );
     QObject::connect( _buttons, SIGNAL(clicked(QAbstractButton*)), this, SLOT(onButtonClicked(QAbstractButton*)) );
@@ -204,8 +206,9 @@ DashboardSettingsDialog::fillPorts(const QString& current)
         const bool showModel = !p.model.isEmpty() && !p.name.startsWith(p.model);
         _portCombo->addItem(showModel ? QString::fromUtf8("%1 (%2)").arg(p.name).arg(p.model) : p.name, p.name);
     }
-    // A saved port that is not here now (unplugged) stays chosen.
-    if ( !current.isEmpty() && (_portCombo->findData(current) < 0) ) {
+    // A saved port that is not here now (unplugged) stays chosen, while
+    // there are ports at all.
+    if ( !_ports.isEmpty() && !current.isEmpty() && (_portCombo->findData(current) < 0) ) {
         _portCombo->addItem(tr("%1 (not found)").arg(current), current);
     }
     if (_portCombo->count() == 0) {
@@ -214,6 +217,7 @@ DashboardSettingsDialog::fillPorts(const QString& current)
     _portCombo->setCurrentIndex( qMax(0, _portCombo->findData(current) ) );
     _portCombo->blockSignals(false);
     _portCombo->setToolTip( _ports.isEmpty() ? error : QString() );
+    _sdiCheck->setToolTip( _ports.isEmpty() ? error : QString() );
 }
 
 void
@@ -244,22 +248,53 @@ DashboardSettingsDialog::fillModes(quint32 current)
 }
 
 void
-DashboardSettingsDialog::onSdiEnabledToggled(bool on)
+DashboardSettingsDialog::updateAvailability()
 {
+    // Render: nothing to choose without a GPU.
+    _deviceCombo->setEnabled(_deviceCombo->count() > 1);
+
+    // NDI: off and grayed without the NDI Runtime.
+    QString ndiError;
+    const bool ndi = Ndi::load(&ndiError);
+    if (!ndi) {
+        _ndiCheck->blockSignals(true);
+        _ndiCheck->setChecked(false);
+        _ndiCheck->blockSignals(false);
+    }
+    _ndiCheck->setEnabled(ndi);
+    _ndiCheck->setToolTip(ndi ? QString() : ndiError);
+    _ndiStatus->setEnabled( _ndiCheck->isChecked() || !ndi );
+
+    // SDI: off, grayed and back to the defaults without a port (Refresh
+    // stays, to look again).
+    const bool sdi = !_ports.isEmpty();
+    if (!sdi) {
+        _sdiCheck->blockSignals(true);
+        _sdiCheck->setChecked(false);
+        _sdiCheck->blockSignals(false);
+        _modeCombo->setCurrentIndex(0); // the output format's
+        _clockCombo->setCurrentIndex(1); // the system clock
+    }
+    _sdiCheck->setEnabled(sdi);
+    const bool on = sdi && _sdiCheck->isChecked();
     _portCombo->setEnabled(on);
-    _refreshButton->setEnabled(on);
     _modeCombo->setEnabled(on);
     _clockCombo->setEnabled(on);
+    _refreshButton->setEnabled(!sdi || on);
 }
 
 void
 DashboardSettingsDialog::onRefreshPortsClicked()
 {
-    const QString port = _portCombo->itemData( _portCombo->currentIndex() ).toString();
+    QString port = _portCombo->itemData( _portCombo->currentIndex() ).toString();
     const quint32 mode = _modeCombo->itemData( _modeCombo->currentIndex() ).toUInt();
 
+    if ( port.isEmpty() ) {
+        port = QSettings().value( QString::fromUtf8(kSettingsSdiPort) ).toString();
+    }
     fillPorts(port);
     fillModes(mode);
+    updateAvailability();
     refreshSdiStatus();
 }
 
@@ -294,10 +329,16 @@ DashboardSettingsDialog::refreshSdiStatus()
     if (_program) {
         const QString error = _program->outputError();
         const int connections = _program->connections();
-        _ndiStatus->setText( !_program->ndiEnabled() ? tr("Off.")
-                             : !error.isEmpty() ? tr("Not sending: %1").arg(error)
-                             : (connections < 0) ? tr("Sending.")
-                             : tr("Sending, %1 receiver(s).").arg(connections) );
+        QString ndiError;
+        QString ndiText = !Ndi::load(&ndiError) ? ndiError
+                          : !_program->ndiEnabled() ? tr("Off.")
+                          : !error.isEmpty() ? tr("Not sending: %1").arg(error)
+                          : (connections < 0) ? tr("Sending.")
+                          : tr("Sending, %1 receiver(s).").arg(connections);
+        if ( _ndiCheck->isEnabled() && (_ndiCheck->isChecked() != _program->ndiEnabled()) ) {
+            ndiText += QString::fromUtf8(" ") + ( _ndiCheck->isChecked() ? tr("Apply to turn it on.") : tr("Apply to turn it off.") );
+        }
+        _ndiStatus->setText(ndiText);
     }
     if (!_program) {
         text = tr("No Program output.");
@@ -348,9 +389,12 @@ DashboardSettingsDialog::apply()
         _renderer->setRendererOptions( rendererOptions(device, threads) );
     }
 
-    settings.setValue( QString::fromUtf8(kSettingsNdiEnabled), _ndiCheck->isChecked() );
-    if ( _program && (_program->ndiEnabled() != _ndiCheck->isChecked()) ) {
-        _program->setNdiEnabled( _ndiCheck->isChecked() );
+    // NDI unavailable: its setting stays (for when the runtime is installed).
+    if ( _ndiCheck->isEnabled() ) {
+        settings.setValue( QString::fromUtf8(kSettingsNdiEnabled), _ndiCheck->isChecked() );
+        if ( _program && (_program->ndiEnabled() != _ndiCheck->isChecked()) ) {
+            _program->setNdiEnabled( _ndiCheck->isChecked() );
+        }
     }
 
     const QString port = _sdiCheck->isChecked() ? _portCombo->itemData( _portCombo->currentIndex() ).toString() : QString();

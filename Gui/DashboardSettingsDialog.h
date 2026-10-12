@@ -80,7 +80,9 @@ public:
 
 private Q_SLOTS:
 
-    void onSdiEnabledToggled(bool on);
+    // Grays out what cannot be chosen (no GPU, no NDI Runtime, no SDI
+    // port), turned off / back to its default.
+    void updateAvailability();
     void onRefreshPortsClicked();
     void onPortChosen(int index);
     void onButtonClicked(QAbstractButton* button);

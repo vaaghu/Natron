@@ -321,7 +321,7 @@ DashboardWindow::createPanels()
 
     // Settings: render hardware, SDI output.
     QMenu* settingsMenu = menuBar()->addMenu( tr("&Settings") );
-    QAction* settingsAction = settingsMenu->addAction( tr("Render and SDI Output..."), this, SLOT(onSettingsClicked()) );
+    QAction* settingsAction = settingsMenu->addAction( tr("Render and Program Output..."), this, SLOT(onSettingsClicked()) );
     settingsAction->setShortcut( QKeySequence(Qt::CTRL + Qt::Key_Comma) );
     settingsAction->setShortcutContext(Qt::WindowShortcut);
 

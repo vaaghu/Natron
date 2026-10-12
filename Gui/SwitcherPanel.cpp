@@ -574,7 +574,9 @@ SwitcherPanel::onRefreshTimer()
     refreshLayerBoxes();
 
     const QString error = _program->outputError();
-    if ( !error.isEmpty() ) {
+    if ( !_program->ndiEnabled() ) {
+        program.status->setText( tr("NDI off") );
+    } else if ( !error.isEmpty() ) {
         program.status->setText( tr("NDI source %1 not available: %2").arg( _program->sourceName() ).arg(error) );
     } else {
         const int connections = _program->connections();

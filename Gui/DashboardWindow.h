@@ -79,7 +79,7 @@ class HoverLineEdit;
  *   NDI       the opened scene's NDI output
  *   Data      the key/value pairs of the state store, editable
  * The Settings menu (first in the menu bar) opens the render hardware and
- * SDI output settings (see DashboardSettingsDialog).
+ * Program output (NDI, SDI) settings (see DashboardSettingsDialog).
  * Closing it quits the application (after asking to save open projects).
  **/
 class DashboardWindow

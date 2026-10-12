@@ -40,8 +40,9 @@ class SceneStore;
 // Layers put on an empty Preview hold their first frame; Preview going on
 // air plays from where its clock is, and the bus coming back to Preview
 // pauses.
-// Program is also played out of an SDI port if one is chosen (see
-// Custom/sdi), in the output format's mode or a chosen one.
+// The NDI source can be turned off, and Program can also be played out of
+// an SDI port (see Custom/sdi), in the output format's mode or a chosen
+// one: NDI, SDI, both, or neither (the monitors still show Program).
 // Frames are mixed and sent in a worker thread; the methods are for the
 // main thread.
 class ProgramOutput : public QObject
@@ -135,8 +136,12 @@ public:
   // wide; null before the first frame.
   QImage outputPreview(int maxWidth) const;
   QImage previewImage(int maxWidth) const;
-  QString outputError() const; // the NDI source could not be opened (empty: fine)
+  QString outputError() const; // the NDI source could not be opened (empty: fine, or off)
   int connections() const;     // receivers (-1: unknown)
+
+  // Program as an NDI source (on by default).
+  void setNdiEnabled(bool enabled);
+  bool ndiEnabled() const;
 
   // SDI port playing Program (empty: none, see Sdi::ports()) and its video
   // mode (0: the mode of the output format).
@@ -191,6 +196,7 @@ private:
   SceneStore *m_scenes;
   QString m_name;
   ProgramMixer *m_mixer;
+  bool m_ndiEnabled;
   QString m_sdiPort;
   quint32 m_sdiMode;
   QTimer m_tick;

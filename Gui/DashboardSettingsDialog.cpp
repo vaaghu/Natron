@@ -53,6 +53,7 @@ CLANG_DIAG_ON(uninitialized)
 // QSettings keys: render hardware, SDI output.
 #define kSettingsRenderDevice "dashboard/renderDevice"   // -1: CPU only, else the OpenGL renderer's index
 #define kSettingsRenderThreads "dashboard/renderThreads" // 0: automatic
+#define kSettingsNdiEnabled "dashboard/programNdi"     // default: on
 #define kSettingsSdiEnabled "dashboard/sdiEnabled"
 #define kSettingsSdiPort "dashboard/sdiPort"             // kept while turned off
 #define kSettingsSdiMode "dashboard/sdiMode"             // 0: the output format's
@@ -83,6 +84,8 @@ DashboardSettingsDialog::DashboardSettingsDialog(::SceneRenderer* renderer,
     , _program(program)
     , _deviceCombo(0)
     , _threadsSpin(0)
+    , _ndiCheck(0)
+    , _ndiStatus(0)
     , _sdiCheck(0)
     , _portCombo(0)
     , _refreshButton(0)
@@ -125,9 +128,16 @@ DashboardSettingsDialog::DashboardSettingsDialog(::SceneRenderer* renderer,
     renderBox->setEnabled(_renderer != 0);
     layout->addWidget(renderBox);
 
-    // SDI output of Program.
-    QGroupBox* sdiBox = new QGroupBox(tr("SDI Output"), this);
+    // Program outputs: NDI, SDI, both or neither.
+    QGroupBox* sdiBox = new QGroupBox(tr("Program Output"), this);
     QFormLayout* sdiForm = new QFormLayout(sdiBox);
+    _ndiCheck = new QCheckBox( _program ? tr("Send Program as the NDI source \"%1\"").arg( _program->sourceName() )
+                               : tr("Send Program as an NDI source"), sdiBox );
+    _ndiCheck->setChecked( !_program || _program->ndiEnabled() );
+    sdiForm->addRow(_ndiCheck);
+    _ndiStatus = KvGui::secondaryLabel(sdiBox);
+    _ndiStatus->setWordWrap(true);
+    sdiForm->addRow(_ndiStatus);
     _sdiCheck = new QCheckBox(tr("Play Program out of an SDI port"), sdiBox);
     sdiForm->addRow(_sdiCheck);
     QHBoxLayout* portRow = new QHBoxLayout;
@@ -267,6 +277,14 @@ DashboardSettingsDialog::refreshSdiStatus()
 {
     QString text;
 
+    if (_program) {
+        const QString error = _program->outputError();
+        const int connections = _program->connections();
+        _ndiStatus->setText( !_program->ndiEnabled() ? tr("Off.")
+                             : !error.isEmpty() ? tr("Not sending: %1").arg(error)
+                             : (connections < 0) ? tr("Sending.")
+                             : tr("Sending, %1 receiver(s).").arg(connections) );
+    }
     if (!_program) {
         text = tr("No Program output.");
     } else if ( _program->sdiPort().isEmpty() ) {
@@ -316,6 +334,11 @@ DashboardSettingsDialog::apply()
         _renderer->setRendererOptions( rendererOptions(device, threads) );
     }
 
+    settings.setValue( QString::fromUtf8(kSettingsNdiEnabled), _ndiCheck->isChecked() );
+    if ( _program && (_program->ndiEnabled() != _ndiCheck->isChecked()) ) {
+        _program->setNdiEnabled( _ndiCheck->isChecked() );
+    }
+
     const QString port = _sdiCheck->isChecked() ? _portCombo->itemData( _portCombo->currentIndex() ).toString() : QString();
     const quint32 mode = _modeCombo->itemData( _modeCombo->currentIndex() ).toUInt();
     // The port is kept when the output is turned off, to turn it on again.
@@ -339,6 +362,9 @@ DashboardSettingsDialog::restore(::SceneRenderer* renderer,
     if (renderer) {
         renderer->setRendererOptions( rendererOptions( settings.value(QString::fromUtf8(kSettingsRenderDevice), -1).toInt(),
                                                        settings.value(QString::fromUtf8(kSettingsRenderThreads), 0).toInt() ) );
+    }
+    if (program) {
+        program->setNdiEnabled( settings.value(QString::fromUtf8(kSettingsNdiEnabled), true).toBool() );
     }
     if ( program && settings.value( QString::fromUtf8(kSettingsSdiEnabled) ).toBool() ) {
         program->setSdiOutput( settings.value( QString::fromUtf8(kSettingsSdiPort) ).toString(),

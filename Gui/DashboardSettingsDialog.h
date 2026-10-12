@@ -58,7 +58,8 @@ NATRON_NAMESPACE_ENTER
  *               CPU threads of each render (NatronRenderer options, see
  *               SceneRenderer::setRendererOptions(); Natron's own
  *               preferences are left as they are)
- *   SDI output  the port playing the switcher's Program, and its video mode
+ *   Program     the switcher's Program outputs, either or both: the NDI
+ *               source, and an SDI port with its video mode
  **/
 class DashboardSettingsDialog
     : public QDialog
@@ -98,6 +99,8 @@ private:
 
     QComboBox* _deviceCombo;  // -1: CPU only, else the OpenGL renderer's index
     QSpinBox* _threadsSpin;   // 0: automatic
+    QCheckBox* _ndiCheck;
+    QLabel* _ndiStatus;
     QCheckBox* _sdiCheck;
     QComboBox* _portCombo;
     QPushButton* _refreshButton;

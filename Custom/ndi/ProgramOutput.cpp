@@ -80,7 +80,8 @@ QString trProgram(const char *text)
 
 // Composites the layers of Program and Preview handed over by
 // ProgramOutput, mixes them, and sends the result to the NDI source at the
-// output frame rate, and to the SDI port if one is chosen.
+// output frame rate (unless NDI is turned off), and to the SDI port if one
+// is chosen.
 class ProgramMixer : public QThread
 {
 public:
@@ -116,6 +117,7 @@ public:
         m_previewHeight(0),
         m_connections(-1),
         m_sdiMode(0),
+        m_ndiEnabled(true),
         m_sdiConfig(0)
   {
   }
@@ -154,6 +156,13 @@ public:
     *width = preview ? m_previewWidth : m_outputWidth;
     *height = preview ? m_previewHeight : m_outputHeight;
     return *width > 0 && *height > 0;
+  }
+
+  // Off: no NDI source (it is closed, receivers lose it).
+  void setNdiEnabled(bool enabled)
+  {
+    QMutexLocker locker(&m_mutex);
+    m_ndiEnabled = enabled;
   }
 
   // SDI port (empty: none) and mode (0: the output format's).
@@ -207,6 +216,7 @@ protected:
       QList<Layer> program, preview;
       double mix, black, fps;
       int width, height;
+      bool ndiEnabled;
       QString sdiPort;
       quint32 sdiMode;
       int config;
@@ -223,6 +233,7 @@ protected:
         fps = m_fps;
         width = m_width;
         height = m_height;
+        ndiEnabled = m_ndiEnabled;
         sdiPort = m_sdiPort;
         sdiMode = m_sdiMode;
         config = m_sdiConfig;
@@ -255,7 +266,16 @@ protected:
 
       // Open the output; if it cannot be opened (NDI runtime missing...),
       // keep mixing for the dashboard's monitors and try again later.
-      if (!sink && (!reopen.isValid() || reopen.elapsed() > kReopenDelayMs))
+      if (!ndiEnabled)
+      {
+        delete sink;
+        sink = nullptr;
+        reopen.invalidate(); // turned on again: at once
+        QMutexLocker locker(&m_mutex);
+        m_error.clear();
+        m_connections = -1;
+      }
+      if (ndiEnabled && !sink && (!reopen.isValid() || reopen.elapsed() > kReopenDelayMs))
       {
         QString error;
         sink = m_sinkFactory ? m_sinkFactory() : nullptr;
@@ -398,6 +418,7 @@ private:
   int m_previewHeight;
   QString m_error;
   int m_connections;
+  bool m_ndiEnabled;
   QString m_sdiPort;
   quint32 m_sdiMode;
   int m_sdiConfig; // bumped by setSdi()
@@ -449,6 +470,7 @@ ProgramOutput::ProgramOutput(NdiManager *ndi,
       m_scenes(scenes),
       m_name(sourceName),
       m_mixer(new ProgramMixer(sourceName, sinkFactory)),
+      m_ndiEnabled(true),
       m_sdiMode(0),
       m_width(kDefaultWidth),
       m_height(kDefaultHeight),
@@ -776,6 +798,17 @@ QImage ProgramOutput::previewImage(int maxWidth) const
 QString ProgramOutput::outputError() const
 {
   return m_mixer->error();
+}
+
+void ProgramOutput::setNdiEnabled(bool enabled)
+{
+  m_ndiEnabled = enabled;
+  m_mixer->setNdiEnabled(enabled);
+}
+
+bool ProgramOutput::ndiEnabled() const
+{
+  return m_ndiEnabled;
 }
 
 void ProgramOutput::setSdiOutput(const QString &port, quint32 mode)

@@ -100,7 +100,8 @@ private:
     QList<Sdi::Port> _ports;
 
     QComboBox* _deviceCombo;  // -1: CPU only, else the OpenGL renderer's index
-    QSpinBox* _threadsSpin;   // 0: automatic
+    QLabel* _gpuNote;         // shown while a GPU is chosen
+    QSpinBox* _threadsSpin;   // 0: automatic, at most the system's threads
     QCheckBox* _ndiCheck;
     QLabel* _ndiStatus;
     QCheckBox* _sdiCheck;

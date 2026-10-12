@@ -85,6 +85,7 @@ DashboardSettingsDialog::DashboardSettingsDialog(::SceneRenderer* renderer,
     , _renderer(renderer)
     , _program(program)
     , _deviceCombo(0)
+    , _gpuNote(0)
     , _threadsSpin(0)
     , _ndiCheck(0)
     , _ndiStatus(0)
@@ -116,13 +117,16 @@ DashboardSettingsDialog::DashboardSettingsDialog(::SceneRenderer* renderer,
                                  "render on it (if the project allows it, see its GPU Rendering setting); the others "
                                  "still render on the CPU.") );
     renderForm->addRow(tr("Render on:"), _deviceCombo);
+    _gpuNote = KvGui::secondaryLabel(renderBox);
+    _gpuNote->setText( tr("Nodes without GPU support still render on the CPU.") );
+    renderForm->addRow(QString(), _gpuNote);
     if ( gpus.isEmpty() ) {
         QLabel* noGpu = KvGui::secondaryLabel(renderBox);
         noGpu->setText( tr("No GPU usable for rendering was found.") );
         renderForm->addRow(QString(), noGpu);
     }
     _threadsSpin = new QSpinBox(renderBox);
-    _threadsSpin->setRange( 0, qMax(64, QThread::idealThreadCount() * 2) );
+    _threadsSpin->setRange( 0, qMax(1, QThread::idealThreadCount() ) ); // up to what the system has
     _threadsSpin->setSpecialValueText( tr("Automatic") );
     _threadsSpin->setValue( settings.value(QString::fromUtf8(kSettingsRenderThreads), 0).toInt() );
     _threadsSpin->setToolTip( tr("CPU threads each render uses (this machine has %1). "
@@ -180,6 +184,7 @@ DashboardSettingsDialog::DashboardSettingsDialog(::SceneRenderer* renderer,
     _clockCombo->setCurrentIndex( cardClock ? 0 : 1 );
     updateAvailability();
 
+    QObject::connect( _deviceCombo, SIGNAL(currentIndexChanged(int)), this, SLOT(updateAvailability()) );
     QObject::connect( _ndiCheck, SIGNAL(toggled(bool)), this, SLOT(updateAvailability()) );
     QObject::connect( _sdiCheck, SIGNAL(toggled(bool)), this, SLOT(updateAvailability()) );
     QObject::connect( _refreshButton, SIGNAL(clicked()), this, SLOT(onRefreshPortsClicked()) );
@@ -252,6 +257,7 @@ DashboardSettingsDialog::updateAvailability()
 {
     // Render: nothing to choose without a GPU.
     _deviceCombo->setEnabled(_deviceCombo->count() > 1);
+    _gpuNote->setVisible(_deviceCombo->itemData( _deviceCombo->currentIndex() ).toInt() >= 0);
 
     // NDI: off and grayed without the NDI Runtime.
     QString ndiError;
@@ -369,6 +375,8 @@ DashboardSettingsDialog::rendererOptions(int device,
     } else {
         options << QString::fromUtf8("--opengl") << QString::fromUtf8("disabled");
     }
+    // At most the system's threads (a value saved on a bigger machine).
+    threads = qMin( threads, qMax(1, QThread::idealThreadCount() ) );
     if (threads > 0) {
         options << QString::fromUtf8("--setting") << QString::fromUtf8("noRenderThreads=%1").arg(threads);
     }

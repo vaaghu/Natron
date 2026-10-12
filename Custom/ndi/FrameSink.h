@@ -21,6 +21,10 @@ public:
   // otherwise the channel paces the frames.
   virtual bool isClocked() const = 0;
 
+  // Before open(): false to send without waiting, when another clock paces
+  // the frames (an SDI card's). Sinks that cannot ignore it.
+  virtual void setClocked(bool /*clocked*/) {}
+
   // Receivers connected right now (-1: unknown).
   virtual int connectionCount() = 0;
 };

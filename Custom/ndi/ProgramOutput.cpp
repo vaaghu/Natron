@@ -81,7 +81,8 @@ QString trProgram(const char *text)
 // Composites the layers of Program and Preview handed over by
 // ProgramOutput, mixes them, and sends the result to the NDI source at the
 // output frame rate (unless NDI is turned off), and to the SDI port if one
-// is chosen.
+// is chosen. One clock paces the frames: the SDI card's if it plays on its
+// clock (NDI then sends without waiting), else NDI's, else a timer.
 class ProgramMixer : public QThread
 {
 public:
@@ -116,8 +117,9 @@ public:
         m_previewWidth(0),
         m_previewHeight(0),
         m_connections(-1),
-        m_sdiMode(0),
         m_ndiEnabled(true),
+        m_sdiMode(0),
+        m_sdiCardClock(false),
         m_sdiConfig(0)
   {
   }
@@ -165,12 +167,13 @@ public:
     m_ndiEnabled = enabled;
   }
 
-  // SDI port (empty: none) and mode (0: the output format's).
-  void setSdi(const QString &port, quint32 mode)
+  // SDI port (empty: none), mode (0: the output format's) and clock.
+  void setSdi(const QString &port, quint32 mode, bool cardClock)
   {
     QMutexLocker locker(&m_mutex);
     m_sdiPort = port;
     m_sdiMode = mode;
+    m_sdiCardClock = cardClock;
     ++m_sdiConfig;
     m_sdiError.clear();
     m_sdiModeName.clear();
@@ -219,6 +222,7 @@ protected:
       bool ndiEnabled;
       QString sdiPort;
       quint32 sdiMode;
+      bool sdiCardClock;
       int config;
       {
         QMutexLocker locker(&m_mutex);
@@ -236,6 +240,7 @@ protected:
         ndiEnabled = m_ndiEnabled;
         sdiPort = m_sdiPort;
         sdiMode = m_sdiMode;
+        sdiCardClock = m_sdiCardClock;
         config = m_sdiConfig;
       }
 
@@ -251,7 +256,7 @@ protected:
         sdiFps = fps;
         sdi.close();
         QString error;
-        if (!sdiPort.isEmpty() && !sdi.open(sdiPort, sdiMode, width, height, fps, &error))
+        if (!sdiPort.isEmpty() && !sdi.open(sdiPort, sdiMode, width, height, fps, sdiCardClock, &error))
         {
           sdiReopen.start();
           error += trProgram(" (retrying)");
@@ -275,10 +280,22 @@ protected:
         m_error.clear();
         m_connections = -1;
       }
+      // NDI keeps its own time unless the SDI card paces the frames.
+      const bool ndiClocked = !sdi.isClocked();
+      if (sink && sink->isClocked() != ndiClocked)
+      {
+        delete sink;
+        sink = nullptr;
+        reopen.invalidate();
+      }
       if (ndiEnabled && !sink && (!reopen.isValid() || reopen.elapsed() > kReopenDelayMs))
       {
         QString error;
         sink = m_sinkFactory ? m_sinkFactory() : nullptr;
+        if (sink)
+        {
+          sink->setClocked(ndiClocked);
+        }
         if (sink && sink->open(m_name, false, &error))
         {
           QMutexLocker locker(&m_mutex);
@@ -339,8 +356,9 @@ protected:
         }
       }
 
-      // Pace (NDI senders clock themselves).
-      if (!sink || !sink->isClocked())
+      // Pace (NDI senders clock themselves, and so does an SDI card on its
+      // clock: sendFrame() waited).
+      if (!sdi.isClocked() && (!sink || !sink->isClocked()))
       {
         nextFrameMs += qint64(1000.0 / fps);
         const qint64 wait = nextFrameMs - clock.elapsed();
@@ -421,6 +439,7 @@ private:
   bool m_ndiEnabled;
   QString m_sdiPort;
   quint32 m_sdiMode;
+  bool m_sdiCardClock;
   int m_sdiConfig; // bumped by setSdi()
   QString m_sdiError;
   QString m_sdiModeName;
@@ -472,6 +491,7 @@ ProgramOutput::ProgramOutput(NdiManager *ndi,
       m_mixer(new ProgramMixer(sourceName, sinkFactory)),
       m_ndiEnabled(true),
       m_sdiMode(0),
+      m_sdiCardClock(false),
       m_width(kDefaultWidth),
       m_height(kDefaultHeight),
       m_fps(kDefaultFps),
@@ -811,11 +831,17 @@ bool ProgramOutput::ndiEnabled() const
   return m_ndiEnabled;
 }
 
-void ProgramOutput::setSdiOutput(const QString &port, quint32 mode)
+void ProgramOutput::setSdiOutput(const QString &port, quint32 mode, bool cardClock)
 {
   m_sdiPort = port;
   m_sdiMode = mode;
-  m_mixer->setSdi(port, mode);
+  m_sdiCardClock = cardClock;
+  m_mixer->setSdi(port, mode, cardClock);
+}
+
+bool ProgramOutput::sdiCardClock() const
+{
+  return m_sdiCardClock;
 }
 
 QString ProgramOutput::sdiPort() const
@@ -844,7 +870,9 @@ QString ProgramOutput::sdiStatus(bool *ok) const
   {
     return error;
   }
-  return modeName.isEmpty() ? m_sdiPort : QString::fromUtf8("%1  \xC2\xB7  %2").arg(m_sdiPort).arg(modeName);
+  const QString clock = m_sdiCardClock ? QString::fromUtf8("card clock") : QString::fromUtf8("system clock");
+  return modeName.isEmpty() ? m_sdiPort
+                            : QString::fromUtf8("%1  \xC2\xB7  %2  \xC2\xB7  %3").arg(m_sdiPort).arg(modeName).arg(clock);
 }
 
 int ProgramOutput::connections() const

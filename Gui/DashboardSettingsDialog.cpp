@@ -57,6 +57,7 @@ CLANG_DIAG_ON(uninitialized)
 #define kSettingsSdiEnabled "dashboard/sdiEnabled"
 #define kSettingsSdiPort "dashboard/sdiPort"             // kept while turned off
 #define kSettingsSdiMode "dashboard/sdiMode"             // 0: the output format's
+#define kSettingsSdiCardClock "dashboard/sdiCardClock"   // default: the system clock
 #define kSdiStatusRefreshMs 500
 
 NATRON_NAMESPACE_ENTER
@@ -90,6 +91,7 @@ DashboardSettingsDialog::DashboardSettingsDialog(::SceneRenderer* renderer,
     , _portCombo(0)
     , _refreshButton(0)
     , _modeCombo(0)
+    , _clockCombo(0)
     , _sdiStatus(0)
     , _buttons(0)
     , _statusTimer(0)
@@ -151,6 +153,14 @@ DashboardSettingsDialog::DashboardSettingsDialog(::SceneRenderer* renderer,
     _modeCombo = new QComboBox(sdiBox);
     _modeCombo->setSizeAdjustPolicy(QComboBox::AdjustToContents);
     sdiForm->addRow(tr("Video mode:"), _modeCombo);
+    _clockCombo = new QComboBox(sdiBox);
+    _clockCombo->addItem(tr("Card's clock"), true);
+    _clockCombo->addItem(tr("System clock"), false);
+    _clockCombo->setToolTip( tr("Card's clock: frames are queued on the card, which plays one per frame time; the "
+                                "smoothest SDI, and Program (NDI included) runs at the card's pace, a few frames later.\n"
+                                "System clock: each frame goes out as soon as it is mixed, timed by the computer "
+                                "(or by NDI); a frame may be repeated or dropped now and then.") );
+    sdiForm->addRow(tr("Clock:"), _clockCombo);
     _sdiStatus = KvGui::secondaryLabel(sdiBox);
     _sdiStatus->setWordWrap(true);
     sdiForm->addRow(_sdiStatus);
@@ -164,6 +174,9 @@ DashboardSettingsDialog::DashboardSettingsDialog(::SceneRenderer* renderer,
     _sdiCheck->setChecked( !port.isEmpty() );
     fillPorts( port.isEmpty() ? settings.value( QString::fromUtf8(kSettingsSdiPort) ).toString() : port );
     fillModes( _program ? _program->sdiMode() : 0 );
+    const bool cardClock = _program && !port.isEmpty() ? _program->sdiCardClock()
+                           : settings.value(QString::fromUtf8(kSettingsSdiCardClock), false).toBool();
+    _clockCombo->setCurrentIndex( cardClock ? 0 : 1 );
     onSdiEnabledToggled( _sdiCheck->isChecked() );
 
     QObject::connect( _sdiCheck, SIGNAL(toggled(bool)), this, SLOT(onSdiEnabledToggled(bool)) );
@@ -236,6 +249,7 @@ DashboardSettingsDialog::onSdiEnabledToggled(bool on)
     _portCombo->setEnabled(on);
     _refreshButton->setEnabled(on);
     _modeCombo->setEnabled(on);
+    _clockCombo->setEnabled(on);
 }
 
 void
@@ -341,14 +355,16 @@ DashboardSettingsDialog::apply()
 
     const QString port = _sdiCheck->isChecked() ? _portCombo->itemData( _portCombo->currentIndex() ).toString() : QString();
     const quint32 mode = _modeCombo->itemData( _modeCombo->currentIndex() ).toUInt();
+    const bool cardClock = _clockCombo->itemData( _clockCombo->currentIndex() ).toBool();
     // The port is kept when the output is turned off, to turn it on again.
     if ( !port.isEmpty() ) {
         settings.setValue(QString::fromUtf8(kSettingsSdiPort), port);
     }
     settings.setValue(QString::fromUtf8(kSettingsSdiMode), mode);
+    settings.setValue(QString::fromUtf8(kSettingsSdiCardClock), cardClock);
     settings.setValue(QString::fromUtf8(kSettingsSdiEnabled), !port.isEmpty() );
-    if ( _program && ( (port != _program->sdiPort()) || (mode != _program->sdiMode()) ) ) {
-        _program->setSdiOutput(port, mode);
+    if ( _program && ( (port != _program->sdiPort()) || (mode != _program->sdiMode()) || (cardClock != _program->sdiCardClock()) ) ) {
+        _program->setSdiOutput(port, mode, cardClock);
     }
     refreshSdiStatus();
 }
@@ -368,7 +384,8 @@ DashboardSettingsDialog::restore(::SceneRenderer* renderer,
     }
     if ( program && settings.value( QString::fromUtf8(kSettingsSdiEnabled) ).toBool() ) {
         program->setSdiOutput( settings.value( QString::fromUtf8(kSettingsSdiPort) ).toString(),
-                               settings.value( QString::fromUtf8(kSettingsSdiMode) ).toUInt() );
+                               settings.value( QString::fromUtf8(kSettingsSdiMode) ).toUInt(),
+                               settings.value(QString::fromUtf8(kSettingsSdiCardClock), false).toBool() );
     }
 }
 

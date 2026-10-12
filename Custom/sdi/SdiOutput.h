@@ -46,8 +46,14 @@ struct Port
 // The ports that can play out (empty if none, or no drivers: *error set).
 QList<Port> ports(QString *error = nullptr);
 
-// Plays frames out of one port, each shown as soon as it is sent (the
-// caller keeps the frame rate). Used from one thread.
+// Plays frames out of one port, on either clock:
+//   system clock  each frame shows as soon as it is sent (the caller keeps
+//                 the frame rate, with its own timer)
+//   card clock    frames are queued on the card, which shows one per frame
+//                 time of the mode; sendFrame() waits while the queue is
+//                 full, so it paces the caller (smooth output, no drift
+//                 against the card)
+// Used from one thread.
 class Output
 {
 public:
@@ -56,9 +62,10 @@ public:
 
   // Opens a port by name in a mode by id; mode 0: the mode of that size and
   // frame rate (progressive preferred).
-  bool open(const QString &port, quint32 mode, int width, int height, double fps, QString *error);
+  bool open(const QString &port, quint32 mode, int width, int height, double fps, bool cardClock, QString *error);
   void close();
   bool isOpen() const;
+  bool isClocked() const; // open on the card clock: sendFrame() paces the caller
   QString modeName() const; // the mode playing
 
   // 8-bit BGRA, top row first, tightly packed; scaled to the mode's size.

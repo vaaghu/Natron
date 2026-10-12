@@ -129,7 +129,8 @@ class NdiSink : public FrameSink
 public:
   NdiSink()
       : m_send(nullptr),
-        m_alpha(false)
+        m_alpha(false),
+        m_clocked(true)
   {
   }
 
@@ -154,7 +155,7 @@ public:
     NdiSendCreate create;
     create.p_ndi_name = m_name.constData();
     create.p_groups = nullptr;
-    create.clock_video = true; // send_video waits to keep the frame rate
+    create.clock_video = m_clocked; // send_video waits to keep the frame rate
     create.clock_audio = false;
 
     m_send = api().sendCreate(&create);
@@ -191,7 +192,12 @@ public:
 
   bool isClocked() const
   {
-    return true;
+    return m_clocked;
+  }
+
+  void setClocked(bool clocked)
+  {
+    m_clocked = clocked;
   }
 
   int connectionCount()
@@ -203,6 +209,7 @@ private:
   NdiSendInstance m_send;
   QByteArray m_name;
   bool m_alpha;
+  bool m_clocked;
 };
 }
 

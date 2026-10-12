@@ -143,11 +143,14 @@ public:
   void setNdiEnabled(bool enabled);
   bool ndiEnabled() const;
 
-  // SDI port playing Program (empty: none, see Sdi::ports()) and its video
-  // mode (0: the mode of the output format).
-  void setSdiOutput(const QString &port, quint32 mode);
+  // SDI port playing Program (empty: none, see Sdi::ports()), its video
+  // mode (0: the mode of the output format), and its clock: the card's
+  // (frames queued on the card, which then paces Program, NDI included) or
+  // the system's (see Sdi::Output).
+  void setSdiOutput(const QString &port, quint32 mode, bool cardClock);
   QString sdiPort() const;
   quint32 sdiMode() const;
+  bool sdiCardClock() const;
   // "port · mode" while playing, why not otherwise; empty: no port chosen.
   QString sdiStatus(bool *ok = nullptr) const;
 
@@ -199,6 +202,7 @@ private:
   bool m_ndiEnabled;
   QString m_sdiPort;
   quint32 m_sdiMode;
+  bool m_sdiCardClock;
   QTimer m_tick;
   Layers m_preview;
   Layers m_program;

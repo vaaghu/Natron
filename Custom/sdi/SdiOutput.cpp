@@ -10,6 +10,9 @@
 #include <stdint.h>
 #include <stdlib.h>
 #include <string.h>
+#if defined(Q_OS_LINUX)
+#include <unistd.h>
+#endif
 
 namespace
 {
@@ -39,6 +42,16 @@ typedef uint32_t BMDFieldDominance;
 typedef uint32_t BMDDisplayModeFlags;
 typedef int64_t BMDTimeValue;
 typedef int64_t BMDTimeScale;
+typedef uint32_t BMDAudioSampleRate;
+typedef uint32_t BMDAudioSampleType;
+typedef uint32_t BMDAudioOutputStreamType;
+typedef uint32_t BMDReferenceStatus;
+
+// Card clock: frames queued ahead on the card, and the frames they are
+// copied into (more than are queued: one is on screen, one being filled).
+const uint32_t kQueuedFrames = 3;
+const int kFramePool = kQueuedFrames + 3;
+const int kQueueWaitMs = 1000; // the card stopped taking frames: give up waiting
 
 const BMDPixelFormat kFormat8BitYUV = 0x32767579;  // '2vuy'
 const BMDPixelFormat kFormat8BitBGRA = 0x42475241; // 'BGRA'
@@ -123,7 +136,26 @@ public:
                                    BMDFrameFlags flags, IDeckLinkMutableVideoFrame **frame) = 0;
   virtual HRESULT CreateAncillaryData(BMDPixelFormat format, void **buffer) = 0;
   virtual HRESULT DisplayVideoFrameSync(IDeckLinkVideoFrame *frame) = 0;
-  // (scheduled playback, audio and timing follow; not used)
+  virtual HRESULT ScheduleVideoFrame(IDeckLinkVideoFrame *frame, BMDTimeValue displayTime, BMDTimeValue displayDuration,
+                                     BMDTimeScale timeScale) = 0;
+  virtual HRESULT SetScheduledFrameCompletionCallback(void *callback) = 0;
+  virtual HRESULT GetBufferedVideoFrameCount(uint32_t *count) = 0;
+  virtual HRESULT EnableAudioOutput(BMDAudioSampleRate rate, BMDAudioSampleType type, uint32_t channels,
+                                    BMDAudioOutputStreamType streamType) = 0;
+  virtual HRESULT DisableAudioOutput() = 0;
+  virtual HRESULT WriteAudioSamplesSync(void *buffer, uint32_t count, uint32_t *written) = 0;
+  virtual HRESULT BeginAudioPreroll() = 0;
+  virtual HRESULT EndAudioPreroll() = 0;
+  virtual HRESULT ScheduleAudioSamples(void *buffer, uint32_t count, BMDTimeValue streamTime, BMDTimeScale timeScale,
+                                       uint32_t *written) = 0;
+  virtual HRESULT GetBufferedAudioSampleFrameCount(uint32_t *count) = 0;
+  virtual HRESULT FlushBufferedAudioSamples() = 0;
+  virtual HRESULT SetAudioCallback(void *callback) = 0;
+  virtual HRESULT StartScheduledPlayback(BMDTimeValue startTime, BMDTimeScale timeScale, double speed) = 0;
+  virtual HRESULT StopScheduledPlayback(BMDTimeValue stopAt, BMDTimeValue *actualStop, BMDTimeScale timeScale) = 0;
+  virtual HRESULT IsScheduledPlaybackRunning(bool *active) = 0;
+  virtual HRESULT GetScheduledStreamTime(BMDTimeScale timeScale, BMDTimeValue *streamTime, double *speed) = 0;
+  // (reference status and hardware timing follow; not used)
 
 protected:
   virtual ~IDeckLinkOutput() {}
@@ -420,9 +452,15 @@ struct Output::Private
 #if defined(Q_OS_LINUX)
   IDeckLink *deckLink;
   IDeckLinkOutput *output;
-  IDeckLinkMutableVideoFrame *frame;
-  bool yuv;    // the frame is UYVY (the card cannot take BGRA in this mode)
-  bool rec601; // SD
+  QList<IDeckLinkMutableVideoFrame *> frames; // one (system clock), or kFramePool
+  int nextFrame;      // the frame filled next
+  bool yuv;           // the frames are UYVY (the card cannot take BGRA in this mode)
+  bool rec601;        // SD
+  bool cardClock;     // frames scheduled on the card's clock
+  BMDTimeValue frameDuration;
+  BMDTimeScale timeScale;
+  BMDTimeValue nextTime; // card clock: when the next frame shows (timeScale units)
+  bool started;          // card clock: scheduled playback running
 #endif
   Mode mode;
 
@@ -430,9 +468,14 @@ struct Output::Private
 #if defined(Q_OS_LINUX)
       : deckLink(nullptr),
         output(nullptr),
-        frame(nullptr),
+        nextFrame(0),
         yuv(false),
-        rec601(false)
+        rec601(false),
+        cardClock(false),
+        frameDuration(0),
+        timeScale(0),
+        nextTime(0),
+        started(false)
 #endif
   {
   }
@@ -449,7 +492,7 @@ Output::~Output()
   delete d;
 }
 
-bool Output::open(const QString &port, quint32 mode, int width, int height, double fps, QString *error)
+bool Output::open(const QString &port, quint32 mode, int width, int height, double fps, bool cardClock, QString *error)
 {
   close();
 #if defined(Q_OS_LINUX)
@@ -500,9 +543,25 @@ bool Output::open(const QString &port, quint32 mode, int width, int height, doub
   d->mode = modes.at(chosen);
 
   BMDDisplayModeSupport support = kDisplayModeNotSupported;
-  d->yuv = d->output->DoesSupportVideoMode(d->mode.id, kFormat8BitBGRA, kVideoOutputFlagDefault, &support, nullptr) != kOk ||
+  IDeckLinkDisplayMode *displayMode = nullptr;
+  d->yuv = d->output->DoesSupportVideoMode(d->mode.id, kFormat8BitBGRA, kVideoOutputFlagDefault, &support, &displayMode) != kOk ||
            support == kDisplayModeNotSupported;
   d->rec601 = d->mode.height < 720;
+  d->cardClock = cardClock;
+  if (displayMode)
+  {
+    displayMode->GetFrameRate(&d->frameDuration, &d->timeScale);
+    release(displayMode);
+  }
+  if (cardClock && (d->frameDuration <= 0 || d->timeScale <= 0))
+  {
+    if (error)
+    {
+      *error = QString::fromUtf8("%1: unknown frame rate of %2").arg(port).arg(d->mode.name);
+    }
+    close();
+    return false;
+  }
 
   if (d->output->EnableVideoOutput(d->mode.id, kVideoOutputFlagDefault) != kOk)
   {
@@ -517,14 +576,20 @@ bool Output::open(const QString &port, quint32 mode, int width, int height, doub
   const int w = d->mode.width;
   const int h = d->mode.height;
   const int rowBytes = d->yuv ? w * 2 : w * 4;
-  if (d->output->CreateVideoFrame(w, h, rowBytes, d->yuv ? kFormat8BitYUV : kFormat8BitBGRA, kFrameFlagDefault, &d->frame) != kOk || !d->frame)
+  const int count = cardClock ? kFramePool : 1;
+  for (int i = 0; i < count; ++i)
   {
-    if (error)
+    IDeckLinkMutableVideoFrame *frame = nullptr;
+    if (d->output->CreateVideoFrame(w, h, rowBytes, d->yuv ? kFormat8BitYUV : kFormat8BitBGRA, kFrameFlagDefault, &frame) != kOk || !frame)
     {
-      *error = QString::fromUtf8("%1: could not create a video frame").arg(port);
+      if (error)
+      {
+        *error = QString::fromUtf8("%1: could not create a video frame").arg(port);
+      }
+      close();
+      return false;
     }
-    close();
-    return false;
+    d->frames << frame;
   }
   return true;
 #else
@@ -533,6 +598,7 @@ bool Output::open(const QString &port, quint32 mode, int width, int height, doub
   Q_UNUSED(width);
   Q_UNUSED(height);
   Q_UNUSED(fps);
+  Q_UNUSED(cardClock);
   load(error);
   return false;
 #endif
@@ -541,11 +607,25 @@ bool Output::open(const QString &port, quint32 mode, int width, int height, doub
 void Output::close()
 {
 #if defined(Q_OS_LINUX)
-  release(d->frame);
   if (d->output)
   {
+    if (d->started)
+    {
+      d->output->StopScheduledPlayback(0, nullptr, d->timeScale);
+    }
     d->output->DisableVideoOutput();
   }
+  for (int i = 0; i < d->frames.size(); ++i)
+  {
+    release(d->frames[i]);
+  }
+  d->frames.clear();
+  d->nextFrame = 0;
+  d->cardClock = false;
+  d->frameDuration = 0;
+  d->timeScale = 0;
+  d->nextTime = 0;
+  d->started = false;
   release(d->output);
   release(d->deckLink);
 #endif
@@ -555,7 +635,16 @@ void Output::close()
 bool Output::isOpen() const
 {
 #if defined(Q_OS_LINUX)
-  return d->frame != nullptr;
+  return !d->frames.isEmpty();
+#else
+  return false;
+#endif
+}
+
+bool Output::isClocked() const
+{
+#if defined(Q_OS_LINUX)
+  return isOpen() && d->cardClock;
 #else
   return false;
 #endif
@@ -569,12 +658,30 @@ QString Output::modeName() const
 void Output::sendFrame(const QByteArray &bgra, int width, int height)
 {
 #if defined(Q_OS_LINUX)
-  if (!d->frame || width <= 0 || height <= 0 || bgra.size() < width * height * 4)
+  if (d->frames.isEmpty() || width <= 0 || height <= 0 || bgra.size() < width * height * 4)
   {
     return;
   }
+
+  // Card clock: wait until the card has room in its queue (it takes one
+  // frame per frame time, which paces the caller).
+  if (d->cardClock && d->started)
+  {
+    uint32_t queued = 0;
+    for (int waited = 0; waited < kQueueWaitMs; ++waited)
+    {
+      if (d->output->GetBufferedVideoFrameCount(&queued) != kOk || queued < kQueuedFrames)
+      {
+        break;
+      }
+      usleep(1000);
+    }
+  }
+
+  IDeckLinkMutableVideoFrame *frame = d->frames.at(d->nextFrame);
+  d->nextFrame = (d->nextFrame + 1) % d->frames.size();
   void *bytes = nullptr;
-  if (d->frame->GetBytes(&bytes) != kOk || !bytes)
+  if (frame->GetBytes(&bytes) != kOk || !bytes)
   {
     return;
   }
@@ -591,7 +698,7 @@ void Output::sendFrame(const QByteArray &bgra, int width, int height)
     src = scaled.constBits();
   }
 
-  const int rowBytes = int(d->frame->GetRowBytes());
+  const int rowBytes = int(frame->GetRowBytes());
   uchar *dst = static_cast<uchar *>(bytes);
   if (d->yuv)
   {
@@ -604,7 +711,29 @@ void Output::sendFrame(const QByteArray &bgra, int width, int height)
       memcpy(dst + y * rowBytes, src + y * w * 4, w * 4);
     }
   }
-  d->output->DisplayVideoFrameSync(d->frame);
+  if (!d->cardClock)
+  {
+    d->output->DisplayVideoFrameSync(frame);
+    return;
+  }
+
+  // Fell behind (frames came late): queue from now on, not in the past.
+  if (d->started)
+  {
+    BMDTimeValue now = 0;
+    double speed = 0;
+    if (d->output->GetScheduledStreamTime(d->timeScale, &now, &speed) == kOk && d->nextTime <= now)
+    {
+      d->nextTime = (now / d->frameDuration + 1) * d->frameDuration;
+    }
+  }
+  d->output->ScheduleVideoFrame(frame, d->nextTime, d->frameDuration, d->timeScale);
+  d->nextTime += d->frameDuration;
+  // Start once the queue is full.
+  if (!d->started && d->nextTime >= BMDTimeValue(kQueuedFrames) * d->frameDuration)
+  {
+    d->started = d->output->StartScheduledPlayback(0, d->timeScale, 1.0) == kOk;
+  }
 #else
   Q_UNUSED(bgra);
   Q_UNUSED(width);

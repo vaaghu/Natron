@@ -59,7 +59,7 @@ NATRON_NAMESPACE_ENTER
  *               SceneRenderer::setRendererOptions(); Natron's own
  *               preferences are left as they are)
  *   Program     the switcher's Program outputs, either or both: the NDI
- *               source, and an SDI port with its video mode
+ *               source, and an SDI port with its video mode and clock
  **/
 class DashboardSettingsDialog
     : public QDialog
@@ -105,6 +105,7 @@ private:
     QComboBox* _portCombo;
     QPushButton* _refreshButton;
     QComboBox* _modeCombo;    // 0: the output format's
+    QComboBox* _clockCombo;   // true: the card's clock
     QLabel* _sdiStatus;
     QDialogButtonBox* _buttons;
     QTimer* _statusTimer;

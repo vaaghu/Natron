@@ -287,7 +287,7 @@ private:
  *   [number  title / subtitle      tally]   header, colored by tally
  *   [picture                            ]   live frame or last render
  *   [status line          progress      ]
- *   [control rows filled by the owner   ]
+ *   [control row filled by the owner    ]
  * Clicking the box (outside its buttons) emits clicked(); the owner selects
  * it and puts it on Preview.
  **/
@@ -321,8 +321,8 @@ public:
     VideoMonitor* monitor() const;
     void setStatus(const QString& text, const QString& tooltip, bool problem);
     QProgressBar* progressBar() const;
-    // Row of controls under the status line (0 or 1), for the owner's buttons.
-    QHBoxLayout* controlRow(int row) const;
+    // Row of controls under the status line, for the owner's buttons.
+    QHBoxLayout* controlRow() const;
 
 Q_SIGNALS:
 
@@ -350,7 +350,7 @@ private:
     VideoMonitor* _monitor;
     QLabel* _status;
     QProgressBar* _progress;
-    QHBoxLayout* _rows[2];
+    QHBoxLayout* _controls;
 };
 
 /**

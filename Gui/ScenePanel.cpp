@@ -1083,7 +1083,7 @@ ScenePanel::createTile(const QString& item,
     w.layer->setFixedSize( appPTR->adjustSizeToDPIX(kSceneControlButtonSize), appPTR->adjustSizeToDPIX(kSceneControlButtonSize) );
     w.layer->setToolTip( tr("Add this input on top of Preview as a layer (Shift+%1). Preview shows one scene: "
                              "if it holds another scene's inputs, it starts over with this one.").arg(number) );
-    QHBoxLayout* row = tile->controlRow(0);
+    QHBoxLayout* row = tile->controlRow();
     row->addWidget(renderLabel);
     row->addWidget(w.render);
     row->addWidget(w.pause);
@@ -1092,32 +1092,8 @@ ScenePanel::createTile(const QString& item,
     row->addWidget(w.layer);
     row->addWidget(w.cut);
 
-    // NDI playout: [play][pause][stop][replay][loop] (named for onNdiRowAction)
-    QLabel* ndiLabel = KvGui::secondaryLabel(tile);
-    ndiLabel->setText( tr("NDI") );
-    w.play = makeControlButton( playerIcon(NATRON_ENUM::NATRON_PIXMAP_PLAYER_PLAY_DISABLED, NATRON_ENUM::NATRON_PIXMAP_PLAYER_PLAY_DISABLED),
-                                tr("Play on its NDI source, continuing past the pause point"), tile );
-    w.playPause = makeControlButton( playerIcon(NATRON_ENUM::NATRON_PIXMAP_PLAYER_PAUSE_DISABLED, NATRON_ENUM::NATRON_PIXMAP_PLAYER_PAUSE_ENABLED),
-                                     tr("Pause its NDI source"), tile );
-    w.playStop = makeControlButton( playerIcon(NATRON_ENUM::NATRON_PIXMAP_PLAYER_STOP_DISABLED, NATRON_ENUM::NATRON_PIXMAP_PLAYER_STOP_DISABLED),
-                                    tr("Stop its NDI source and clear the output"), tile );
-    w.replay = makeControlButton( playerIcon(NATRON_ENUM::NATRON_PIXMAP_PLAYER_FIRST_FRAME, NATRON_ENUM::NATRON_PIXMAP_PLAYER_FIRST_FRAME),
-                                  tr("Replay from the start"), tile );
-    w.loop = makeControlButton( playerIcon(NATRON_ENUM::NATRON_PIXMAP_PLAYER_LOOP_MODE, NATRON_ENUM::NATRON_PIXMAP_PLAYER_LOOP_MODE),
-                                tr("Loop"), tile );
-    w.loop->setCheckable(true);
-    row = tile->controlRow(1);
-    row->addWidget(ndiLabel);
-    QPushButton* playout[] = { w.play, w.playPause, w.playStop, w.replay, w.loop };
-    const char* names[] = { "play", "pause", "stop", "replay", "loop" };
+    QPushButton* buttons[] = { w.render, w.pause, w.stop, w.cut, w.layer };
     for (int b = 0; b < 5; ++b) {
-        playout[b]->setObjectName( QString::fromUtf8(names[b]) );
-        row->addWidget(playout[b]);
-    }
-    row->addStretch();
-
-    QPushButton* buttons[] = { w.render, w.pause, w.stop, w.cut, w.layer, w.play, w.playPause, w.playStop, w.replay, w.loop };
-    for (int b = 0; b < 10; ++b) {
         buttons[b]->setProperty("item", item);
     }
 
@@ -1126,11 +1102,6 @@ ScenePanel::createTile(const QString& item,
     QObject::connect( w.stop, SIGNAL(clicked()), this, SLOT(onRowStopClicked()) );
     QObject::connect( w.cut, SIGNAL(clicked()), this, SLOT(onTileCutClicked()) );
     QObject::connect( w.layer, SIGNAL(clicked()), this, SLOT(onTileLayerClicked()) );
-    QObject::connect( w.play, SIGNAL(clicked()), this, SLOT(onNdiRowAction()) );
-    QObject::connect( w.playPause, SIGNAL(clicked()), this, SLOT(onNdiRowAction()) );
-    QObject::connect( w.playStop, SIGNAL(clicked()), this, SLOT(onNdiRowAction()) );
-    QObject::connect( w.replay, SIGNAL(clicked()), this, SLOT(onNdiRowAction()) );
-    QObject::connect( w.loop, SIGNAL(toggled(bool)), this, SLOT(onNdiLoopToggled(bool)) );
     QObject::connect( tile, SIGNAL(clicked(QString,Qt::KeyboardModifiers)), this, SLOT(onTileClicked(QString,Qt::KeyboardModifiers)) );
     QObject::connect( tile, SIGNAL(doubleClicked(QString)), this, SLOT(onTileDoubleClicked(QString)) );
     QObject::connect( tile, SIGNAL(contextMenuRequested(QString,QPoint)), this, SLOT(onTileContextMenu(QString,QPoint)) );
@@ -1239,17 +1210,7 @@ ScenePanel::refreshTilesNdi()
         const TileWidgets& w = it.value();
         ::PlayoutChannel* c = _ndi ? _ndi->channel( _currentSceneId, it.key() ) : 0;
         const ::PlayoutChannel::Status st = c ? c->status() : ::PlayoutChannel::Status();
-        const bool live = c && st.state == ::PlayoutChannel::eLive;
-        const bool playable = c && !live && st.duration() > 0;
 
-        w.play->setEnabled(playable && st.state != ::PlayoutChannel::ePlaying);
-        w.playPause->setEnabled(c && st.state == ::PlayoutChannel::ePlaying);
-        w.playStop->setEnabled(c && !live && st.state != ::PlayoutChannel::eStopped);
-        w.replay->setEnabled(playable);
-        w.loop->setEnabled(c != 0);
-        const bool blocked = w.loop->blockSignals(true);
-        w.loop->setChecked(c && st.loop);
-        w.loop->blockSignals(blocked);
         w.cut->setEnabled(_program != 0);
         w.layer->setEnabled(_program != 0);
 

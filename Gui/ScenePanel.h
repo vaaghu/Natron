@@ -214,7 +214,7 @@ private:
     void refreshTile(const QString& item);
     // The tile's picture: the frame its NDI source sends, or its last render.
     void refreshTileImage(const QString& item);
-    void refreshTilesNdi(); // playout buttons and pictures of every tile
+    void refreshTilesNdi(); // switcher buttons and pictures of every tile
     void refreshTileTally();
     void refreshRowRenderState(const QString& item);
     void selectOnly(const QString& item);
@@ -266,12 +266,6 @@ private:
         QPushButton* pause;
         QPushButton* render;
         QPushButton* stop;
-        // NDI playout
-        QPushButton* play;
-        QPushButton* playPause;
-        QPushButton* playStop;
-        QPushButton* replay;
-        QPushButton* loop;
         QPushButton* cut;
         QPushButton* layer;
         bool live; // showing the NDI frame (else the last render)

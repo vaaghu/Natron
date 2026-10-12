@@ -1132,6 +1132,7 @@ InputTile::InputTile(const QString& item,
     , _monitor(0)
     , _status(0)
     , _progress(0)
+    , _controls(0)
 {
     setObjectName( QString::fromUtf8("inputTile") );
     setFocusPolicy(Qt::ClickFocus); // the panel's shortcuts (Delete...) then apply
@@ -1180,12 +1181,10 @@ InputTile::InputTile(const QString& item,
     statusRow->addWidget(_progress);
     layout->addLayout(statusRow);
 
-    for (int i = 0; i < 2; ++i) {
-        _rows[i] = new QHBoxLayout;
-        _rows[i]->setContentsMargins(4, 0, 4, 0);
-        _rows[i]->setSpacing(2);
-        layout->addLayout(_rows[i]);
-    }
+    _controls = new QHBoxLayout;
+    _controls->setContentsMargins(4, 0, 4, 0);
+    _controls->setSpacing(2);
+    layout->addLayout(_controls);
 
     updateStyle();
 }
@@ -1258,9 +1257,9 @@ InputTile::progressBar() const
 }
 
 QHBoxLayout*
-InputTile::controlRow(int row) const
+InputTile::controlRow() const
 {
-    return _rows[ qBound(0, row, 1) ];
+    return _controls;
 }
 
 void

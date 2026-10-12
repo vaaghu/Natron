@@ -710,8 +710,7 @@ void ProgramOutput::cut()
   }
   stopTransition();
   play(ePreview);
-  swap();
-  pause(ePreview); // what was on air, held
+  take();
 }
 
 void ProgramOutput::fade(int durationMs)
@@ -748,8 +747,7 @@ void ProgramOutput::setManualPosition(double position)
   if (position >= 1)
   {
     m_position = 0;
-    swap();
-    pause(ePreview);
+    take();
   }
   else
   {
@@ -1170,17 +1168,11 @@ void ProgramOutput::stopTransition()
   }
 }
 
-void ProgramOutput::swap()
+void ProgramOutput::take()
 {
-  const Layers program = m_program;
   m_program = m_preview;
-  m_preview = program;
-  const QHash<QString, LayerPlacement> placements = m_placements[eProgram];
   m_placements[eProgram] = m_placements[ePreview];
-  m_placements[ePreview] = placements;
-  const Clock clock = m_clocks[eProgram];
   m_clocks[eProgram] = m_clocks[ePreview];
-  m_clocks[ePreview] = clock;
   Q_EMIT busChanged();
 }
 
@@ -1195,11 +1187,10 @@ void ProgramOutput::onTick()
     changed = true;
     if (t >= 1.0)
     {
-      // Done: Preview is on air (the frames below already follow the swap).
+      // Done: Preview is on air (the frames below already follow the take).
       m_fadeMs = 0;
       m_position = 0;
-      swap();
-      pause(ePreview);
+      take();
     }
   }
   if (m_blackMs > 0)

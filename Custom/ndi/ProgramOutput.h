@@ -33,13 +33,12 @@ class SceneStore;
 // layer starts at its placement's start time on it, plays its render from
 // there, and only shows until its render ends. Playing stops at the next
 // cue point of the layers (in bus time).
-//   cut()                 Preview goes on air at once; the old Program goes to Preview
-//   fade(ms)              crossfades from Program to Preview, then swaps them
+//   cut()                 Preview goes on air at once; Preview stays as it is
+//   fade(ms)              crossfades from Program to Preview, which then goes on air
 //   setManualPosition(t)  the T-bar: 0..1 of the crossfade, 1 completes it
 //   fadeToBlack(ms)       fades Program to black, or back from black
 // Layers put on an empty Preview hold their first frame; Preview going on
-// air plays from where its clock is, and the bus coming back to Preview
-// pauses.
+// air plays from where its clock is, and keeps playing in step with Program.
 // The NDI source can be turned off, and Program can also be played out of
 // an SDI port (see Custom/sdi), in the output format's mode or a chosen
 // one: NDI, SDI, both, or neither (the monitors still show Program).
@@ -193,7 +192,7 @@ private:
   void drive(Bus bus, const QStringList &skip); // makes the layers' channels follow the clock
   double nextCuePoint(Bus bus, double after) const;
   void stopTransition();
-  void swap(); // Preview <-> Program
+  void take(); // Program becomes a copy of Preview
 
   NdiManager *m_ndi;
   SceneStore *m_scenes;

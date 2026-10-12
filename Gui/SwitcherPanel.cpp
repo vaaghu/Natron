@@ -327,9 +327,9 @@ SwitcherPanel::createTransitions()
     }
 
     _cutButton = new QPushButton(tr("Cut"), transitions);
-    _cutButton->setToolTip( tr("Put Preview on air at once. The layers on Program go to Preview.") );
+    _cutButton->setToolTip( tr("Put Preview on air at once. Preview stays as it is.") );
     _fadeButton = new QPushButton(tr("Fade"), transitions);
-    _fadeButton->setToolTip( tr("Crossfade from Program to Preview in the time below, then swap them.") );
+    _fadeButton->setToolTip( tr("Crossfade from Program to Preview in the time below. Preview stays as it is.") );
     _durationSpin = new QSpinBox(transitions);
     _durationSpin->setRange(0, 10000);
     _durationSpin->setSingleStep(100);

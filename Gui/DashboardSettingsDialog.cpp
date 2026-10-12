@@ -46,6 +46,7 @@ CLANG_DIAG_ON(uninitialized)
 #include "Engine/AppManager.h" // appPTR
 #include "Engine/OSGLContext.h" // OpenGLRendererInfo
 #include "Gui/KvGuiUtils.h"
+#include "Gui/NotificationCenter.h"
 
 #include "Custom/ndi/NdiOutput.h"
 #include "Custom/ndi/ProgramOutput.h"
@@ -60,6 +61,7 @@ CLANG_DIAG_ON(uninitialized)
 #define kSettingsSdiMode "dashboard/sdiMode"             // 0: the output format's
 #define kSettingsSdiCardClock "dashboard/sdiCardClock"   // default: the system clock
 #define kSdiStatusRefreshMs 500
+#define kFocusFlashMs 2000 // a field opened from a notification is outlined this long
 
 NATRON_NAMESPACE_ENTER
 
@@ -97,6 +99,7 @@ DashboardSettingsDialog::DashboardSettingsDialog(::SceneRenderer* renderer,
     , _sdiStatus(0)
     , _buttons(0)
     , _statusTimer(0)
+    , _flashWidget(0)
 {
     setWindowTitle( tr("Settings") );
     QSettings settings;
@@ -422,14 +425,78 @@ DashboardSettingsDialog::apply()
 }
 
 void
+DashboardSettingsDialog::focusField(const QString& field)
+{
+    _pendingFocus = field;
+    // Once the dialog shows.
+    QTimer::singleShot( 0, this, SLOT(applyPendingFocus()) );
+}
+
+void
+DashboardSettingsDialog::applyPendingFocus()
+{
+    QWidget* w = 0;
+
+    if ( _pendingFocus == QString::fromUtf8(kSettingsFieldRenderDevice) ) {
+        w = _deviceCombo;
+    } else if ( _pendingFocus == QString::fromUtf8(kSettingsFieldRenderThreads) ) {
+        w = _threadsSpin;
+        _threadsSpin->selectAll();
+    } else if ( _pendingFocus == QString::fromUtf8(kSettingsFieldNdi) ) {
+        w = _ndiCheck;
+    } else if ( _pendingFocus == QString::fromUtf8(kSettingsFieldSdi) ) {
+        w = _portCombo->isEnabled() ? static_cast<QWidget*>(_portCombo) : static_cast<QWidget*>(_sdiCheck);
+    }
+    _pendingFocus.clear();
+    if (!w) {
+        return;
+    }
+    w->setFocus(Qt::OtherFocusReason);
+    // Outlined for a moment, to find it.
+    onFlashEnded();
+    _flashWidget = w;
+    _flashStyle = w->styleSheet();
+    w->setStyleSheet( _flashStyle + QString::fromUtf8(" %1 { border: 2px solid #e8a33d; border-radius: 3px; }").arg( QString::fromUtf8( w->metaObject()->className() ) ) );
+    QTimer::singleShot( kFocusFlashMs, this, SLOT(onFlashEnded()) );
+}
+
+void
+DashboardSettingsDialog::onFlashEnded()
+{
+    if (_flashWidget) {
+        _flashWidget->setStyleSheet(_flashStyle);
+        _flashWidget = 0;
+    }
+}
+
+void
 DashboardSettingsDialog::restore(::SceneRenderer* renderer,
                                  ::ProgramOutput* program)
 {
     QSettings settings;
 
     if (renderer) {
-        renderer->setRendererOptions( rendererOptions( settings.value(QString::fromUtf8(kSettingsRenderDevice), -1).toInt(),
-                                                       settings.value(QString::fromUtf8(kSettingsRenderThreads), 0).toInt() ) );
+        // Saved choices this machine cannot follow (another machine's, or
+        // hardware that changed) are changed and saved, with a notification.
+        int device = settings.value(QString::fromUtf8(kSettingsRenderDevice), -1).toInt();
+        int threads = settings.value(QString::fromUtf8(kSettingsRenderThreads), 0).toInt();
+        const int gpus = (int)appPTR->getOpenGLRenderers().size();
+        if (device >= gpus) {
+            NotificationCenter::instance()->add( tr("Rendering on the CPU"),
+                                                 tr("The GPU chosen for rendering was not found; renders use the CPU only."),
+                                                 true, NotificationTarget::settings( QString::fromUtf8(kSettingsFieldRenderDevice) ) );
+            device = -1;
+            settings.setValue(QString::fromUtf8(kSettingsRenderDevice), device);
+        }
+        const int maxThreads = qMax(1, QThread::idealThreadCount() );
+        if (threads > maxThreads) {
+            NotificationCenter::instance()->add( tr("Render threads lowered"),
+                                                 tr("CPU threads per render lowered from %1 to %2, what this machine has.").arg(threads).arg(maxThreads),
+                                                 true, NotificationTarget::settings( QString::fromUtf8(kSettingsFieldRenderThreads) ) );
+            threads = maxThreads;
+            settings.setValue(QString::fromUtf8(kSettingsRenderThreads), threads);
+        }
+        renderer->setRendererOptions( rendererOptions(device, threads) );
     }
     if (program) {
         program->setNdiEnabled( settings.value(QString::fromUtf8(kSettingsNdiEnabled), true).toBool() );

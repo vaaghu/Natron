@@ -52,6 +52,8 @@ class QPoint;
 class QPushButton;
 class QTableWidget;
 class QTableWidgetItem;
+class QToolButton;
+class QMenu;
 class QSystemTrayIcon;
 class QUndoStack;
 class StateStore; // Custom/state/StateStore.h
@@ -78,6 +80,9 @@ class HoverLineEdit;
  *   KVs       the keys the opened scene uses
  *   NDI       the opened scene's NDI output
  *   Data      the key/value pairs of the state store, editable
+ * The bell at the right of the menu bar lists the notifications (see
+ * NotificationCenter); clicking one, or its system notification, opens what
+ * it is about (the Settings field, the scene's input box).
  * The Settings menu (first in the menu bar) opens the render hardware and
  * Program output (NDI, SDI) settings (see DashboardSettingsDialog).
  * Closing it quits the application (after asking to save open projects).
@@ -141,6 +146,12 @@ private Q_SLOTS:
     void onReleaseDockWidths(); // Qt 4: see onApplyDefaultSizes()
     void onRenderJobFinished(const QString& sceneId, const QString& item, bool ok, const QString& message);
     void onAllRendersFinished();
+    void onNotificationAdded(int id);
+    void onNotificationsChanged(); // the bell's badge
+    void onBellMenuAboutToShow();
+    void onBellMenuAboutToHide();
+    void onBellMenuTriggered(QAction* action);
+    void onTrayMessageClicked();
 
 protected:
 
@@ -170,7 +181,10 @@ private:
     // Hides the rows not matching the search.
     void applySearch();
     // System notification (tray message where available) and taskbar alert.
-    void notify(const QString& title, const QString& text, bool error);
+    // notification: what clicking the system notification opens (0: the dashboard).
+    void notify(const QString& title, const QString& text, bool error, int notification = 0);
+    // Opens what a notification is about, and marks it read.
+    void openNotification(int id);
 
 
     ::StateStore* _store;
@@ -198,6 +212,10 @@ private:
     QAction* _removeAction;
     QUndoStack* _undoStack; // scene and data changes (Edit menu)
     QSystemTrayIcon* _tray; // created for the first notification
+    int _trayNotification;  // what the last system notification opens
+    int _lastRenderNotification; // the last render's, for the summary
+    QToolButton* _bellButton;
+    QMenu* _bellMenu;
     int _rendersDone;   // since the queue was last empty
     int _rendersFailed;
     QLineEdit* _searchEdit; // filters the Data table (Ctrl+F)

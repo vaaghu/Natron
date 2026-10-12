@@ -103,6 +103,11 @@ public:
 
     bool hasCurrentScene() const;
 
+    // Opens a scene with one of its input boxes selected and scrolled to
+    // (a notification's target). False if the scene is gone; an item no
+    // longer in it just leaves the scene open.
+    bool showItem(const QString& sceneId, const QString& item);
+
     // Adds Write nodes of projects to the opened scene (asks which ones when
     // a project has several).
     void addProjectsToCurrentScene(const QStringList& projects);
@@ -132,6 +137,7 @@ private Q_SLOTS:
     void onDeleteSceneClicked();
     void onSceneSelectionChanged();
     void onSceneListContextMenu(const QPoint& pos);
+    void onScrollToItem(); // _scrollToItem (see showItem())
 
     void onAddProjectsClicked();
     void onRemoveProjectsClicked();
@@ -293,6 +299,7 @@ private:
     QPushButton* _renderButton;
     QPushButton* _stopButton;
     QScrollArea* _tileScroll;
+    QString _scrollToItem; // showItem(): scrolled to once laid out
     TileGrid* _tileGrid;
     QLabel* _tileHint; // shown when the scene has no Write nodes
     QTableWidget* _kvTable;

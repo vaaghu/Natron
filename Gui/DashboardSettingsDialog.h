@@ -47,6 +47,12 @@ class QPushButton;
 class QSpinBox;
 class QTimer;
 class ProgramOutput; // Custom/ndi/ProgramOutput.h
+
+// Fields for DashboardSettingsDialog::focusField() (notification targets).
+#define kSettingsFieldRenderDevice "renderDevice"
+#define kSettingsFieldRenderThreads "renderThreads"
+#define kSettingsFieldNdi "ndi"
+#define kSettingsFieldSdi "sdi"
 class SceneRenderer; // Custom/scene/SceneRenderer.h
 
 NATRON_NAMESPACE_ENTER
@@ -75,8 +81,12 @@ public:
                             ::ProgramOutput* program,
                             QWidget* parent = 0);
 
-    // Applies the saved settings (at startup).
+    // Applies the saved settings (at startup). Saved choices this machine
+    // cannot follow are changed, with a notification (NotificationCenter).
     static void restore(::SceneRenderer* renderer, ::ProgramOutput* program);
+
+    // Focuses a field (kSettingsField...) once shown, outlined for a moment.
+    void focusField(const QString& field);
 
 private Q_SLOTS:
 
@@ -87,6 +97,8 @@ private Q_SLOTS:
     void onPortChosen(int index);
     void onButtonClicked(QAbstractButton* button);
     void refreshSdiStatus();
+    void applyPendingFocus();
+    void onFlashEnded();
 
 private:
 
@@ -112,6 +124,9 @@ private:
     QLabel* _sdiStatus;
     QDialogButtonBox* _buttons;
     QTimer* _statusTimer;
+    QString _pendingFocus;
+    QWidget* _flashWidget; // outlined now
+    QString _flashStyle;   // its style sheet before
 };
 
 NATRON_NAMESPACE_EXIT

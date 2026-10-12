@@ -214,6 +214,7 @@ SOURCES += \
     DashboardWindow.cpp \
     DashboardSettingsDialog.cpp \
     SingleInstance.cpp \
+    NotificationCenter.cpp \
     ScenePanel.cpp \
     SwitcherPanel.cpp \
     SwitcherWidgets.cpp \
@@ -375,6 +376,7 @@ HEADERS += \
     DashboardWindow.h \
     DashboardSettingsDialog.h \
     SingleInstance.h \
+    NotificationCenter.h \
     ScenePanel.h \
     SwitcherPanel.h \
     SwitcherWidgets.h \

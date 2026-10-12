@@ -49,6 +49,12 @@ CLANG_DIAG_OFF(uninitialized)
 #include <QLocale>
 #include <QMenu>
 #include <QMenuBar>
+#include <QFont>
+#include <QIcon>
+#include <QPainter>
+#include <QPixmap>
+#include <QPainterPath>
+#include <QStyle>
 #include <QMessageBox>
 #include <QPair>
 #include <QPushButton>
@@ -71,6 +77,7 @@ CLANG_DIAG_ON(uninitialized)
 #include "Gui/GuiDefines.h" // NATRON_MAX_RECENT_FILES
 #include "Gui/DashboardSettingsDialog.h"
 #include "Gui/HoverWidgets.h"
+#include "Gui/NotificationCenter.h"
 #include "Gui/KvGuiUtils.h"
 #include "Gui/ScenePanel.h"
 #include "Gui/SwitcherPanel.h"
@@ -95,10 +102,52 @@ CLANG_DIAG_ON(uninitialized)
 
 // Tooltips show once the mouse has stayed still this long.
 #define kDashboardToolTipDelayMs 2000
+// Notifications: the bell's size, and how long a line of the list may be.
+#define kDashboardBellSize 18
+#define kDashboardNotificationChars 90
+#define kDashboardNotificationsShown 30
 
 NATRON_NAMESPACE_ENTER
 
 NATRON_NAMESPACE_ANONYMOUS_ENTER
+
+// A bell, with the unread count on a red badge.
+QIcon
+bellIcon(int unread,
+         const QColor& color)
+{
+    const int s = appPTR->adjustSizeToDPIX(kDashboardBellSize) * 2; // drawn at twice the size: sharp on high DPI
+    QPixmap pix(s, s);
+
+    pix.fill(Qt::transparent);
+    QPainter p(&pix);
+    p.setRenderHint(QPainter::Antialiasing);
+    QPainterPath bell;
+    bell.moveTo(0.50 * s, 0.10 * s);
+    bell.cubicTo(0.76 * s, 0.10 * s, 0.78 * s, 0.32 * s, 0.78 * s, 0.52 * s);
+    bell.lineTo(0.90 * s, 0.72 * s);
+    bell.lineTo(0.10 * s, 0.72 * s);
+    bell.lineTo(0.22 * s, 0.52 * s);
+    bell.cubicTo(0.22 * s, 0.32 * s, 0.24 * s, 0.10 * s, 0.50 * s, 0.10 * s);
+    p.fillPath(bell, color);
+    p.setPen(Qt::NoPen);
+    p.setBrush(color);
+    p.drawEllipse( QPointF(0.50 * s, 0.82 * s), 0.09 * s, 0.09 * s );
+    if (unread > 0) {
+        const QRectF badge(0.48 * s, 0.0, 0.52 * s, 0.46 * s);
+        p.setBrush( QColor(220, 60, 50) );
+        p.drawEllipse(badge);
+        QFont font = p.font();
+        font.setBold(true);
+        font.setPixelSize( int(0.32 * s) );
+        p.setFont(font);
+        p.setPen(Qt::white);
+        p.drawText( badge, Qt::AlignCenter, (unread > 9) ? QString::fromUtf8("9+") : QString::number(unread) );
+    }
+    p.end();
+
+    return QIcon(pix);
+}
 
 // Removal of state store keys, undone by setting them back. Pushed after
 // the keys are removed: the first redo() does nothing.
@@ -243,6 +292,10 @@ DashboardWindow::DashboardWindow(::StateStore* store,
     , _removeAction(0)
     , _undoStack(0)
     , _tray(0)
+    , _trayNotification(0)
+    , _lastRenderNotification(0)
+    , _bellButton(0)
+    , _bellMenu(0)
     , _rendersDone(0)
     , _rendersFailed(0)
     , _searchEdit(0)
@@ -264,6 +317,10 @@ DashboardWindow::DashboardWindow(::StateStore* store,
     if (_server) {
         QObject::connect( _server, SIGNAL(statusChanged()), this, SLOT(onServerStatusChanged()) );
     }
+
+    QObject::connect( NotificationCenter::instance(), SIGNAL(added(int)), this, SLOT(onNotificationAdded(int)) );
+    QObject::connect( NotificationCenter::instance(), SIGNAL(changed()), this, SLOT(onNotificationsChanged()) );
+    onNotificationsChanged(); // the ones added before (startup)
 
     if (_sceneRenderer) {
         QObject::connect( _sceneRenderer, SIGNAL(jobFinished(QString,QString,bool,QString)),
@@ -390,6 +447,18 @@ DashboardWindow::createPanels()
     windowMenu->addSeparator();
     QAction* reset = windowMenu->addAction( tr("Reset Layout") );
     QObject::connect( reset, SIGNAL(triggered()), this, SLOT(onResetLayoutClicked()) );
+
+    // Notifications: the bell at the right of the menu bar.
+    _bellButton = new QToolButton(this);
+    _bellButton->setAutoRaise(true);
+    _bellButton->setPopupMode(QToolButton::InstantPopup);
+    _bellButton->setIconSize( QSize( appPTR->adjustSizeToDPIX(kDashboardBellSize), appPTR->adjustSizeToDPIX(kDashboardBellSize) ) );
+    _bellMenu = new QMenu(_bellButton);
+    _bellButton->setMenu(_bellMenu);
+    menuBar()->setCornerWidget(_bellButton, Qt::TopRightCorner);
+    QObject::connect( _bellMenu, SIGNAL(aboutToShow()), this, SLOT(onBellMenuAboutToShow()) );
+    QObject::connect( _bellMenu, SIGNAL(aboutToHide()), this, SLOT(onBellMenuAboutToHide()) );
+    QObject::connect( _bellMenu, SIGNAL(triggered(QAction*)), this, SLOT(onBellMenuTriggered(QAction*)) );
 
     // The user's layout from the last run.
     _defaultLayout = saveState(kDashboardLayoutVersion);
@@ -1234,23 +1303,26 @@ DashboardWindow::onRenderJobFinished(const QString& sceneId,
                                      bool ok,
                                      const QString& message)
 {
+    ::Scene scene;
+    if (_sceneStore) {
+        _sceneStore->scene(sceneId, &scene);
+    }
+    const QString what = tr("%1 of %2 (%3)").arg( ::SceneItem::writer(item) )
+                         .arg( QFileInfo( ::SceneItem::project(item) ).fileName() )
+                         .arg(scene.name);
+
+    // Each render in the list; the system notification is for failures
+    // (and the summary once all are done).
+    _lastRenderNotification = NotificationCenter::instance()->add( ok ? tr("Render done") : tr("Render failed"),
+                                                                   ok ? what : tr("%1: %2").arg(what).arg( message.section(QLatin1Char('\n'), 0, 0) ),
+                                                                   !ok, NotificationTarget::sceneItem(sceneId, item) );
     if (ok) {
         ++_rendersDone;
 
         return;
     }
     ++_rendersFailed;
-
-    ::Scene scene;
-    if (_sceneStore) {
-        _sceneStore->scene(sceneId, &scene);
-    }
-    notify( tr("Render failed"),
-            tr("%1 of %2 (%3): %4").arg( ::SceneItem::writer(item) )
-            .arg( QFileInfo( ::SceneItem::project(item) ).fileName() )
-            .arg(scene.name)
-            .arg( message.section(QLatin1Char('\n'), 0, 0) ),
-            true );
+    notify( tr("Render failed"), tr("%1: %2").arg(what).arg( message.section(QLatin1Char('\n'), 0, 0) ), true, _lastRenderNotification );
 }
 
 void
@@ -1262,7 +1334,7 @@ DashboardWindow::onAllRendersFinished()
     notify( tr("Renders finished"),
             (_rendersFailed == 0) ? ( (_rendersDone == 1) ? tr("1 render done.") : tr("%1 renders done.").arg(_rendersDone) )
                                   : tr("%1 done, %2 failed.").arg(_rendersDone).arg(_rendersFailed),
-            _rendersFailed > 0 );
+            _rendersFailed > 0, _lastRenderNotification );
     _rendersDone = 0;
     _rendersFailed = 0;
 }
@@ -1270,12 +1342,15 @@ DashboardWindow::onAllRendersFinished()
 void
 DashboardWindow::notify(const QString& title,
                         const QString& text,
-                        bool error)
+                        bool error,
+                        int notification)
 {
     if ( QSystemTrayIcon::isSystemTrayAvailable() && QSystemTrayIcon::supportsMessages() ) {
         if (!_tray) {
             _tray = new QSystemTrayIcon(windowIcon().isNull() ? qApp->windowIcon() : windowIcon(), this);
+            QObject::connect( _tray, SIGNAL(messageClicked()), this, SLOT(onTrayMessageClicked()) );
         }
+        _trayNotification = notification;
         // Shown for the message only: no permanent tray icon.
         _tray->show();
         _tray->showMessage(title, text, error ? QSystemTrayIcon::Warning : QSystemTrayIcon::Information, 8000);
@@ -1283,6 +1358,143 @@ DashboardWindow::notify(const QString& title,
     }
     if ( !isActiveWindow() ) {
         QApplication::alert(this);
+    }
+}
+
+void
+DashboardWindow::onNotificationAdded(int id)
+{
+    // Settings the application changed: also as a system notification
+    // (renders have theirs, see onRenderJobFinished()).
+    Notification n;
+
+    if ( NotificationCenter::instance()->notification(id, &n) && (n.target.kind == NotificationTarget::eSettings) ) {
+        notify(n.title, n.text, n.warning, id);
+    }
+}
+
+void
+DashboardWindow::onNotificationsChanged()
+{
+    if (!_bellButton) {
+        return;
+    }
+    const int unread = NotificationCenter::instance()->unreadCount();
+    _bellButton->setIcon( bellIcon( unread, palette().color(QPalette::WindowText) ) );
+    _bellButton->setToolTip( (unread == 0) ? tr("Notifications")
+                             : (unread == 1) ? tr("Notifications: 1 unread")
+                             : tr("Notifications: %1 unread").arg(unread) );
+}
+
+void
+DashboardWindow::onBellMenuAboutToShow()
+{
+    _bellMenu->clear();
+    const QList<Notification> list = NotificationCenter::instance()->notifications();
+    if ( list.isEmpty() ) {
+        _bellMenu->addAction( tr("No notifications") )->setEnabled(false);
+
+        return;
+    }
+    const QIcon warningIcon = style()->standardIcon(QStyle::SP_MessageBoxWarning);
+    const QIcon infoIcon = style()->standardIcon(QStyle::SP_MessageBoxInformation);
+    const QString separator = QString::fromUtf8("  \xC2\xB7  "); // middle dot
+    for (int i = 0; i < list.size() && i < kDashboardNotificationsShown; ++i) {
+        const Notification& n = list.at(i);
+        QString text = n.time.toString( QString::fromUtf8("hh:mm") ) + separator + n.title + separator + n.text;
+        if (text.size() > kDashboardNotificationChars) {
+            text = text.left(kDashboardNotificationChars - 1) + QString::fromUtf8("\xE2\x80\xA6"); // ellipsis
+        }
+        text.replace( QLatin1Char('&'), QString::fromUtf8("&&") ); // not a shortcut
+        QAction* action = _bellMenu->addAction(n.warning ? warningIcon : infoIcon, text);
+        action->setData(n.id);
+        action->setToolTip(n.title + QString::fromUtf8("\n") + n.text);
+        if (!n.read) {
+            QFont font = action->font();
+            font.setBold(true);
+            action->setFont(font);
+        }
+    }
+    _bellMenu->addSeparator();
+    QAction* markRead = _bellMenu->addAction( tr("Mark All as Read") );
+    markRead->setData(-1);
+    markRead->setEnabled(NotificationCenter::instance()->unreadCount() > 0);
+    _bellMenu->addAction( tr("Clear All") )->setData(-2);
+}
+
+void
+DashboardWindow::onBellMenuAboutToHide()
+{
+    // The list was seen: no more badge for these.
+    NotificationCenter::instance()->markAllRead();
+}
+
+void
+DashboardWindow::onBellMenuTriggered(QAction* action)
+{
+    const int id = action ? action->data().toInt() : 0;
+
+    if (id == -1) {
+        NotificationCenter::instance()->markAllRead();
+    } else if (id == -2) {
+        NotificationCenter::instance()->clear();
+    } else if (id > 0) {
+        openNotification(id);
+    }
+}
+
+void
+DashboardWindow::onTrayMessageClicked()
+{
+    if (_trayNotification > 0) {
+        openNotification(_trayNotification);
+    } else {
+        showNormal();
+        raise();
+        activateWindow();
+    }
+}
+
+void
+DashboardWindow::openNotification(int id)
+{
+    Notification n;
+
+    if ( !NotificationCenter::instance()->notification(id, &n) ) {
+        return;
+    }
+    NotificationCenter::instance()->markRead(id);
+    if ( isMinimized() ) {
+        showNormal();
+    }
+    show();
+    raise();
+    activateWindow();
+
+    switch (n.target.kind) {
+    case NotificationTarget::eSettings: {
+        DashboardSettingsDialog dialog(_sceneRenderer, _program, this);
+        dialog.focusField(n.target.field);
+        dialog.exec();
+        break;
+    }
+    case NotificationTarget::eSceneItem:
+        if (_scenePanel) {
+            // The scene list and the input boxes, shown if they were closed.
+            if (_scenesDock) {
+                _scenesDock->show();
+            }
+            if (_sceneDock) {
+                _sceneDock->show();
+                _sceneDock->raise();
+            }
+            if ( !_scenePanel->showItem(n.target.sceneId, n.target.item) ) {
+                QMessageBox::information( this, n.title, tr("The scene of this notification no longer exists.") );
+            }
+        }
+        break;
+    case NotificationTarget::eNone:
+        break;
     }
 }
 

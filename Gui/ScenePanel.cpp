@@ -823,6 +823,44 @@ ScenePanel::onSceneSelectionChanged()
 }
 
 void
+ScenePanel::onScrollToItem()
+{
+    QHash<QString, TileWidgets>::const_iterator it = _tiles.find(_scrollToItem);
+
+    if ( it != _tiles.end() ) {
+        _tileScroll->ensureWidgetVisible( it.value().tile );
+    }
+    _scrollToItem.clear();
+}
+
+bool
+ScenePanel::showItem(const QString& sceneId,
+                     const QString& item)
+{
+    for (int i = 0; i < _sceneList->count(); ++i) {
+        QListWidgetItem* row = _sceneList->item(i);
+        if (row->data(Qt::UserRole).toString() != sceneId) {
+            continue;
+        }
+        _sceneList->setCurrentItem(row); // opens it (onSceneSelectionChanged)
+        _sceneList->scrollToItem(row);
+        QHash<QString, TileWidgets>::const_iterator it = _tiles.find(item);
+        if ( it != _tiles.end() ) {
+            selectOnly(item);
+            _anchorItem = item;
+            refreshButtons();
+            // Once the new boxes are laid out.
+            _scrollToItem = item;
+            QTimer::singleShot( 0, this, SLOT(onScrollToItem()) );
+        }
+
+        return true;
+    }
+
+    return false;
+}
+
+void
 ScenePanel::onNewSceneClicked()
 {
     bool ok = false;

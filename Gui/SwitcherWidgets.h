@@ -102,13 +102,17 @@ private:
 };
 
 /**
- * @brief The Preview monitor: also shows the layers' outlines and lets the
- * user place them (in the output format set with setCanvas()):
+ * @brief The Preview monitor: also shows the layers' outlines, guides
+ * (rule of thirds, centre, title and action safe areas), and lets the user
+ * place the layers (in the output format set with setCanvas()):
  *   click            selects the top layer under the mouse
- *   drag             moves it (snaps to the centre lines)
- *   drag a corner    scales it, aspect ratio kept
+ *   drag             moves it; its edges and centre snap to the output's
+ *                    edges, centre, thirds, safe areas and the other layers
+ *                    (red lines show where; Alt: no snapping)
+ *   drag a handle    (corners, edge middles) scales it, aspect ratio kept
  *   arrow keys       nudge it by a pixel of the output (Shift: 10)
- *   right-click      centre it, or reset it (fitted, centred)
+ *   right-click      align it (corners, edges, centre, lower third),
+ *                    reset it (fitted, centred), show or hide the guides
  **/
 class LayerMonitor
     : public VideoMonitor
@@ -163,7 +167,12 @@ private:
     int indexOf(const QString& key) const;
     QRectF boxRect(const Box& box) const; // in widget coordinates
     int boxAt(const QPoint& pos) const;   // top-most, -1: none
-    bool onHandle(const QPoint& pos) const; // a corner of the selected layer
+    QList<QPointF> handles() const;      // of the selected layer: corners, then edge middles
+    int handleAt(const QPoint& pos) const; // index in handles(), -1: none
+    // Half the size of a layer at a scale, in fractions of the output.
+    QSizeF halfSize(const Box& box, double scale) const;
+    // Lines a layer moved along an axis snaps to (fractions of the output).
+    QList<double> snapLines(bool horizontal, int skipIndex) const;
     void place(int index, const LayerPlacement& placement, bool done);
 
     int _canvasWidth;
@@ -173,6 +182,9 @@ private:
     DragEnum _drag;
     QPoint _pressPos;
     LayerPlacement _pressPlacement;
+    bool _showGuides;
+    double _snapX; // lines the dragged layer snapped to (-1: none)
+    double _snapY;
 };
 
 /**

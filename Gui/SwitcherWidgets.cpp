@@ -40,6 +40,7 @@ CLANG_DIAG_OFF(uninitialized)
 #include <QPolygon>
 #include <QProgressBar>
 #include <QResizeEvent>
+#include <QSettings>
 #include <QVBoxLayout>
 CLANG_DIAG_ON(deprecated)
 CLANG_DIAG_ON(uninitialized)
@@ -241,9 +242,20 @@ VideoMonitor::paintEvent(QPaintEvent* /*e*/)
 
 // ----- LayerMonitor -----
 
-// Corner handles: half size, and how far from the centre lines a drag snaps.
+// Handles: half size; how close a moved layer snaps to a line.
 #define kLayerHandleSize 4
-#define kLayerSnapPixels 6
+#define kLayerSnapPixels 8
+// QSettings key: guides shown on the Preview monitor.
+#define kLayerSettingsGuides "dashboard/previewGuides"
+
+NATRON_NAMESPACE_ANONYMOUS_ENTER
+
+// Safe areas, as fractions of the output kept clear around them.
+const double kTitleSafeMargin = 0.05;  // title safe: 90 %
+const double kActionSafeMargin = 0.035; // action safe: 93 %
+const double kLowerThirdBottom = 0.85;  // bottom of a lower third
+
+NATRON_NAMESPACE_ANONYMOUS_EXIT
 
 LayerMonitor::LayerMonitor(QWidget* parent)
     : VideoMonitor(parent)
@@ -254,9 +266,14 @@ LayerMonitor::LayerMonitor(QWidget* parent)
     , _drag(eDragNone)
     , _pressPos()
     , _pressPlacement()
+    , _showGuides(true)
+    , _snapX(-1)
+    , _snapY(-1)
 {
     setFocusPolicy(Qt::ClickFocus); // arrow keys
     setMouseTracking(true);
+    QSettings settings;
+    _showGuides = settings.value(QString::fromUtf8(kLayerSettingsGuides), true).toBool();
 }
 
 void
@@ -277,9 +294,6 @@ LayerMonitor::setBoxes(const QList<Box>& boxes)
         return;
     }
     _boxes = boxes;
-    if (indexOf(_selected) < 0) {
-        _selected.clear();
-    }
     update();
 }
 
@@ -310,19 +324,26 @@ LayerMonitor::indexOf(const QString& key) const
     return -1;
 }
 
+QSizeF
+LayerMonitor::halfSize(const Box& box,
+                       double scale) const
+{
+    QSize fitted = box.size.isValid() ? box.size : QSize(_canvasWidth, _canvasHeight);
+
+    fitted.scale(_canvasWidth, _canvasHeight, Qt::KeepAspectRatio);
+
+    return QSizeF(fitted.width() * scale / _canvasWidth / 2, fitted.height() * scale / _canvasHeight / 2);
+}
+
 QRectF
 LayerMonitor::boxRect(const Box& box) const
 {
     const QRect picture = pictureRect();
-    const double toWidget = double( picture.width() ) / _canvasWidth;
-    QSize fitted = box.size.isValid() ? box.size : QSize(_canvasWidth, _canvasHeight);
+    const QSizeF half = halfSize(box, box.placement.scale);
 
-    fitted.scale(_canvasWidth, _canvasHeight, Qt::KeepAspectRatio);
-    const double w = fitted.width() * box.placement.scale * toWidget;
-    const double h = fitted.height() * box.placement.scale * toWidget;
-
-    return QRectF(picture.x() + box.placement.x * picture.width() - w / 2,
-                  picture.y() + box.placement.y * picture.height() - h / 2, w, h);
+    return QRectF(picture.x() + (box.placement.x - half.width()) * picture.width(),
+                  picture.y() + (box.placement.y - half.height()) * picture.height(),
+                  2 * half.width() * picture.width(), 2 * half.height() * picture.height());
 }
 
 int
@@ -337,23 +358,58 @@ LayerMonitor::boxAt(const QPoint& pos) const
     return -1;
 }
 
-bool
-LayerMonitor::onHandle(const QPoint& pos) const
+QList<QPointF>
+LayerMonitor::handles() const
 {
+    QList<QPointF> points;
     const int index = indexOf(_selected);
 
     if (index < 0) {
-        return false;
+        return points;
     }
     const QRectF r = boxRect( _boxes.at(index) );
-    const QPointF corners[] = { r.topLeft(), r.topRight(), r.bottomLeft(), r.bottomRight() };
-    for (int i = 0; i < 4; ++i) {
-        if ( (qAbs(corners[i].x() - pos.x()) <= kLayerHandleSize + 2) && (qAbs(corners[i].y() - pos.y()) <= kLayerHandleSize + 2) ) {
-            return true;
+    points << r.topLeft() << r.topRight() << r.bottomLeft() << r.bottomRight()
+           << QPointF( r.center().x(), r.top() ) << QPointF( r.center().x(), r.bottom() )
+           << QPointF( r.left(), r.center().y() ) << QPointF( r.right(), r.center().y() );
+
+    return points;
+}
+
+int
+LayerMonitor::handleAt(const QPoint& pos) const
+{
+    const QList<QPointF> points = handles();
+
+    for (int i = 0; i < points.size(); ++i) {
+        if ( (qAbs(points.at(i).x() - pos.x()) <= kLayerHandleSize + 2) && (qAbs(points.at(i).y() - pos.y()) <= kLayerHandleSize + 2) ) {
+            return i;
         }
     }
 
-    return false;
+    return -1;
+}
+
+QList<double>
+LayerMonitor::snapLines(bool horizontal,
+                        int skipIndex) const
+{
+    // The output's edges, centre and thirds, the safe areas, and the other
+    // layers' edges and centres.
+    QList<double> lines;
+    lines << 0 << 1 << 0.5 << 1.0 / 3 << 2.0 / 3
+          << kTitleSafeMargin << 1 - kTitleSafeMargin << kActionSafeMargin << 1 - kActionSafeMargin;
+    for (int i = 0; i < _boxes.size(); ++i) {
+        if (i == skipIndex) {
+            continue;
+        }
+        const LayerPlacement& p = _boxes.at(i).placement;
+        const QSizeF half = halfSize(_boxes.at(i), p.scale);
+        const double centre = horizontal ? p.x : p.y;
+        const double extent = horizontal ? half.width() : half.height();
+        lines << centre - extent << centre << centre + extent;
+    }
+
+    return lines;
 }
 
 void
@@ -377,12 +433,45 @@ void
 LayerMonitor::paintEvent(QPaintEvent* e)
 {
     VideoMonitor::paintEvent(e);
-    if ( _boxes.isEmpty() ) {
-        return;
-    }
 
     QPainter painter(this);
+    const QRect picture = pictureRect();
     painter.setClipRect( rect() );
+
+    // Guides: rule of thirds, centre cross, title and action safe areas.
+    if ( _showGuides && !picture.isEmpty() ) {
+        const double w = picture.width();
+        const double h = picture.height();
+        painter.setPen( QPen(QColor(255, 255, 255, 38), 1) );
+        for (int i = 1; i <= 2; ++i) {
+            painter.drawLine( QPointF(picture.x() + w * i / 3, picture.y()), QPointF(picture.x() + w * i / 3, picture.y() + h) );
+            painter.drawLine( QPointF(picture.x(), picture.y() + h * i / 3), QPointF(picture.x() + w, picture.y() + h * i / 3) );
+        }
+        const QPointF centre( picture.x() + w / 2, picture.y() + h / 2 );
+        const double arm = qMin(w, h) * 0.04;
+        painter.setPen( QPen(QColor(255, 255, 255, 110), 1) );
+        painter.drawLine( QPointF(centre.x() - arm, centre.y()), QPointF(centre.x() + arm, centre.y()) );
+        painter.drawLine( QPointF(centre.x(), centre.y() - arm), QPointF(centre.x(), centre.y() + arm) );
+        const struct { double margin; QColor color; const char* label; } areas[] = {
+            { kActionSafeMargin, QColor(120, 200, 255, 90), QT_TR_NOOP("Action safe") },
+            { kTitleSafeMargin, QColor(255, 210, 90, 110), QT_TR_NOOP("Title safe") },
+        };
+        QFont small = painter.font();
+        if (small.pointSizeF() > 0) {
+            small.setPointSizeF(small.pointSizeF() * 0.8);
+        }
+        painter.setFont(small);
+        for (int i = 0; i < 2; ++i) {
+            const QRectF area( picture.x() + w * areas[i].margin, picture.y() + h * areas[i].margin,
+                               w * (1 - 2 * areas[i].margin), h * (1 - 2 * areas[i].margin) );
+            painter.setPen( QPen(areas[i].color, 1, Qt::DashLine) );
+            painter.setBrush(Qt::NoBrush);
+            painter.drawRect(area);
+            painter.drawText( area.adjusted(3, 1, 0, 0), Qt::AlignLeft | Qt::AlignTop, tr(areas[i].label) );
+        }
+        painter.setFont( font() );
+    }
+
     // Every layer faintly; the selected one with its handles and name.
     for (int i = 0; i < _boxes.size(); ++i) {
         if (_boxes.at(i).key == _selected) {
@@ -399,12 +488,16 @@ LayerMonitor::paintEvent(QPaintEvent* e)
     const QColor accent = Switcher::previewColor();
     const QRectF r = boxRect( _boxes.at(index) );
     painter.setPen( QPen(accent, 1) );
+    painter.setBrush(Qt::NoBrush);
     painter.drawRect(r);
-    const QPointF corners[] = { r.topLeft(), r.topRight(), r.bottomLeft(), r.bottomRight() };
+    const QList<QPointF> points = handles();
     painter.setBrush(accent);
-    for (int i = 0; i < 4; ++i) {
-        painter.drawRect( QRectF(corners[i].x() - kLayerHandleSize, corners[i].y() - kLayerHandleSize, 2 * kLayerHandleSize, 2 * kLayerHandleSize) );
+    for (int i = 0; i < points.size(); ++i) {
+        painter.drawRect( QRectF(points.at(i).x() - kLayerHandleSize, points.at(i).y() - kLayerHandleSize, 2 * kLayerHandleSize, 2 * kLayerHandleSize) );
     }
+    // Its centre.
+    painter.drawLine( QPointF(r.center().x() - 4, r.center().y()), QPointF(r.center().x() + 4, r.center().y()) );
+    painter.drawLine( QPointF(r.center().x(), r.center().y() - 4), QPointF(r.center().x(), r.center().y() + 4) );
     const QString label = _boxes.at(index).label;
     const QRect text = painter.fontMetrics().boundingRect(label).adjusted(-4, -1, 4, 1);
     const QRect tag( int( r.left() ), int( r.top() ) - text.height() - 1, text.width(), text.height() );
@@ -412,15 +505,16 @@ LayerMonitor::paintEvent(QPaintEvent* e)
     painter.setPen(Qt::black);
     painter.drawText(tag.translated(0, (tag.top() < 0) ? text.height() + 2 : 0), Qt::AlignCenter, label);
 
-    // Centre lines while moving a layer onto them.
+    // The lines the moved layer snapped to.
     if (_drag == eDragMove) {
-        const QRect picture = pictureRect();
-        painter.setPen( QPen(QColor(255, 255, 255, 120), 1, Qt::DotLine) );
-        if (_boxes.at(index).placement.x == 0.5) {
-            painter.drawLine( picture.center().x(), picture.top(), picture.center().x(), picture.bottom() );
+        painter.setPen( QPen(QColor(235, 60, 60), 1) );
+        if (_snapX >= 0) {
+            const double x = picture.x() + _snapX * picture.width();
+            painter.drawLine( QPointF( x, picture.top() ), QPointF( x, picture.bottom() ) );
         }
-        if (_boxes.at(index).placement.y == 0.5) {
-            painter.drawLine( picture.left(), picture.center().y(), picture.right(), picture.center().y() );
+        if (_snapY >= 0) {
+            const double y = picture.y() + _snapY * picture.height();
+            painter.drawLine( QPointF( picture.left(), y ), QPointF( picture.right(), y ) );
         }
     }
 }
@@ -433,7 +527,7 @@ LayerMonitor::mousePressEvent(QMouseEvent* e)
 
         return;
     }
-    if ( onHandle( e->pos() ) ) {
+    if (handleAt( e->pos() ) >= 0) {
         _drag = eDragScale;
     } else {
         const int index = boxAt( e->pos() );
@@ -446,6 +540,8 @@ LayerMonitor::mousePressEvent(QMouseEvent* e)
         }
         _drag = eDragMove;
     }
+    _snapX = -1;
+    _snapY = -1;
     _pressPos = e->pos();
     _pressPlacement = _boxes.at( indexOf(_selected) ).placement;
     update();
@@ -457,7 +553,11 @@ LayerMonitor::mouseMoveEvent(QMouseEvent* e)
     const int index = indexOf(_selected);
 
     if ( (_drag == eDragNone) || (index < 0) ) {
-        setCursor( onHandle( e->pos() ) ? Qt::SizeFDiagCursor : (boxAt( e->pos() ) >= 0) ? Qt::SizeAllCursor : Qt::ArrowCursor );
+        const int handle = handleAt( e->pos() );
+        // Corners: top-left / bottom-right, top-right / bottom-left; edge middles.
+        static const Qt::CursorShape shapes[] = { Qt::SizeFDiagCursor, Qt::SizeBDiagCursor, Qt::SizeBDiagCursor, Qt::SizeFDiagCursor,
+                                                  Qt::SizeVerCursor, Qt::SizeVerCursor, Qt::SizeHorCursor, Qt::SizeHorCursor };
+        setCursor( (handle >= 0) ? shapes[handle] : (boxAt( e->pos() ) >= 0) ? Qt::SizeAllCursor : Qt::ArrowCursor );
 
         return;
     }
@@ -470,20 +570,46 @@ LayerMonitor::mouseMoveEvent(QMouseEvent* e)
     if (_drag == eDragMove) {
         placement.x += double( e->pos().x() - _pressPos.x() ) / picture.width();
         placement.y += double( e->pos().y() - _pressPos.y() ) / picture.height();
-        // Snap to the centre lines.
-        if (qAbs(placement.x - 0.5) * picture.width() < kLayerSnapPixels) {
-            placement.x = 0.5;
-        }
-        if (qAbs(placement.y - 0.5) * picture.height() < kLayerSnapPixels) {
-            placement.y = 0.5;
+        _snapX = -1;
+        _snapY = -1;
+        if ( !(e->modifiers() & Qt::AltModifier) ) {
+            // The layer's edges or centre onto the nearest line.
+            const QSizeF half = halfSize(_boxes.at(index), placement.scale);
+            for (int axis = 0; axis < 2; ++axis) {
+                const bool horizontal = (axis == 0);
+                double& centre = horizontal ? placement.x : placement.y;
+                const double extent = horizontal ? half.width() : half.height();
+                const double pixels = horizontal ? picture.width() : picture.height();
+                const QList<double> lines = snapLines(horizontal, index);
+                const double offsets[] = { -extent, 0, extent };
+                double best = kLayerSnapPixels / pixels;
+                double shift = 0;
+                double line = -1;
+                for (int l = 0; l < lines.size(); ++l) {
+                    for (int o = 0; o < 3; ++o) {
+                        const double distance = lines.at(l) - (centre + offsets[o]);
+                        if (std::fabs(distance) < best) {
+                            best = std::fabs(distance);
+                            shift = distance;
+                            line = lines.at(l);
+                        }
+                    }
+                }
+                centre += shift;
+                (horizontal ? _snapX : _snapY) = line;
+            }
         }
     } else {
-        // Scale by how far the mouse is from the layer's centre.
+        // Scale by how far the mouse is from the layer's centre; fitted
+        // (scale 1) is a snap point.
         const QPointF centre( picture.x() + _pressPlacement.x * picture.width(), picture.y() + _pressPlacement.y * picture.height() );
         const double from = std::sqrt( std::pow(_pressPos.x() - centre.x(), 2) + std::pow(_pressPos.y() - centre.y(), 2) );
         const double to = std::sqrt( std::pow(e->pos().x() - centre.x(), 2) + std::pow(e->pos().y() - centre.y(), 2) );
         if (from > 1) {
             placement.scale = qBound(0.02, _pressPlacement.scale * to / from, 20.0);
+            if ( !(e->modifiers() & Qt::AltModifier) && (std::fabs(placement.scale - 1) < 0.02) ) {
+                placement.scale = 1;
+            }
         }
     }
     place(index, placement, false);
@@ -499,9 +625,11 @@ LayerMonitor::mouseReleaseEvent(QMouseEvent* e)
         if (_boxes.at(index).placement != _pressPlacement) {
             place(index, _boxes.at(index).placement, true);
         }
-        update();
     }
     _drag = eDragNone;
+    _snapX = -1;
+    _snapY = -1;
+    update();
     VideoMonitor::mouseReleaseEvent(e);
 }
 
@@ -535,29 +663,76 @@ void
 LayerMonitor::contextMenuEvent(QContextMenuEvent* e)
 {
     const int index = boxAt( e->pos() );
+    QMenu menu(this);
 
+    if (index >= 0) {
+        if (_boxes.at(index).key != _selected) {
+            _selected = _boxes.at(index).key;
+            Q_EMIT layerSelected(_selected);
+            update();
+        }
+    }
+
+    // Align: the layer against the title safe area (x, y: -1 left / top,
+    // 0 centre, 1 right / bottom), or its centre on the lower third line.
+    struct Align { const char* name; int x; int y; };
+    const Align aligns[] = {
+        { QT_TR_NOOP("Top Left"), -1, -1 }, { QT_TR_NOOP("Top"), 0, -1 }, { QT_TR_NOOP("Top Right"), 1, -1 },
+        { QT_TR_NOOP("Left"), -1, 0 }, { QT_TR_NOOP("Centre"), 0, 0 }, { QT_TR_NOOP("Right"), 1, 0 },
+        { QT_TR_NOOP("Bottom Left"), -1, 1 }, { QT_TR_NOOP("Bottom"), 0, 1 }, { QT_TR_NOOP("Bottom Right"), 1, 1 },
+    };
+    QMenu* alignMenu = menu.addMenu( tr("Align (title safe)") );
+    QList<QAction*> alignActions;
+    for (size_t i = 0; i < sizeof(aligns) / sizeof(aligns[0]); ++i) {
+        alignActions << alignMenu->addAction( tr(aligns[i].name) );
+        if ( (i % 3) == 2 && (i < 8) ) {
+            alignMenu->addSeparator();
+        }
+    }
+    QAction* lowerThird = menu.addAction( tr("Lower Third") );
+    QAction* reset = menu.addAction( tr("Reset Position and Size") );
+    alignMenu->setEnabled(index >= 0);
+    lowerThird->setEnabled(index >= 0);
+    reset->setEnabled(index >= 0);
+    menu.addSeparator();
+    QAction* guides = menu.addAction( tr("Show Guides") );
+    guides->setCheckable(true);
+    guides->setChecked(_showGuides);
+
+    QAction* chosen = menu.exec( e->globalPos() );
+    if (!chosen) {
+        return;
+    }
+    if (chosen == guides) {
+        _showGuides = !_showGuides;
+        QSettings settings;
+        settings.setValue(QString::fromUtf8(kLayerSettingsGuides), _showGuides);
+        update();
+
+        return;
+    }
     if (index < 0) {
         return;
     }
-    if (_boxes.at(index).key != _selected) {
-        _selected = _boxes.at(index).key;
-        Q_EMIT layerSelected(_selected);
-        update();
-    }
-    QMenu menu(this);
-    QAction* centre = menu.addAction( tr("Centre") );
-    QAction* reset = menu.addAction( tr("Reset Position and Size") );
-    QAction* chosen = menu.exec( e->globalPos() );
-    if (chosen == centre) {
-        LayerPlacement placement = _boxes.at(index).placement;
-        placement.x = 0.5;
-        placement.y = 0.5;
-        place(index, placement, true);
+    LayerPlacement placement = _boxes.at(index).placement;
+    const QSizeF half = halfSize(_boxes.at(index), placement.scale);
+    const int align = alignActions.indexOf(chosen);
+    if (align >= 0) {
+        const double low = kTitleSafeMargin;
+        const double high = 1 - kTitleSafeMargin;
+        placement.x = (aligns[align].x < 0) ? low + half.width() : (aligns[align].x > 0) ? high - half.width() : 0.5;
+        placement.y = (aligns[align].y < 0) ? low + half.height() : (aligns[align].y > 0) ? high - half.height() : 0.5;
+    } else if (chosen == lowerThird) {
+        // Against the title safe area's left edge, its bottom at 85 % of the
+        // height (the usual lower third band).
+        placement.x = kTitleSafeMargin + half.width();
+        placement.y = kLowerThirdBottom - half.height();
     } else if (chosen == reset) {
-        LayerPlacement placement; // fitted and centred, starting when it did
-        placement.start = _boxes.at(index).placement.start;
-        place(index, placement, true);
+        const double start = placement.start; // fitted and centred, starting when it did
+        placement = LayerPlacement();
+        placement.start = start;
     }
+    place(index, placement, true);
 }
 
 // ----- BusTimeline -----

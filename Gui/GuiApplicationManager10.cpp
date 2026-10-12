@@ -43,6 +43,10 @@ CLANG_DIAG_OFF(uninitialized)
 #include <QApplication>
 #include <QDesktopWidget>
 #include <QFileOpenEvent>
+#include <QMessageBox>
+
+#include <cstdlib> // _Exit
+#include <cstdio> // fflush
 CLANG_DIAG_ON(deprecated)
 CLANG_DIAG_ON(uninitialized)
 
@@ -65,6 +69,7 @@ CLANG_DIAG_ON(uninitialized)
 #include "Gui/GuiAppInstance.h"
 #include "Gui/KnobGuiFactory.h"
 #include "Gui/SplashScreen.h"
+#include "Gui/SingleInstance.h"
 
 #if QT_VERSION < QT_VERSION_CHECK(5, 0, 0)
 // removed in qt5, just revert the commit (1b58d9acc493111390b31f0bffd6b2a76baca91b)
@@ -317,6 +322,20 @@ GuiApplicationManager::initializeQApp(int &argc,
     setCurrentLogicalDPI(dpiX, dpiY);
 
     app->setQuitOnLastWindowClosed(true);
+
+    // One instance at a time: another one is asked to come to the front,
+    // and this one says so and quits before loading anything (nothing to
+    // save or tear down yet).
+    SingleInstance* single = new SingleInstance(app);
+    if ( !single->acquire() ) {
+        QMessageBox::warning( 0, QString::fromUtf8(NATRON_APPLICATION_NAME),
+                              tr("%1 is already running.\n\nOnly one instance can run at a time; "
+                                 "the running one has been brought to the front.").arg( QString::fromUtf8(NATRON_APPLICATION_NAME) ) );
+        std::fflush(stdout);
+        std::fflush(stderr);
+        std::_Exit(0);
+    }
+    QObject::connect( single, SIGNAL(activationRequested()), this, SLOT(onActivationRequested()) );
 
 #if QT_VERSION >= QT_VERSION_CHECK(5, 0, 0)
     // use namespace workaround

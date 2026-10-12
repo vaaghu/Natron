@@ -213,6 +213,7 @@ SOURCES += \
     StateBindingTab.cpp \
     DashboardWindow.cpp \
     DashboardSettingsDialog.cpp \
+    SingleInstance.cpp \
     ScenePanel.cpp \
     SwitcherPanel.cpp \
     SwitcherWidgets.cpp \
@@ -373,6 +374,7 @@ HEADERS += \
     StateBindingTab.h \
     DashboardWindow.h \
     DashboardSettingsDialog.h \
+    SingleInstance.h \
     ScenePanel.h \
     SwitcherPanel.h \
     SwitcherWidgets.h \

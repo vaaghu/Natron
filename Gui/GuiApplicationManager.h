@@ -220,6 +220,8 @@ public Q_SLOTS:
 
     void onFontconfigCacheUpdateFinished();
     void onFontconfigTimerTriggered();
+    // Another launch of the application: the dashboard comes to the front.
+    void onActivationRequested();
 
 #ifdef Q_OS_DARWIN
 Q_SIGNALS:

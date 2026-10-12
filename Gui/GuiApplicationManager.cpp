@@ -1213,6 +1213,21 @@ GuiApplicationManager::getStateStore() const
     return &_imp->stateStore;
 }
 
+void
+GuiApplicationManager::onActivationRequested()
+{
+    // Still loading: the dashboard shows once loaded anyway.
+    if (!_imp->dashboard) {
+        return;
+    }
+    if ( _imp->dashboard->isMinimized() ) {
+        _imp->dashboard->showNormal();
+    }
+    _imp->dashboard->show();
+    _imp->dashboard->raise();
+    _imp->dashboard->activateWindow();
+}
+
 bool
 GuiApplicationManager::showStartWindow()
 {

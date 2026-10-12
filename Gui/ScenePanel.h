@@ -77,7 +77,7 @@ class TileGrid;
  * like the inputs of a vision mixer: its picture, render status and
  * controls, and its NDI playout), the KVs of the scene, and its NDI output.
  * With a Program output (see ProgramOutput), clicking an input box puts it
- * on Preview and its Cut button puts it on air.
+ * on Preview and Ctrl+1-9 puts it on air.
  **/
 class ScenePanel
     : public QWidget
@@ -147,7 +147,6 @@ private Q_SLOTS:
     void onTileDoubleClicked(const QString& item);
     void onTileContextMenu(const QString& item, const QPoint& globalPos);
     void onTileGridContextMenu(const QPoint& pos);
-    void onTileCutClicked();         // the item is the sender's "item" property
     void onPreviewSelectedClicked(); // the first selected input
     void onTileLayerClicked();       // the item is the sender's "item" property
     void onLayerSelectedClicked();
@@ -265,7 +264,6 @@ private:
         QPushButton* pause;
         QPushButton* render;
         QPushButton* stop;
-        QPushButton* cut;
         QPushButton* layer;
         bool live; // showing the NDI frame (else the last render)
     };

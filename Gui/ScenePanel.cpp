@@ -688,7 +688,7 @@ ScenePanel::createSceneDetail()
     _tileScroll->setHorizontalScrollBarPolicy(Qt::ScrollBarAlwaysOff);
     _tileGrid = new TileGrid;
     _tileGrid->setContextMenuPolicy(Qt::CustomContextMenu);
-    _tileGrid->setToolTip( tr("Click an input to put only it on Preview, + adds it as a layer, Cut puts it on air. "
+    _tileGrid->setToolTip( tr("Click an input to put only it on Preview, + adds it as a layer. "
                               "Keys 1-9: Preview, Shift+1-9: add as layer, Ctrl+1-9: Cut. Right-click for more actions.") );
     _tileScroll->setWidget(_tileGrid);
     layout->addWidget(_tileScroll, 1);
@@ -1064,7 +1064,7 @@ ScenePanel::createTile(const QString& item,
     w.tile = tile;
     w.live = false;
 
-    // Render: [render][pause][stop]                 [Cut]
+    // Render: [render][pause][stop]                   [+]
     QLabel* renderLabel = KvGui::secondaryLabel(tile);
     renderLabel->setText( tr("Render") );
     w.render = makeControlButton( playerIcon(NATRON_ENUM::NATRON_PIXMAP_PLAYER_PLAY_DISABLED, NATRON_ENUM::NATRON_PIXMAP_PLAYER_PLAY_DISABLED),
@@ -1074,10 +1074,6 @@ ScenePanel::createTile(const QString& item,
     w.pause->setCheckable(true);
     w.stop = makeControlButton( playerIcon(NATRON_ENUM::NATRON_PIXMAP_PLAYER_STOP_DISABLED, NATRON_ENUM::NATRON_PIXMAP_PLAYER_STOP_DISABLED),
                                 tr("Stop or dequeue this render"), tile );
-    w.cut = new QPushButton(tr("Cut"), tile);
-    w.cut->setFocusPolicy(Qt::NoFocus);
-    w.cut->setFixedHeight( appPTR->adjustSizeToDPIX(kSceneControlButtonSize) );
-    w.cut->setToolTip( tr("Put only this input on air (Program) at once (Ctrl+%1)").arg(number) );
     w.layer = new QPushButton(QString::fromUtf8("+"), tile);
     w.layer->setFocusPolicy(Qt::NoFocus);
     w.layer->setFixedSize( appPTR->adjustSizeToDPIX(kSceneControlButtonSize), appPTR->adjustSizeToDPIX(kSceneControlButtonSize) );
@@ -1090,17 +1086,15 @@ ScenePanel::createTile(const QString& item,
     row->addWidget(w.stop);
     row->addStretch();
     row->addWidget(w.layer);
-    row->addWidget(w.cut);
 
-    QPushButton* buttons[] = { w.render, w.pause, w.stop, w.cut, w.layer };
-    for (int b = 0; b < 5; ++b) {
+    QPushButton* buttons[] = { w.render, w.pause, w.stop, w.layer };
+    for (int b = 0; b < 4; ++b) {
         buttons[b]->setProperty("item", item);
     }
 
     QObject::connect( w.render, SIGNAL(clicked()), this, SLOT(onRowRenderClicked()) );
     QObject::connect( w.pause, SIGNAL(toggled(bool)), this, SLOT(onRowPauseToggled(bool)) );
     QObject::connect( w.stop, SIGNAL(clicked()), this, SLOT(onRowStopClicked()) );
-    QObject::connect( w.cut, SIGNAL(clicked()), this, SLOT(onTileCutClicked()) );
     QObject::connect( w.layer, SIGNAL(clicked()), this, SLOT(onTileLayerClicked()) );
     QObject::connect( tile, SIGNAL(clicked(QString,Qt::KeyboardModifiers)), this, SLOT(onTileClicked(QString,Qt::KeyboardModifiers)) );
     QObject::connect( tile, SIGNAL(doubleClicked(QString)), this, SLOT(onTileDoubleClicked(QString)) );
@@ -1211,7 +1205,6 @@ ScenePanel::refreshTilesNdi()
         ::PlayoutChannel* c = _ndi ? _ndi->channel( _currentSceneId, it.key() ) : 0;
         const ::PlayoutChannel::Status st = c ? c->status() : ::PlayoutChannel::Status();
 
-        w.cut->setEnabled(_program != 0);
         w.layer->setEnabled(_program != 0);
 
         // Live picture while it sends; back to the last render once stopped.
@@ -2001,14 +1994,6 @@ ScenePanel::onTileGridContextMenu(const QPoint& /*pos*/)
     QAction* all = menu.addAction( tr("Preview All as Layers"), this, SLOT(onPreviewSceneClicked()) );
     all->setEnabled( _program && !currentItems().isEmpty() );
     menu.exec( QCursor::pos() );
-}
-
-void
-ScenePanel::onTileCutClicked()
-{
-    const QString item = sender() ? sender()->property("item").toString() : QString();
-
-    cutToInput(item);
 }
 
 void

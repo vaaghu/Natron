@@ -40,6 +40,8 @@ class SceneStore;
 // Layers put on an empty Preview hold their first frame; Preview going on
 // air plays from where its clock is, and the bus coming back to Preview
 // pauses.
+// Program is also played out of an SDI port if one is chosen (see
+// Custom/sdi), in the output format's mode or a chosen one.
 // Frames are mixed and sent in a worker thread; the methods are for the
 // main thread.
 class ProgramOutput : public QObject
@@ -136,6 +138,14 @@ public:
   QString outputError() const; // the NDI source could not be opened (empty: fine)
   int connections() const;     // receivers (-1: unknown)
 
+  // SDI port playing Program (empty: none, see Sdi::ports()) and its video
+  // mode (0: the mode of the output format).
+  void setSdiOutput(const QString &port, quint32 mode);
+  QString sdiPort() const;
+  quint32 sdiMode() const;
+  // "port · mode" while playing, why not otherwise; empty: no port chosen.
+  QString sdiStatus(bool *ok = nullptr) const;
+
 Q_SIGNALS:
   // The layers on Preview or Program changed.
   void busChanged();
@@ -181,6 +191,8 @@ private:
   SceneStore *m_scenes;
   QString m_name;
   ProgramMixer *m_mixer;
+  QString m_sdiPort;
+  quint32 m_sdiMode;
   QTimer m_tick;
   Layers m_preview;
   Layers m_program;

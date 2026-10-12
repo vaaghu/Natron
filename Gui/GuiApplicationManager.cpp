@@ -62,6 +62,7 @@ CLANG_DIAG_ON(uninitialized)
 #include "Gui/SplashScreen.h"
 #include "Gui/PreviewThread.h"
 #include "Gui/DocumentationManager.h"
+#include "Gui/DashboardSettingsDialog.h"
 
 //All fixed sizes were calculated for a 96 dpi screen
 #ifndef Q_OS_DARWIN
@@ -1014,6 +1015,8 @@ GuiApplicationManager::initGui(const CLArgs& args)
         _imp->programOutput.reset( new ProgramOutput( _imp->ndiManager.get(), _imp->sceneStore.get(),
                                                       QString::fromUtf8(NATRON_APPLICATION_NAME " Program"),
                                                       &Ndi::createSink ) );
+        // The render hardware and SDI output chosen in the dashboard's Settings.
+        DashboardSettingsDialog::restore( _imp->sceneRenderer.get(), _imp->programOutput.get() );
     }
 
     // Local control HTTP server (see Custom/server).

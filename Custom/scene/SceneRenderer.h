@@ -35,7 +35,7 @@ struct RenderProgress
 
 // Renders scene items (Write nodes of projects, see SceneItem) with
 // NatronRenderer, up to maxParallel() at once:
-//   NatronRenderer -l <applyScript> -w <Write node> <project.ntp>
+//   NatronRenderer -l <applyScript> [rendererOptions()] -w <Write node> <project.ntp>
 // The apply script (see writeApplyScript) runs after the project is loaded
 // and, using the environment set here:
 //   NATRON_STATE_JSON    saved state store: values of the bound keys
@@ -93,6 +93,12 @@ public:
   RenderProgress progress(const QString &sceneId, const QString &item) const;
 
   QString rendererPath() const;
+
+  // NatronRenderer options added to each render from now on, before the
+  // Write node (e.g. "--opengl enabled --setting noRenderThreads=4": the
+  // hardware it renders with).
+  void setRendererOptions(const QStringList &options);
+  QStringList rendererOptions() const;
 
   // Folder a scene renders an item into: the scene's output folder, or a
   // folder named after the scene next to the Write node's output (the same
@@ -183,6 +189,7 @@ private:
   QString m_applyScriptPath;
   QString m_ffmpegPath;
   QString m_thumbnailDir;
+  QStringList m_rendererOptions;
 
   QList<Job> m_queue;
   QList<Run *> m_runs;

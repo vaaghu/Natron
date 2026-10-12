@@ -128,6 +128,16 @@ QString SceneRenderer::rendererPath() const
   return m_rendererPath;
 }
 
+void SceneRenderer::setRendererOptions(const QStringList &options)
+{
+  m_rendererOptions = options;
+}
+
+QStringList SceneRenderer::rendererOptions() const
+{
+  return m_rendererOptions;
+}
+
 int SceneRenderer::maxParallel() const
 {
   return m_maxParallel;
@@ -551,6 +561,7 @@ bool SceneRenderer::startJob(const Job &job)
   {
     args << QString::fromUtf8("-l") << m_applyScriptPath;
   }
+  args << m_rendererOptions;
   args << QString::fromUtf8("-w") << writer << project;
 
   Q_EMIT statusChanged();

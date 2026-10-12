@@ -69,6 +69,7 @@ CLANG_DIAG_ON(uninitialized)
 
 #include "Gui/GuiApplicationManager.h" // appPTR
 #include "Gui/GuiDefines.h" // NATRON_MAX_RECENT_FILES
+#include "Gui/DashboardSettingsDialog.h"
 #include "Gui/HoverWidgets.h"
 #include "Gui/KvGuiUtils.h"
 #include "Gui/ScenePanel.h"
@@ -223,6 +224,7 @@ DashboardWindow::DashboardWindow(::StateStore* store,
     , _server(server)
     , _sceneStore(scenes)
     , _sceneRenderer(renderer)
+    , _program(0)
     , _recentList(0)
     , _scenePanel(0)
     , _switcherBox(0)
@@ -284,6 +286,7 @@ void
 DashboardWindow::setNdiManager(::NdiManager* ndi,
                                ::ProgramOutput* program)
 {
+    _program = program;
     if (_scenePanel) {
         _scenePanel->setNdiManager(ndi);
         _scenePanel->setProgramOutput(program);
@@ -315,6 +318,12 @@ DashboardWindow::createPanels()
     setDockNestingEnabled(true);
     setDockOptions(QMainWindow::AnimatedDocks | QMainWindow::AllowNestedDocks | QMainWindow::AllowTabbedDocks);
     setTabPosition(Qt::AllDockWidgetAreas, QTabWidget::North);
+
+    // Settings: render hardware, SDI output.
+    QMenu* settingsMenu = menuBar()->addMenu( tr("&Settings") );
+    QAction* settingsAction = settingsMenu->addAction( tr("Render and SDI Output..."), this, SLOT(onSettingsClicked()) );
+    settingsAction->setShortcut( QKeySequence(Qt::CTRL + Qt::Key_Comma) );
+    settingsAction->setShortcutContext(Qt::WindowShortcut);
 
     // Edit: undo / redo of scene and data changes.
     _undoStack = new QUndoStack(this);
@@ -387,6 +396,14 @@ DashboardWindow::createPanels()
     QSettings settings;
     restoreGeometry( settings.value( QString::fromUtf8(kDashboardSettingsGeometry) ).toByteArray() );
     _defaultSizesPending = !restoreState(settings.value( QString::fromUtf8(kDashboardSettingsState) ).toByteArray(), kDashboardLayoutVersion);
+}
+
+void
+DashboardWindow::onSettingsClicked()
+{
+    DashboardSettingsDialog dialog(_sceneRenderer, _program, this);
+
+    dialog.exec();
 }
 
 void

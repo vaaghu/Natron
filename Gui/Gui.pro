@@ -212,6 +212,7 @@ SOURCES += \
     SplashScreen.cpp \
     StateBindingTab.cpp \
     DashboardWindow.cpp \
+    DashboardSettingsDialog.cpp \
     ScenePanel.cpp \
     SwitcherPanel.cpp \
     SwitcherWidgets.cpp \
@@ -230,6 +231,7 @@ SOURCES += \
     ../Custom/ndi/PlayoutChannel.cpp \
     ../Custom/ndi/NdiManager.cpp \
     ../Custom/ndi/ProgramOutput.cpp \
+    ../Custom/sdi/SdiOutput.cpp \
     Splitter.cpp \
     TabGroup.cpp \
     TabWidget.cpp \
@@ -370,6 +372,7 @@ HEADERS += \
     SplashScreen.h \
     StateBindingTab.h \
     DashboardWindow.h \
+    DashboardSettingsDialog.h \
     ScenePanel.h \
     SwitcherPanel.h \
     SwitcherWidgets.h \
@@ -389,6 +392,7 @@ HEADERS += \
     ../Custom/ndi/PlayoutChannel.h \
     ../Custom/ndi/NdiManager.h \
     ../Custom/ndi/ProgramOutput.h \
+    ../Custom/sdi/SdiOutput.h \
     Splitter.h \
     TabGroup.h \
     TabWidget.h \

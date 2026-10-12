@@ -3,6 +3,7 @@
 #include "NdiManager.h"
 #include "PlayoutChannel.h"
 #include "../scene/SceneStore.h"
+#include "../sdi/SdiOutput.h"
 
 #include <QByteArray>
 #include <QCoreApplication>
@@ -17,7 +18,7 @@
 namespace
 {
 const int kTickMs = 15;              // transitions and frame hand-over to the mixer
-const int kReopenDelayMs = 5000;     // the NDI source could not be opened: try again this often
+const int kReopenDelayMs = 5000;     // the NDI source or SDI port could not be opened: try again this often
 const int kConnectionsMs = 1000;     // receivers are counted this often
 const int kPreviewMonitorWidth = 960; // Preview is composited this small when not on air
 const int kDefaultWidth = 1920;
@@ -79,7 +80,7 @@ QString trProgram(const char *text)
 
 // Composites the layers of Program and Preview handed over by
 // ProgramOutput, mixes them, and sends the result to the NDI source at the
-// output frame rate.
+// output frame rate, and to the SDI port if one is chosen.
 class ProgramMixer : public QThread
 {
 public:
@@ -113,7 +114,9 @@ public:
         m_outputHeight(0),
         m_previewWidth(0),
         m_previewHeight(0),
-        m_connections(-1)
+        m_connections(-1),
+        m_sdiMode(0),
+        m_sdiConfig(0)
   {
   }
 
@@ -153,6 +156,24 @@ public:
     return *width > 0 && *height > 0;
   }
 
+  // SDI port (empty: none) and mode (0: the output format's).
+  void setSdi(const QString &port, quint32 mode)
+  {
+    QMutexLocker locker(&m_mutex);
+    m_sdiPort = port;
+    m_sdiMode = mode;
+    ++m_sdiConfig;
+    m_sdiError.clear();
+    m_sdiModeName.clear();
+  }
+
+  void sdiStatus(QString *modeName, QString *error) const
+  {
+    QMutexLocker locker(&m_mutex);
+    *modeName = m_sdiModeName;
+    *error = m_sdiError;
+  }
+
   QString error() const
   {
     QMutexLocker locker(&m_mutex);
@@ -170,6 +191,11 @@ protected:
   {
     FrameSink *sink = nullptr;
     QElapsedTimer reopen;  // since the last failed open
+    Sdi::Output sdi;
+    int sdiConfig = -1;    // m_sdiConfig sdi was opened (or tried) with
+    int sdiWidth = 0, sdiHeight = 0;
+    double sdiFps = 0;     // format it was opened for
+    QElapsedTimer sdiReopen;
     QElapsedTimer connectionsTimer;
     QElapsedTimer clock;   // pacing when the sink does not clock itself
     qint64 nextFrameMs = 0;
@@ -181,6 +207,9 @@ protected:
       QList<Layer> program, preview;
       double mix, black, fps;
       int width, height;
+      QString sdiPort;
+      quint32 sdiMode;
+      int config;
       {
         QMutexLocker locker(&m_mutex);
         if (m_quit)
@@ -194,6 +223,34 @@ protected:
         fps = m_fps;
         width = m_width;
         height = m_height;
+        sdiPort = m_sdiPort;
+        sdiMode = m_sdiMode;
+        config = m_sdiConfig;
+      }
+
+      // SDI: (re)open on a new choice, or a new format if its mode follows
+      // the format; a port that cannot be opened is tried again later.
+      const bool sdiFormatChanged = sdiMode == 0 && (width != sdiWidth || height != sdiHeight || fps != sdiFps);
+      if (config != sdiConfig || (sdi.isOpen() && sdiFormatChanged) ||
+          (!sdiPort.isEmpty() && !sdi.isOpen() && sdiReopen.isValid() && sdiReopen.elapsed() > kReopenDelayMs))
+      {
+        sdiConfig = config;
+        sdiWidth = width;
+        sdiHeight = height;
+        sdiFps = fps;
+        sdi.close();
+        QString error;
+        if (!sdiPort.isEmpty() && !sdi.open(sdiPort, sdiMode, width, height, fps, &error))
+        {
+          sdiReopen.start();
+          error += trProgram(" (retrying)");
+        }
+        QMutexLocker locker(&m_mutex);
+        if (m_sdiConfig == config)
+        {
+          m_sdiError = error;
+          m_sdiModeName = sdi.modeName();
+        }
       }
 
       // Open the output; if it cannot be opened (NDI runtime missing...),
@@ -241,6 +298,11 @@ protected:
         m_previewOutput = previewFrame;
         m_previewWidth = previewWidth;
         m_previewHeight = previewHeight;
+      }
+
+      if (sdi.isOpen())
+      {
+        sdi.sendFrame(frame, width, height);
       }
 
       if (sink)
@@ -336,6 +398,11 @@ private:
   int m_previewHeight;
   QString m_error;
   int m_connections;
+  QString m_sdiPort;
+  quint32 m_sdiMode;
+  int m_sdiConfig; // bumped by setSdi()
+  QString m_sdiError;
+  QString m_sdiModeName;
 };
 
 namespace
@@ -382,6 +449,7 @@ ProgramOutput::ProgramOutput(NdiManager *ndi,
       m_scenes(scenes),
       m_name(sourceName),
       m_mixer(new ProgramMixer(sourceName, sinkFactory)),
+      m_sdiMode(0),
       m_width(kDefaultWidth),
       m_height(kDefaultHeight),
       m_fps(kDefaultFps),
@@ -708,6 +776,42 @@ QImage ProgramOutput::previewImage(int maxWidth) const
 QString ProgramOutput::outputError() const
 {
   return m_mixer->error();
+}
+
+void ProgramOutput::setSdiOutput(const QString &port, quint32 mode)
+{
+  m_sdiPort = port;
+  m_sdiMode = mode;
+  m_mixer->setSdi(port, mode);
+}
+
+QString ProgramOutput::sdiPort() const
+{
+  return m_sdiPort;
+}
+
+quint32 ProgramOutput::sdiMode() const
+{
+  return m_sdiMode;
+}
+
+QString ProgramOutput::sdiStatus(bool *ok) const
+{
+  QString modeName, error;
+  m_mixer->sdiStatus(&modeName, &error);
+  if (ok)
+  {
+    *ok = !m_sdiPort.isEmpty() && error.isEmpty();
+  }
+  if (m_sdiPort.isEmpty())
+  {
+    return QString();
+  }
+  if (!error.isEmpty())
+  {
+    return error;
+  }
+  return modeName.isEmpty() ? m_sdiPort : QString::fromUtf8("%1  \xC2\xB7  %2").arg(m_sdiPort).arg(modeName);
 }
 
 int ProgramOutput::connections() const

@@ -582,6 +582,12 @@ SwitcherPanel::onRefreshTimer()
                                  : (connections == 1) ? tr("NDI source: %1  \xC2\xB7  1 receiver").arg( _program->sourceName() )
                                  : tr("NDI source: %1  \xC2\xB7  %2 receivers").arg( _program->sourceName() ).arg(connections) );
     }
+    bool sdiOk = false;
+    const QString sdi = _program->sdiStatus(&sdiOk);
+    if ( !sdi.isEmpty() ) {
+        program.status->setText( program.status->text() + QString::fromUtf8("  |  ") +
+                                 (sdiOk ? tr("SDI: %1").arg(sdi) : tr("SDI not playing: %1").arg(sdi) ) );
+    }
     program.status->setToolTip( program.status->text() );
 }
 

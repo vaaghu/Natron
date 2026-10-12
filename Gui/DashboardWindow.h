@@ -78,6 +78,8 @@ class HoverLineEdit;
  *   KVs       the keys the opened scene uses
  *   NDI       the opened scene's NDI output
  *   Data      the key/value pairs of the state store, editable
+ * The Settings menu (first in the menu bar) opens the render hardware and
+ * SDI output settings (see DashboardSettingsDialog).
  * Closing it quits the application (after asking to save open projects).
  **/
 class DashboardWindow
@@ -108,6 +110,7 @@ public Q_SLOTS:
 
 private Q_SLOTS:
 
+    void onSettingsClicked();
     void onNewProjectClicked();
     void onOpenProjectClicked();
     void onOpenRecentClicked();
@@ -174,6 +177,7 @@ private:
     ::HttpServer* _server;
     ::SceneStore* _sceneStore;
     ::SceneRenderer* _sceneRenderer;
+    ::ProgramOutput* _program; // set by setNdiManager()
 
     QListWidget* _recentList;
     ScenePanel* _scenePanel;

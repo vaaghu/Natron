@@ -106,6 +106,7 @@ CLANG_DIAG_ON(uninitialized)
 #define kDashboardBellSize 18
 #define kDashboardNotificationChars 90
 #define kDashboardNotificationsShown 30
+#define kDashboardOutputCheckMs 2000 // NDI / SDI availability
 
 NATRON_NAMESPACE_ENTER
 
@@ -294,6 +295,8 @@ DashboardWindow::DashboardWindow(::StateStore* store,
     , _tray(0)
     , _trayNotification(0)
     , _lastRenderNotification(0)
+    , _ndiReported(false)
+    , _sdiReported(false)
     , _bellButton(0)
     , _bellMenu(0)
     , _rendersDone(0)
@@ -344,6 +347,12 @@ DashboardWindow::setNdiManager(::NdiManager* ndi,
                                ::ProgramOutput* program)
 {
     _program = program;
+    if (_program) {
+        QTimer* check = new QTimer(this);
+        check->setInterval(kDashboardOutputCheckMs);
+        QObject::connect( check, SIGNAL(timeout()), this, SLOT(onCheckOutputs()) );
+        check->start();
+    }
     if (_scenePanel) {
         _scenePanel->setNdiManager(ndi);
         _scenePanel->setProgramOutput(program);
@@ -1452,6 +1461,42 @@ DashboardWindow::onTrayMessageClicked()
         showNormal();
         raise();
         activateWindow();
+    }
+}
+
+void
+DashboardWindow::onCheckOutputs()
+{
+    if (!_program) {
+        return;
+    }
+    const QString retrying = QCoreApplication::translate("ProgramOutput", " (retrying)"); // as ProgramOutput ends its errors
+
+    QString ndiError = _program->ndiEnabled() ? _program->outputError() : QString();
+    if ( ndiError.isEmpty() ) {
+        _ndiReported = false;
+    } else if (!_ndiReported) {
+        _ndiReported = true;
+        if ( ndiError.endsWith(retrying) ) {
+            ndiError.chop( retrying.size() );
+        }
+        NotificationCenter::instance()->add( tr("NDI output unavailable"),
+                                             tr("Program is not sent as the NDI source \"%1\": %2. Still trying.").arg( _program->sourceName() ).arg(ndiError),
+                                             true, NotificationTarget::settings( QString::fromUtf8(kSettingsFieldNdi) ) );
+    }
+
+    bool sdiOk = true;
+    QString sdiError = _program->sdiPort().isEmpty() ? QString() : _program->sdiStatus(&sdiOk);
+    if ( sdiOk || sdiError.isEmpty() ) {
+        _sdiReported = false;
+    } else if (!_sdiReported) {
+        _sdiReported = true;
+        if ( sdiError.endsWith(retrying) ) {
+            sdiError.chop( retrying.size() );
+        }
+        NotificationCenter::instance()->add( tr("SDI output unavailable"),
+                                             tr("Program is not played out of %1: %2. Still trying.").arg( _program->sdiPort() ).arg(sdiError),
+                                             true, NotificationTarget::settings( QString::fromUtf8(kSettingsFieldSdi) ) );
     }
 }
 

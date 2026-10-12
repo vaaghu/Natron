@@ -152,6 +152,8 @@ private Q_SLOTS:
     void onBellMenuAboutToHide();
     void onBellMenuTriggered(QAction* action);
     void onTrayMessageClicked();
+    // NDI or SDI on but not playing: a notification (once, until it plays again).
+    void onCheckOutputs();
 
 protected:
 
@@ -214,6 +216,8 @@ private:
     QSystemTrayIcon* _tray; // created for the first notification
     int _trayNotification;  // what the last system notification opens
     int _lastRenderNotification; // the last render's, for the summary
+    bool _ndiReported; // its unavailability was notified
+    bool _sdiReported;
     QToolButton* _bellButton;
     QMenu* _bellMenu;
     int _rendersDone;   // since the queue was last empty

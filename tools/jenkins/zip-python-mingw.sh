@@ -16,9 +16,15 @@ PY_PKG_FILE="mingw-w64-x86_64-python-${PY_PKG}-any.pkg.tar.zst"
 PY_PKG_URL="https://repo.msys2.org/mingw/x86_64/${PY_PKG_FILE}"
 PACMAN_CACHE="/var/cache/pacman/pkg"
 
+# Standard library packages of all supported Python versions: those the
+# installed Python does not have are skipped (distutils, lib2to3 and msilib
+# were removed in 3.12/3.13; pathlib, string, sysconfig and zipfile became
+# packages in 3.12-3.14).
 PYDIRS="
+_pyrepl
 asyncio
 collections
+compression
 concurrent
 ctypes
 curses
@@ -34,14 +40,19 @@ lib2to3
 logging
 msilib
 multiprocessing
+pathlib
 pydoc_data
 re
 sqlite3
+string
+sysconfig
+tomllib
 unittest
 urllib
 wsgiref
 xml
 xmlrpc
+zipfile
 zoneinfo
 "
 
@@ -61,7 +72,9 @@ if [ ! -d "${SRC}" ]; then
 fi
 
 for dir in ${PYDIRS}; do
-    cp -a "${SRC}/${dir}" "${EMBED}/"
+    if [ -d "${SRC}/${dir}" ]; then
+        cp -a "${SRC}/${dir}" "${EMBED}/"
+    fi
 done
 
 mkdir -p "${EMBED}/site-packages"

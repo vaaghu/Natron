@@ -484,7 +484,11 @@ if [ -x "${NATRON_PYTHON}" ]; then
     if [ -f "${EXTRA_PYTHON_MODULES_SCRIPT:-}" ]; then
         "${NATRON_PYTHON}" "$EXTRA_PYTHON_MODULES_SCRIPT" || true
     fi
-    "${NATRON_PYTHON}" -m compileall -f "${PYDIR}/site-packages"
+    # Byte-compiling is only a startup optimization: Python compiles what is
+    # missing on import. Do not fail on files it cannot write, e.g. paths
+    # over 260 characters in a deep build directory without long path support.
+    "${NATRON_PYTHON}" -m compileall -q -f "${PYDIR}/site-packages" ||
+        echo "Warning: some site-packages files could not be byte-compiled (see above)"
     popd
 fi
 

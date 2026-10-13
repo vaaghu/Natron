@@ -47,6 +47,7 @@ CLANG_DIAG_ON(uninitialized)
 #include "Engine/Project.h"
 #include "Engine/Curve.h"
 #include "Engine/TLSHolder.h"
+#include "Engine/Timer.h" // gettimeofday (Python >= 3.13 no longer includes <sys/time.h>)
 #include "Engine/Transform.h"
 #include "Engine/TrackMarker.h"
 #include "Engine/TrackerContextPrivate.h"

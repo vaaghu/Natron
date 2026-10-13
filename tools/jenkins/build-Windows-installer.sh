@@ -273,7 +273,7 @@ for location in "${COPY_LOCATIONS[@]}"; do
     cp -a "${TMP_BINARIES_PATH}/PyPlugs"/* "$location/Plugins/PyPlugs/"
 
     # Include in the portable version the test program that we will use later on
-    if [ "$location" = "${TMP_PORTABLE_DIR}" ]; then
+    if [ "$location" = "${TMP_PORTABLE_DIR}" ] && [ "${SKIP_NATRON_TESTS:-}" != "1" ]; then
         cp "${TMP_BINARIES_PATH}/bin/Tests.exe" "$location/bin/"
     fi
 
@@ -536,11 +536,15 @@ if [ -d "${TMP_PORTABLE_DIR}/Resources/docs" ]; then
 fi
 
 # At this point we can run Natron unit tests to check that the deployment is ok.
-echo "Running Tests program..."
-# Do not fail tests temporarily
-$TIMEOUT -s KILL 1800 "${TMP_PORTABLE_DIR}/bin/Tests" || true
-rm "${TMP_PORTABLE_DIR}/bin/Tests"
-echo "Done"
+if [ "${SKIP_NATRON_TESTS:-}" = "1" ]; then
+    echo "Skipping Natron unit tests on the deployed build (SKIP_NATRON_TESTS=1)"
+else
+    echo "Running Tests program..."
+    # Do not fail tests temporarily
+    $TIMEOUT -s KILL 1800 "${TMP_PORTABLE_DIR}/bin/Tests" || true
+    rm "${TMP_PORTABLE_DIR}/bin/Tests"
+    echo "Done"
+fi
 
 # Clean and perms
 (cd "$INSTALLER_PATH" && find . -type d -name .git -exec rm -rf {} \;)

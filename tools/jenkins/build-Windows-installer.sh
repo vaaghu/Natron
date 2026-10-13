@@ -393,7 +393,7 @@ for location in "${COPY_LOCATIONS[@]}"; do
         cp "$SDK_HOME/bin"/Qt${QT_VERSION_MAJOR}*.dll "$location/bin/"
     fi
 
-    rm "$location/bin/sqldrivers"/{*mysql*,*psql*} || true
+    rm "$location/bin/sqldrivers"/{*mysql*,*psql*,*ibase*} || true
 
     if [ "$COMPILE_TYPE" != "debug" ]; then
         dir="$location/bin"

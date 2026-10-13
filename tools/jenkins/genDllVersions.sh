@@ -86,6 +86,16 @@ function catDll() {
     fi
 }
 
+# For DLLs that newer SDKs no longer ship, e.g. Boost libraries that
+# became header-only: added when present, skipped otherwise.
+function catDllOptional() {
+    DLL_NAME=""
+    findDll $1
+    if [ -n "$DLL_NAME" ]; then
+        catDll $1
+    fi
+}
+
 INIT_VAR=1
 DLL_VAR_PREFIX="NATRON"
 BIN_PATH="$SDK_HOME_BIN"
@@ -146,13 +156,14 @@ else
 fi
 
 
-catDll fbclient
+# fbclient is only used by Qt's Firebird SQL driver, which the installer removes
+#catDll fbclient
 catDll libass-
 catDll libbluray-
 catDll libboost_filesystem-mt
-catDll libboost_regex-mt
+catDllOptional libboost_regex-mt
 catDll libboost_serialization-mt
-catDll libboost_system-mt
+catDllOptional libboost_system-mt
 catDll libboost_thread-mt
 catDll libbz2-
 catDll libcaca-
@@ -257,7 +268,7 @@ catDll libsnappy
 catDll libheif
 catDll libkvazaar-
 catDll libcryptopp
-catDll rav1e
+catDll librav1e
 catDll libde265-
 catDll libx265
 catDll libdav1d

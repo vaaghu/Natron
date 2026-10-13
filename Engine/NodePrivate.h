@@ -35,6 +35,7 @@
 #include <QtCore/QMutex>
 
 #include "Engine/Hash64.h"
+#include "Engine/Timer.h" // gettimeofday (Python >= 3.13 no longer includes <sys/time.h>)
 
 NATRON_NAMESPACE_ENTER
 

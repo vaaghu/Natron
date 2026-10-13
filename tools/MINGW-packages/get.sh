@@ -29,8 +29,7 @@ fi
 cd ${TMP}
 for pkg in ${PKGS}; do
     if [ ! -f "${pkg}" ]; then
-        wget "${URL}/${VERSION}/${pkg}/download"
-        mv download ${PKG}
+        wget -O "${pkg}" "${URL}/${VERSION}/${pkg}/download"
     fi
 done
 pacman -U mingw-w64-x86_64-*-any.pkg.tar.*

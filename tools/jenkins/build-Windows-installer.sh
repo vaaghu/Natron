@@ -426,6 +426,9 @@ if [ -d "$dir" ]; then
     rm -rf "$dir"
 fi
 done
+# setuptools was removed with the directories above: its .pth would make
+# every Python start print a ModuleNotFoundError for _distutils_hack
+rm -f distutils-precedence.pth
 )
 
 # Strip Python
@@ -475,6 +478,10 @@ if [ -x "${NATRON_PYTHON}" ]; then
         "${NATRON_PYTHON}" -m pip install qtpy==1.11.2
         # bug fix for Qt4
         $GSED -i "s/^except ImportError:/except (ImportError, PythonQtError):/" "${TMP_PORTABLE_DIR}/lib/python${PYVER:-}/site-packages/qtpy/__init__.py"
+        # QtPy 1.11.2 imports LooseVersion from distutils, which Python 3.12
+        # removed: fall back to the looseversion package, its standalone copy
+        "${NATRON_PYTHON}" -m pip install looseversion
+        $GSED -i "s/^from distutils.version import LooseVersion$/try:\n    from distutils.version import LooseVersion\nexcept ImportError:\n    from looseversion import LooseVersion/" "${TMP_PORTABLE_DIR}/lib/python${PYVER:-}/site-packages/qtpy/__init__.py"
     else
         "${NATRON_PYTHON}" -m pip install qtpy
     fi

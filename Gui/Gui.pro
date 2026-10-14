@@ -234,6 +234,7 @@ SOURCES += \
     ../Custom/ndi/NdiManager.cpp \
     ../Custom/ndi/ProgramOutput.cpp \
     ../Custom/sdi/SdiOutput.cpp \
+    ../Custom/scoreboard/ScoreboardFeed.cpp \
     Splitter.cpp \
     TabGroup.cpp \
     TabWidget.cpp \
@@ -397,6 +398,7 @@ HEADERS += \
     ../Custom/ndi/NdiManager.h \
     ../Custom/ndi/ProgramOutput.h \
     ../Custom/sdi/SdiOutput.h \
+    ../Custom/scoreboard/ScoreboardFeed.h \
     Splitter.h \
     TabGroup.h \
     TabWidget.h \

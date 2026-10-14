@@ -57,6 +57,7 @@ CLANG_DIAG_ON(uninitialized)
 #include "Custom/scene/SceneRenderer.h"
 #include "Custom/ndi/NdiManager.h"
 #include "Custom/ndi/ProgramOutput.h"
+#include "Custom/scoreboard/ScoreboardFeed.h"
 
 NATRON_NAMESPACE_ENTER
 
@@ -101,6 +102,7 @@ struct GuiApplicationManagerPrivate
     std::unique_ptr<NdiManager> ndiManager; // NDI outputs of the scenes
     // The dashboard switcher's Program output (uses the NDI outputs: destroyed first).
     std::unique_ptr<ProgramOutput> programOutput;
+    std::unique_ptr<ScoreboardFeed> scoreboardFeed; // scoreboard console data into the state store
     // Declared after the stores and renderer: destroyed first, as it uses them.
     std::unique_ptr<DashboardWindow> dashboard;
     // Set once the user asked to quit; the last closed project window then

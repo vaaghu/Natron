@@ -91,7 +91,9 @@ GuiApplicationManager::~GuiApplicationManager()
     _imp->dashboard.reset();
     if (_imp->httpServer) {
         _imp->httpServer->removeRouteHandler( _imp->ndiManager.get() );
+        _imp->httpServer->removeRouteHandler( _imp->scoreboardFeed.get() );
     }
+    _imp->scoreboardFeed.reset();
     _imp->ndiManager.reset(); // stops the NDI channels
 }
 
@@ -1039,6 +1041,20 @@ GuiApplicationManager::initGui(const CLArgs& args)
     }
     _imp->httpServer->start();
     _imp->httpServer->addRouteHandler( _imp->ndiManager.get() ); // /ndi
+
+    // Scoreboard console (Ultra Score Data Out) on UDP port 2800, or
+    // NATRON_SCOREBOARD_PORT if set (0: off). See Custom/scoreboard.
+    int scoreboardPort = 2800;
+    {
+        bool ok = false;
+        const int envPort = qgetenv("NATRON_SCOREBOARD_PORT").toInt(&ok);
+        if ( ok && (envPort >= 0) && (envPort < 65536) ) {
+            scoreboardPort = envPort;
+        }
+    }
+    _imp->scoreboardFeed.reset( new ScoreboardFeed(&_imp->stateStore) );
+    _imp->scoreboardFeed->start( static_cast<unsigned short>(scoreboardPort) );
+    _imp->httpServer->addRouteHandler( _imp->scoreboardFeed.get() ); // /scoreboard
 
     return exec();
 } // GuiApplicationManager::initGui

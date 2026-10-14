@@ -28,6 +28,8 @@ add_library(NatronCustom STATIC
     ndi/ProgramOutput.cpp
     sdi/SdiOutput.h
     sdi/SdiOutput.cpp
+    scoreboard/ScoreboardFeed.h
+    scoreboard/ScoreboardFeed.cpp
 )
 target_link_libraries(NatronCustom
     PUBLIC

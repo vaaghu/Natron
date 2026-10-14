@@ -1,0 +1,1618 @@
+{
+  "info": {
+    "_postman_id": "e99d49eb-086d-5b1a-baf1-2734a3d3f588",
+    "name": "Natron - Ultra Score scoreboard feed",
+    "description": "Simulates an Ultra Score scoreboard console feeding Natron.\n\nThe console sends binary UDP packets to port 2800; Postman cannot send UDP, so these requests POST the same packets (as hex) to `/scoreboard` on Natron's HTTP API, which decodes them exactly like UDP ones and sets the `scoreboard.*` state keys (bind Text nodes to them).\n\nThe \"Game\" requests build the packet from the collection variables (homeScore, minutes, period, ...) and change them first, e.g. \"Home +2\". Start with \"Tip-off\". Run \"Clock -1 s\" in the Collection Runner with a 1000 ms delay for a running clock.\n\nSet `baseUrl` if Natron uses another port (NATRON_HTTP_PORT) and `token` if it was started with NATRON_HTTP_TOKEN.",
+    "schema": "https://schema.getpostman.com/json/collection/v2.1.0/collection.json"
+  },
+  "auth": {
+    "type": "bearer",
+    "bearer": [
+      {
+        "key": "token",
+        "value": "{{token}}",
+        "type": "string"
+      }
+    ]
+  },
+  "event": [
+    {
+      "listen": "prerequest",
+      "script": {
+        "type": "text/javascript",
+        "exec": [
+          "// Builds Ultra Score \"Data Out\" packets (hex) from the collection variables.",
+          "// Request scripts use it with:",
+          "//   const us = eval(pm.collectionVariables.get('ultraScoreLib'))(pm);",
+          "function ultraScoreLib(pm) {",
+          "  const num = (name) => parseInt(pm.collectionVariables.get(name), 10) || 0;",
+          "  const set = (name, value) => pm.collectionVariables.set(name, String(value));",
+          "  const hex = (bytes) => bytes.map((b) => (b & 0xff).toString(16).toUpperCase().padStart(2, '0')).join(' ');",
+          "  const shirt = (no) => {",
+          "    const s = String(no).slice(0, 3);",
+          "    return [0, 1, 2].map((i) => (i < s.length ? s.charCodeAt(i) : 0));",
+          "  };",
+          "  const packet = (idHigh, body) =>",
+          "    hex([0xff, 0xfe, idHigh, 0x01, 0x01, body.length & 0xff, body.length >> 8, ...body, 0xfd, 0xfc]);",
+          "",
+          "  return {",
+          "    num, set, hex,",
+          "    // General data (01 01): period, clock, shot clock, timeout, score, fouls, timeouts, possession.",
+          "    general() {",
+          "      const possession = pm.collectionVariables.get('possession');",
+          "      const timeout = num('timeoutSeconds');",
+          "      return packet(0x01, [",
+          "        num('period'),",
+          "        num('clockRunning') ? 0x11 : 0x10,",
+          "        num('minutes'), num('seconds'), num('tenths'),",
+          "        num('shotSeconds'), num('shotTenths'),",
+          "        timeout > 0 ? timeout : 0xff,",
+          "        0x00, 0x00,",
+          "        num('homeScore'), num('awayScore'),",
+          "        num('homeFouls'), num('awayFouls'),",
+          "        num('homeTimeouts'), num('awayTimeouts'),",
+          "        possession === 'home' ? 1 : 0, possession === 'away' ? 1 : 0,",
+          "      ]);",
+          "    },",
+          "    // Player data (02 01 home / 03 01 away): [[shirt, points, fouls], ...], 20 entries.",
+          "    players(team, list) {",
+          "      const body = [];",
+          "      for (let i = 0; i < 20; ++i) {",
+          "        const p = list[i];",
+          "        body.push(...(p ? [...shirt(p[0]), p[1], p[2]] : [0, 0, 0, 0, 0]));",
+          "      }",
+          "      return packet(team === 'home' ? 0x02 : 0x03, body);",
+          "    },",
+          "    // Players on court (06 01 home / 07 01 away): [[shirt, onCourt], ...], 20 entries.",
+          "    onCourt(team, list) {",
+          "      const body = [];",
+          "      for (let i = 0; i < 20; ++i) {",
+          "        const p = list[i];",
+          "        body.push(...(p ? [...shirt(p[0]), p[1] ? 1 : 0] : [0, 0, 0, 0]));",
+          "      }",
+          "      return packet(team === 'home' ? 0x06 : 0x07, body);",
+          "    },",
+          "  };",
+          "}",
+          "pm.collectionVariables.set('ultraScoreLib', '(' + ultraScoreLib.toString() + ')');"
+        ]
+      }
+    },
+    {
+      "listen": "test",
+      "script": {
+        "type": "text/javascript",
+        "exec": [
+          "// POST /scoreboard with a general packet built from the variables: the",
+          "// decoded score must be the variables' score.",
+          "const isFeed = pm.request.url.getPath() === '/scoreboard' && pm.request.method === 'POST';",
+          "if (isFeed && pm.variables.get('fromVariables') === '1') {",
+          "  pm.test('score decoded as sent', () => {",
+          "    pm.response.to.have.status(200);",
+          "    const v = pm.response.json().values;",
+          "    pm.expect(v['scoreboard.home.score'].value).to.eql(parseInt(pm.collectionVariables.get('homeScore'), 10));",
+          "    pm.expect(v['scoreboard.away.score'].value).to.eql(parseInt(pm.collectionVariables.get('awayScore'), 10));",
+          "  });",
+          "}"
+        ]
+      }
+    }
+  ],
+  "item": [
+    {
+      "name": "Feed",
+      "item": [
+        {
+          "name": "Health",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/health",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "health"
+              ]
+            },
+            "description": "Natron is running (no token needed)."
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('accepted', () => pm.response.to.have.status(200));"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "Feed status and values",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/scoreboard",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "scoreboard"
+              ]
+            },
+            "description": "UDP listening state, packets received / rejected, last sender, and every scoreboard.* key."
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('accepted', () => pm.response.to.have.status(200));"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "All state keys",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/state",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "state"
+              ]
+            },
+            "description": "Every key of the state store, scoreboard.* included."
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('accepted', () => pm.response.to.have.status(200));"
+                ]
+              }
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "name": "Game (built from the variables)",
+      "item": [
+        {
+          "name": "Send current state",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/scoreboard",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "scoreboard"
+              ]
+            },
+            "description": "Sends a general data packet built from the collection variables, unchanged.",
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"packet\": \"{{packet}}\"\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            }
+          },
+          "event": [
+            {
+              "listen": "prerequest",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "const us = eval(pm.collectionVariables.get('ultraScoreLib'))(pm);",
+                  "pm.variables.set('fromVariables', '1');",
+                  "pm.variables.set('packet', us.general());"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "Tip-off (reset: Q1 10:00, 0-0)",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/scoreboard",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "scoreboard"
+              ]
+            },
+            "description": "Resets every variable to the start of a game, clock running.",
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"packet\": \"{{packet}}\"\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            }
+          },
+          "event": [
+            {
+              "listen": "prerequest",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "const us = eval(pm.collectionVariables.get('ultraScoreLib'))(pm);",
+                  "const start = { period: 1, minutes: 10, seconds: 0, tenths: 0, clockRunning: 1, shotSeconds: 24, shotTenths: 0,",
+                  "  timeoutSeconds: 0, homeScore: 0, awayScore: 0, homeFouls: 0, awayFouls: 0, homeTimeouts: 2, awayTimeouts: 2,",
+                  "  possession: 'home' };",
+                  "Object.keys(start).forEach((k) => us.set(k, start[k]));",
+                  "pm.variables.set('fromVariables', '1');",
+                  "pm.variables.set('packet', us.general());"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "Home +2",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/scoreboard",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "scoreboard"
+              ]
+            },
+            "description": "",
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"packet\": \"{{packet}}\"\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            }
+          },
+          "event": [
+            {
+              "listen": "prerequest",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "const us = eval(pm.collectionVariables.get('ultraScoreLib'))(pm);",
+                  "us.set('homeScore', us.num('homeScore') + 2);",
+                  "us.set('possession', 'away');",
+                  "us.set('shotSeconds', 24);",
+                  "pm.variables.set('fromVariables', '1');",
+                  "pm.variables.set('packet', us.general());"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "Home +3",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/scoreboard",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "scoreboard"
+              ]
+            },
+            "description": "",
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"packet\": \"{{packet}}\"\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            }
+          },
+          "event": [
+            {
+              "listen": "prerequest",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "const us = eval(pm.collectionVariables.get('ultraScoreLib'))(pm);",
+                  "us.set('homeScore', us.num('homeScore') + 3);",
+                  "us.set('possession', 'away');",
+                  "us.set('shotSeconds', 24);",
+                  "pm.variables.set('fromVariables', '1');",
+                  "pm.variables.set('packet', us.general());"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "Home free throw +1",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/scoreboard",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "scoreboard"
+              ]
+            },
+            "description": "",
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"packet\": \"{{packet}}\"\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            }
+          },
+          "event": [
+            {
+              "listen": "prerequest",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "const us = eval(pm.collectionVariables.get('ultraScoreLib'))(pm);",
+                  "us.set('homeScore', us.num('homeScore') + 1);",
+                  "pm.variables.set('fromVariables', '1');",
+                  "pm.variables.set('packet', us.general());"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "Away +2",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/scoreboard",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "scoreboard"
+              ]
+            },
+            "description": "",
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"packet\": \"{{packet}}\"\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            }
+          },
+          "event": [
+            {
+              "listen": "prerequest",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "const us = eval(pm.collectionVariables.get('ultraScoreLib'))(pm);",
+                  "us.set('awayScore', us.num('awayScore') + 2);",
+                  "us.set('possession', 'home');",
+                  "us.set('shotSeconds', 24);",
+                  "pm.variables.set('fromVariables', '1');",
+                  "pm.variables.set('packet', us.general());"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "Away +3",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/scoreboard",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "scoreboard"
+              ]
+            },
+            "description": "",
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"packet\": \"{{packet}}\"\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            }
+          },
+          "event": [
+            {
+              "listen": "prerequest",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "const us = eval(pm.collectionVariables.get('ultraScoreLib'))(pm);",
+                  "us.set('awayScore', us.num('awayScore') + 3);",
+                  "us.set('possession', 'home');",
+                  "us.set('shotSeconds', 24);",
+                  "pm.variables.set('fromVariables', '1');",
+                  "pm.variables.set('packet', us.general());"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "Away free throw +1",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/scoreboard",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "scoreboard"
+              ]
+            },
+            "description": "",
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"packet\": \"{{packet}}\"\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            }
+          },
+          "event": [
+            {
+              "listen": "prerequest",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "const us = eval(pm.collectionVariables.get('ultraScoreLib'))(pm);",
+                  "us.set('awayScore', us.num('awayScore') + 1);",
+                  "pm.variables.set('fromVariables', '1');",
+                  "pm.variables.set('packet', us.general());"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "Score correction: Home -1",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/scoreboard",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "scoreboard"
+              ]
+            },
+            "description": "",
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"packet\": \"{{packet}}\"\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            }
+          },
+          "event": [
+            {
+              "listen": "prerequest",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "const us = eval(pm.collectionVariables.get('ultraScoreLib'))(pm);",
+                  "us.set('homeScore', Math.max(0, us.num('homeScore') - 1));",
+                  "pm.variables.set('fromVariables', '1');",
+                  "pm.variables.set('packet', us.general());"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "Home team foul",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/scoreboard",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "scoreboard"
+              ]
+            },
+            "description": "Also stops the clock.",
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"packet\": \"{{packet}}\"\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            }
+          },
+          "event": [
+            {
+              "listen": "prerequest",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "const us = eval(pm.collectionVariables.get('ultraScoreLib'))(pm);",
+                  "us.set('homeFouls', us.num('homeFouls') + 1);",
+                  "us.set('clockRunning', 0);",
+                  "pm.variables.set('fromVariables', '1');",
+                  "pm.variables.set('packet', us.general());"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "Away team foul",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/scoreboard",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "scoreboard"
+              ]
+            },
+            "description": "Also stops the clock.",
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"packet\": \"{{packet}}\"\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            }
+          },
+          "event": [
+            {
+              "listen": "prerequest",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "const us = eval(pm.collectionVariables.get('ultraScoreLib'))(pm);",
+                  "us.set('awayFouls', us.num('awayFouls') + 1);",
+                  "us.set('clockRunning', 0);",
+                  "pm.variables.set('fromVariables', '1');",
+                  "pm.variables.set('packet', us.general());"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "Clock -1 s",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/scoreboard",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "scoreboard"
+              ]
+            },
+            "description": "Run it repeatedly (Collection Runner, with a delay of 1000 ms) for a running clock.",
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"packet\": \"{{packet}}\"\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            }
+          },
+          "event": [
+            {
+              "listen": "prerequest",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "const us = eval(pm.collectionVariables.get('ultraScoreLib'))(pm);",
+                  "let total = us.num('minutes') * 60 + us.num('seconds');",
+                  "if (total > 0) total -= 1;",
+                  "us.set('minutes', Math.floor(total / 60));",
+                  "us.set('seconds', total % 60);",
+                  "us.set('tenths', 0);",
+                  "const shot = us.num('shotSeconds');",
+                  "if (shot > 0) us.set('shotSeconds', shot - 1);",
+                  "pm.variables.set('fromVariables', '1');",
+                  "pm.variables.set('packet', us.general());"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "Clock to last minute (00:45.3)",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/scoreboard",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "scoreboard"
+              ]
+            },
+            "description": "Under a minute the console sends tenths: scoreboard.clock becomes 45.3.",
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"packet\": \"{{packet}}\"\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            }
+          },
+          "event": [
+            {
+              "listen": "prerequest",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "const us = eval(pm.collectionVariables.get('ultraScoreLib'))(pm);",
+                  "us.set('minutes', 0);",
+                  "us.set('seconds', 45);",
+                  "us.set('tenths', 3);",
+                  "pm.variables.set('fromVariables', '1');",
+                  "pm.variables.set('packet', us.general());"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "Shot clock 4.2",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/scoreboard",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "scoreboard"
+              ]
+            },
+            "description": "In its last 5 seconds the shot clock shows tenths.",
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"packet\": \"{{packet}}\"\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            }
+          },
+          "event": [
+            {
+              "listen": "prerequest",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "const us = eval(pm.collectionVariables.get('ultraScoreLib'))(pm);",
+                  "us.set('shotSeconds', 4);",
+                  "us.set('shotTenths', 2);",
+                  "pm.variables.set('fromVariables', '1');",
+                  "pm.variables.set('packet', us.general());"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "Stop clock",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/scoreboard",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "scoreboard"
+              ]
+            },
+            "description": "",
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"packet\": \"{{packet}}\"\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            }
+          },
+          "event": [
+            {
+              "listen": "prerequest",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "const us = eval(pm.collectionVariables.get('ultraScoreLib'))(pm);",
+                  "us.set('clockRunning', 0);",
+                  "pm.variables.set('fromVariables', '1');",
+                  "pm.variables.set('packet', us.general());"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "Start clock",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/scoreboard",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "scoreboard"
+              ]
+            },
+            "description": "",
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"packet\": \"{{packet}}\"\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            }
+          },
+          "event": [
+            {
+              "listen": "prerequest",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "const us = eval(pm.collectionVariables.get('ultraScoreLib'))(pm);",
+                  "us.set('clockRunning', 1);",
+                  "us.set('timeoutSeconds', 0);",
+                  "pm.variables.set('fromVariables', '1');",
+                  "pm.variables.set('packet', us.general());"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "Timeout home (60 s)",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/scoreboard",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "scoreboard"
+              ]
+            },
+            "description": "scoreboard.timeout on, scoreboard.timeoutSeconds 60, one home timeout fewer.",
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"packet\": \"{{packet}}\"\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            }
+          },
+          "event": [
+            {
+              "listen": "prerequest",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "const us = eval(pm.collectionVariables.get('ultraScoreLib'))(pm);",
+                  "us.set('clockRunning', 0);",
+                  "us.set('timeoutSeconds', 60);",
+                  "us.set('homeTimeouts', Math.max(0, us.num('homeTimeouts') - 1));",
+                  "pm.variables.set('fromVariables', '1');",
+                  "pm.variables.set('packet', us.general());"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "End timeout",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/scoreboard",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "scoreboard"
+              ]
+            },
+            "description": "",
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"packet\": \"{{packet}}\"\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            }
+          },
+          "event": [
+            {
+              "listen": "prerequest",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "const us = eval(pm.collectionVariables.get('ultraScoreLib'))(pm);",
+                  "us.set('timeoutSeconds', 0);",
+                  "pm.variables.set('fromVariables', '1');",
+                  "pm.variables.set('packet', us.general());"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "Switch possession",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/scoreboard",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "scoreboard"
+              ]
+            },
+            "description": "",
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"packet\": \"{{packet}}\"\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            }
+          },
+          "event": [
+            {
+              "listen": "prerequest",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "const us = eval(pm.collectionVariables.get('ultraScoreLib'))(pm);",
+                  "us.set('possession', pm.collectionVariables.get('possession') === 'home' ? 'away' : 'home');",
+                  "pm.variables.set('fromVariables', '1');",
+                  "pm.variables.set('packet', us.general());"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "Next period",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/scoreboard",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "scoreboard"
+              ]
+            },
+            "description": "Q1 -> Q2 -> Q3 -> Q4 -> OT -> 2OT. Team fouls reset as the variables are written (the real console decides).",
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"packet\": \"{{packet}}\"\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            }
+          },
+          "event": [
+            {
+              "listen": "prerequest",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "const us = eval(pm.collectionVariables.get('ultraScoreLib'))(pm);",
+                  "us.set('period', us.num('period') + 1);",
+                  "const overtime = us.num('period') > 4;",
+                  "us.set('minutes', overtime ? 5 : 10);",
+                  "us.set('seconds', 0);",
+                  "us.set('tenths', 0);",
+                  "us.set('clockRunning', 0);",
+                  "us.set('shotSeconds', 24);",
+                  "us.set('shotTenths', 0);",
+                  "if (us.num('period') === 3 || overtime) { us.set('homeFouls', 0); us.set('awayFouls', 0); }",
+                  "pm.variables.set('fromVariables', '1');",
+                  "pm.variables.set('packet', us.general());"
+                ]
+              }
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "name": "Players",
+      "item": [
+        {
+          "name": "Home player points and fouls",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/scoreboard",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "scoreboard"
+              ]
+            },
+            "description": "Edit the [shirt, points, fouls] list in the Pre-request script. Sets scoreboard.home.player.<no>.points / .fouls.",
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"packet\": \"{{packet}}\"\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            }
+          },
+          "event": [
+            {
+              "listen": "prerequest",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "const us = eval(pm.collectionVariables.get('ultraScoreLib'))(pm);",
+                  "pm.variables.set('packet', us.players('home', [[3, 12, 2], [4, 8, 1], [7, 15, 3], [11, 2, 0], [14, 6, 4], [21, 0, 0]]));"
+                ]
+              }
+            },
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('accepted', () => pm.response.to.have.status(200));",
+                  "pm.test('players decoded', () => pm.expect(pm.response.json().type).to.eql('players'));"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "Away player points and fouls",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/scoreboard",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "scoreboard"
+              ]
+            },
+            "description": "Edit the [shirt, points, fouls] list in the Pre-request script.",
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"packet\": \"{{packet}}\"\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            }
+          },
+          "event": [
+            {
+              "listen": "prerequest",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "const us = eval(pm.collectionVariables.get('ultraScoreLib'))(pm);",
+                  "pm.variables.set('packet', us.players('away', [[5, 10, 1], [8, 4, 2], [9, 19, 3], [12, 7, 1], [23, 3, 5]]));"
+                ]
+              }
+            },
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('accepted', () => pm.response.to.have.status(200));",
+                  "pm.test('players decoded', () => pm.expect(pm.response.json().type).to.eql('players'));"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "Home players on court",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/scoreboard",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "scoreboard"
+              ]
+            },
+            "description": "Sets scoreboard.home.player.<no>.onCourt.",
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"packet\": \"{{packet}}\"\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            }
+          },
+          "event": [
+            {
+              "listen": "prerequest",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "const us = eval(pm.collectionVariables.get('ultraScoreLib'))(pm);",
+                  "pm.variables.set('packet', us.onCourt('home', [[3, true], [4, true], [7, true], [11, true], [14, true], [21, false]]));"
+                ]
+              }
+            },
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('accepted', () => pm.response.to.have.status(200));",
+                  "pm.test('on court decoded', () => pm.expect(pm.response.json().type).to.eql('onCourt'));"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "Away players on court",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/scoreboard",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "scoreboard"
+              ]
+            },
+            "description": "Sets scoreboard.away.player.<no>.onCourt.",
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"packet\": \"{{packet}}\"\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            }
+          },
+          "event": [
+            {
+              "listen": "prerequest",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "const us = eval(pm.collectionVariables.get('ultraScoreLib'))(pm);",
+                  "pm.variables.set('packet', us.onCourt('away', [[5, true], [8, true], [9, true], [12, true], [23, true]]));"
+                ]
+              }
+            },
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('accepted', () => pm.response.to.have.status(200));",
+                  "pm.test('on court decoded', () => pm.expect(pm.response.json().type).to.eql('onCourt'));"
+                ]
+              }
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "name": "Raw packets",
+      "item": [
+        {
+          "name": "General data: Q2 09:55.5, 15-7 (fixed hex)",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/scoreboard",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "scoreboard"
+              ]
+            },
+            "description": "The packet the FIBA project's simulate_udp.py sends: Q2, 09:55 running, shot clock 20, 15-7, fouls 3-2, timeouts 1-2, home possession.",
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"packet\": \"FF FE 01 01 01 12 00 02 11 09 37 05 14 07 FF 00 00 0F 07 03 02 01 02 01 00 FD FC\"\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            }
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('accepted', () => pm.response.to.have.status(200));",
+                  "pm.test('15-7', () => {",
+                  "  const v = pm.response.json().values;",
+                  "  pm.expect(v['scoreboard.home.score'].value).to.eql(15);",
+                  "  pm.expect(v['scoreboard.away.score'].value).to.eql(7);",
+                  "  pm.expect(v['scoreboard.clock'].value).to.eql('09:55');",
+                  "  pm.expect(v['scoreboard.period'].value).to.eql('Q2');",
+                  "});"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "Same packet, every byte inverted",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/scoreboard",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "scoreboard"
+              ]
+            },
+            "description": "Some consoles send the packets inverted (XOR FF); they decode the same.",
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"packet\": \"00 01 FE FE FE ED FF FD EE F6 C8 FA EB F8 00 FF FF F0 F8 FC FD FE FD FE FF 02 03\"\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            }
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('accepted', () => pm.response.to.have.status(200));"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "Several packets in one request",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/scoreboard",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "scoreboard"
+              ]
+            },
+            "description": "packets: a list, decoded in order.",
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"packets\": [\n    \"FF FE 01 01 01 12 00 02 11 09 37 05 14 07 FF 00 00 11 07 03 02 01 02 01 00 FD FC\",\n    \"FF FE 01 01 01 12 00 02 11 09 37 05 14 07 FF 00 00 11 0A 03 02 01 02 01 00 FD FC\"\n  ]\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            }
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('accepted', () => pm.response.to.have.status(200));"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "Not a scoreboard packet (expect 400)",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/scoreboard",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "scoreboard"
+              ]
+            },
+            "description": "Packets without the FF FE header are rejected and counted in GET /scoreboard \"rejected\".",
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"packet\": \"48 65 6C 6C 6F\"\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            }
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('rejected', () => pm.response.to.have.status(400));"
+                ]
+              }
+            }
+          ]
+        }
+      ]
+    }
+  ],
+  "variable": [
+    {
+      "key": "baseUrl",
+      "value": "http://localhost:3000",
+      "type": "string"
+    },
+    {
+      "key": "token",
+      "value": "",
+      "type": "string"
+    },
+    {
+      "key": "period",
+      "value": "1",
+      "type": "string"
+    },
+    {
+      "key": "minutes",
+      "value": "10",
+      "type": "string"
+    },
+    {
+      "key": "seconds",
+      "value": "0",
+      "type": "string"
+    },
+    {
+      "key": "tenths",
+      "value": "0",
+      "type": "string"
+    },
+    {
+      "key": "clockRunning",
+      "value": "0",
+      "type": "string"
+    },
+    {
+      "key": "shotSeconds",
+      "value": "24",
+      "type": "string"
+    },
+    {
+      "key": "shotTenths",
+      "value": "0",
+      "type": "string"
+    },
+    {
+      "key": "timeoutSeconds",
+      "value": "0",
+      "type": "string"
+    },
+    {
+      "key": "homeScore",
+      "value": "0",
+      "type": "string"
+    },
+    {
+      "key": "awayScore",
+      "value": "0",
+      "type": "string"
+    },
+    {
+      "key": "homeFouls",
+      "value": "0",
+      "type": "string"
+    },
+    {
+      "key": "awayFouls",
+      "value": "0",
+      "type": "string"
+    },
+    {
+      "key": "homeTimeouts",
+      "value": "2",
+      "type": "string"
+    },
+    {
+      "key": "awayTimeouts",
+      "value": "2",
+      "type": "string"
+    },
+    {
+      "key": "possession",
+      "value": "home",
+      "type": "string"
+    },
+    {
+      "key": "ultraScoreLib",
+      "value": "",
+      "type": "string"
+    }
+  ]
+}

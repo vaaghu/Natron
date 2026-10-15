@@ -300,6 +300,21 @@ Gui::event(QEvent* e)
             QPoint widgetPos = (*it)->mapToGlobal( (*it)->mapFromParent( (*it)->pos() ) );
             QRect r( widgetPos.x(), widgetPos.y(), (*it)->width(), (*it)->height() );
             if ( r.contains( tEvent->globalPos() ) ) {
+#if QT_VERSION >= QT_VERSION_CHECK(6, 0, 0)
+                QTabletEvent te( tEvent->type()
+                                 , tEvent->pointingDevice()
+                                 , mapFromGlobal( tEvent->globalPosition() )
+                                 , tEvent->globalPosition()
+                                 , tEvent->pressure()
+                                 , tEvent->xTilt()
+                                 , tEvent->yTilt()
+                                 , tEvent->tangentialPressure()
+                                 , tEvent->rotation()
+                                 , tEvent->z()
+                                 , tEvent->modifiers()
+                                 , tEvent->button()
+                                 , tEvent->buttons() );
+#else
                 QTabletEvent te( tEvent->type()
                                  , mapFromGlobal( tEvent->pos() )
                                  , tEvent->globalPos()
@@ -314,6 +329,7 @@ Gui::event(QEvent* e)
                                  , tEvent->z()
                                  , tEvent->modifiers()
                                  , tEvent->uniqueId() );
+#endif
                 qApp->sendEvent( (*it)->getViewer(), &te );
 
                 return true;

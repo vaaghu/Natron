@@ -470,7 +470,7 @@ void SceneStore::restore(const SceneSnapshot &snap)
   }
   else
   {
-    m_scenes.insert(qBound(0, snap.index, m_scenes.size()), snap.scene);
+    m_scenes.insert(qBound(0, snap.index, int(m_scenes.size())), snap.scene);
   }
 
   const QString prefix = snap.id + QLatin1Char('|');

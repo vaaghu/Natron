@@ -134,11 +134,18 @@ public:
     // —— members ——————————————————————————-
 
 protected:
+    // the result of nativeEvent() is a qintptr in Qt 6, a long in Qt 5
+#if QT_VERSION >= QT_VERSION_CHECK(6, 0, 0)
+    typedef qintptr NativeEventResult;
+#else
+    typedef long NativeEventResult;
+#endif
+
     // —— events ———————————————————————————
     /**
      * reimpl as DDE events come as windows events and are not translated by Qt.
      */
-    virtual bool nativeEvent(const QByteArray& eventType, void* message, long* result);
+    virtual bool nativeEvent(const QByteArray& eventType, void* message, NativeEventResult* result);
 
     // —— helpers for the file registration ——————————————————
     /**
@@ -243,17 +250,17 @@ private:
     /**
      * implementation of the WM_DDE_INITIATE windows message
      */
-    bool ddeInitiate(MSG* message, long* result);
+    bool ddeInitiate(MSG* message, NativeEventResult* result);
 
     /**
      * implementation of the WM_DDE_EXECUTE windows message
      */
-    bool ddeExecute(MSG* message, long* result);
+    bool ddeExecute(MSG* message, NativeEventResult* result);
 
     /**
      * implementation of the WM_DDE_TERMINATE windows message
      */
-    bool ddeTerminate(MSG* message, long* result);
+    bool ddeTerminate(MSG* message, NativeEventResult* result);
 
     /**
      * Sets specified value in the registry under HKCU\Software\Classes, which is mapped to HKCR then.

@@ -650,7 +650,7 @@ void ProgramOutput::moveLayer(Bus which, const Source &source, int steps)
   {
     return;
   }
-  const int to = qBound(0, from + steps, layers.size() - 1);
+  const int to = qBound(0, from + steps, int(layers.size()) - 1);
   if (to != from)
   {
     layers.move(from, to);

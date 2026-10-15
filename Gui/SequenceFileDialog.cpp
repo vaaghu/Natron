@@ -703,7 +703,7 @@ SequenceFileDialog::restoreState(const QByteArray & state,
 
     QList<QAction*> actions = headerView->actions();
     QAbstractItemModel *abstractModel = _model.get();
-    int total = qMin(abstractModel->columnCount( QModelIndex() ), actions.count() + 1);
+    int total = qMin(abstractModel->columnCount( QModelIndex() ), (int)actions.count() + 1);
     for (int i = 1; i < total; ++i) {
         actions.at(i - 1)->setChecked( !headerView->isSectionHidden(i) );
     }

@@ -897,7 +897,7 @@ BusTimeline::nextMarker() const
 QSize
 BusTimeline::sizeHint() const
 {
-    const int rows = qBound(1, _tracks.size(), kTimelineMaxRows);
+    const int rows = qBound(1, (int)_tracks.size(), kTimelineMaxRows);
 
     return QSize(400, rulerHeight() + rows * rowHeight() + 2);
 }
@@ -945,7 +945,7 @@ QRect
 BusTimeline::blockRect(int index) const
 {
     // The top layer in the first row; rows get thinner past kTimelineMaxRows.
-    const int rows = qMax(1, _tracks.size());
+    const int rows = qMax(1, (int)_tracks.size());
     const int available = height() - rulerHeight() - 2;
     const int row = qMax(4, qMin(rowHeight(), available / rows));
     const int y = rulerHeight() + 1 + (_tracks.size() - 1 - index) * row;

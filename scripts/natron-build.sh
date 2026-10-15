@@ -13,8 +13,10 @@
 #              builds first if that build is not of the current source
 #   plugins    re-clone and rebuild the OFX plug-ins (otherwise built once and kept)
 #   status     show what the cache holds
-#   sdk        build the Qt 5 SDK image (natron-sdk-qt5:latest, see
-#              scripts/docker/natron-sdk-qt5/Dockerfile)
+#   sdk        build the SDK image of the Qt version: natron-sdk-qt6:latest
+#              (scripts/docker/natron-sdk-qt6/Dockerfile: LLVM, Qt 6 and PySide6
+#              from source, hours) or, with --qt5, natron-sdk-qt5:latest
+#              (scripts/docker/natron-sdk-qt5/Dockerfile)
 #   clean      delete the cache (the next run starts from scratch)
 #
 # Options:
@@ -27,9 +29,13 @@
 #   --no-portable  installer only, no portable .tar.xz archive (saves a few minutes)
 #   --rebuild      compile even if the cache holds a build of this source
 #   --committed    refuse to build with uncommitted changes (build = HEAD)
-#   --qt4, --qt5   Qt to build against (default: 4). Qt 5 needs the shiboken2
-#                  generator, which natrongithub/natron-sdk lacks: --qt5 builds in
-#                  natron-sdk-qt5:latest (make it once with the sdk mode)
+#   --update       fetch Natron's submodules and the plug-in repositories again
+#                  (the checkout step; otherwise only run while the cache lacks them)
+#   --qt4, --qt5, --qt6
+#                  Qt to build against (default: 4 if the source has the Qt 4
+#                  bindings, Engine/Qt4, else 6). natrongithub/natron-sdk only
+#                  builds Qt 4: --qt5 builds in natron-sdk-qt5:latest, --qt6 in
+#                  natron-sdk-qt6:latest (make them once with the sdk mode)
 #
 # Platforms: the build scripts (tools/jenkins) build for the machine they run
 # on; they cannot cross-compile. Each platform is built on its own host:
@@ -44,7 +50,7 @@
 #                       or ../natron-build-cache-<platform> for windows and macos)
 #   NATRON_BUILD_OUT    output directory (default: ../builds next to this repo)
 #   NATRON_SDK_IMAGE    linux SDK image (default: natrongithub/natron-sdk:latest,
-#                       natron-sdk-qt5:latest with --qt5)
+#                       natron-sdk-qt5:latest with --qt5, natron-sdk-qt6:latest with --qt6)
 #   NATRON_LICENSE      GPL or COMMERCIAL (default: GPL)
 #
 # What is reused between runs (all under the cache directory):
@@ -57,6 +63,10 @@
 #
 # Steps skipped compared to a plain run of the build scripts:
 #   - wiping and re-cloning everything (DEBUG_SCRIPTS=1 keeps the cache)
+#   - the checkout step (step 1) once the cache holds the submodules and the
+#     built plug-ins: it fetches 5 repositories (unless --update)
+#   - the restart of launchBuildMain.sh when the SDK's copy is older than the
+#     source's: the source's is put in place first
 #   - rebuilding the plug-ins (until `plugins` is run)
 #   - unit tests (SKIP_NATRON_TESTS=1, unless --tests)
 #   - step 6, which trims the output directory to 8 GB by deleting old builds
@@ -67,6 +77,7 @@ SRC="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 OUT="${NATRON_BUILD_OUT:-$(dirname "$SRC")/builds}"
 IMAGE="${NATRON_SDK_IMAGE:-}" # chosen once the Qt version is known
 QT5_IMAGE="natron-sdk-qt5:latest"
+QT6_IMAGE="natron-sdk-qt6:latest"
 CONTAINER="natron-build"
 
 case "$(uname -s)" in
@@ -93,6 +104,7 @@ TESTS=0
 PORTABLE=1
 REBUILD=0
 COMMITTED=0
+UPDATE=0
 QT=""
 
 usage() {
@@ -115,8 +127,10 @@ while [ $# -gt 0 ]; do
         --no-portable) PORTABLE=0 ;;
         --rebuild) REBUILD=1 ;;
         --committed) COMMITTED=1 ;;
+        --update) UPDATE=1 ;;
         --qt4) QT=4 ;;
         --qt5) QT=5 ;;
+        --qt6) QT=6 ;;
         -h|--help) usage ;;
         *) echo "Unknown option: $1" >&2; usage 1 ;;
     esac
@@ -139,9 +153,17 @@ fi
 
 if [ "$PLATFORM" = "linux" ]; then
     CACHE="${NATRON_BUILD_CACHE:-$(dirname "$SRC")/natron-build-cache}"
-    QT="${QT:-4}" # the scripts would otherwise pick it from the branch name
+    # Default: what the source supports (the scripts would otherwise pick it
+    # from the branch name). Only sources with the Qt 4 bindings build Qt 4.
+    if [ -z "$QT" ]; then
+        QT="$([ -d "$SRC/Engine/Qt4" ] && echo 4 || echo 6)"
+    fi
     if [ -z "$IMAGE" ]; then
-        IMAGE="$([ "$QT" = "5" ] && echo "$QT5_IMAGE" || echo natrongithub/natron-sdk:latest)"
+        case "$QT" in
+            5) IMAGE="$QT5_IMAGE" ;;
+            6) IMAGE="$QT6_IMAGE" ;;
+            *) IMAGE=natrongithub/natron-sdk:latest ;;
+        esac
     fi
 else
     CACHE="${NATRON_BUILD_CACHE:-$(dirname "$SRC")/natron-build-cache-$PLATFORM}"
@@ -157,13 +179,24 @@ running() {
     [ "$PLATFORM" = "linux" ] && docker ps -q -f "name=^${CONTAINER}$" | grep -q .
 }
 
+# plugin_built NAME: the cache holds the built NAME.ofx.bundle
+plugin_built() {
+    [ -d "$DEPLOY/OFX/Plugins/$1.ofx.bundle" ] || [ -d "$DEPLOY/Natron.app/Contents/Plugins/OFX/Natron/$1.ofx.bundle" ]
+}
+
 case "$MODE" in
     sdk)
         if [ "$PLATFORM" != "linux" ]; then
             echo "The SDK image is for linux builds." >&2
             exit 1
         fi
-        docker build -t "$QT5_IMAGE" "$SRC/scripts/docker/natron-sdk-qt5"
+        if [ "$QT" = "5" ]; then
+            docker build -t "$QT5_IMAGE" "$SRC/scripts/docker/natron-sdk-qt5"
+        else
+            # The recipes are in tools/jenkins: the build context.
+            docker build --build-arg MKJOBS="$JOBS" -t "$QT6_IMAGE" \
+                -f "$SRC/scripts/docker/natron-sdk-qt6/Dockerfile" "$SRC/tools/jenkins"
+        fi
         exit $?
         ;;
     status)
@@ -171,7 +204,7 @@ case "$MODE" in
         echo "Cache:    $CACHE"
         echo "Output:   $OUT"
         for p in IO Misc CImg Arena GMIC; do
-            if [ -d "$DEPLOY/OFX/Plugins/$p.ofx.bundle" ] || [ -d "$DEPLOY/Natron.app/Contents/Plugins/OFX/Natron/$p.ofx.bundle" ]; then
+            if plugin_built "$p"; then
                 s="built"
             else
                 s="missing"
@@ -214,8 +247,8 @@ if running; then
     exit 1
 fi
 if [ "$PLATFORM" = "linux" ] && ! docker image inspect "$IMAGE" >/dev/null 2>&1; then
-    if [ "$IMAGE" = "$QT5_IMAGE" ]; then
-        echo "No $QT5_IMAGE image yet: make it with \`$0 sdk\` (once)." >&2
+    if [ "$IMAGE" = "$QT5_IMAGE" ] || [ "$IMAGE" = "$QT6_IMAGE" ]; then
+        echo "No $IMAGE image yet: make it with \`$0 sdk --qt$QT\` (once)." >&2
         exit 1
     fi
 fi
@@ -260,6 +293,28 @@ case "$MODE" in
         if [ "$CURRENT_BUILD" = "1" ] && [ "$REBUILD" = "0" ]; then
             echo "The cache already holds a build of this source (--rebuild to compile anyway)."
             exit 0
+        fi
+        ;;
+esac
+# The checkout step (step 1) fetches Natron's submodules and the plug-in
+# repositories on every run, but the sources are synced by prepare_and_build
+# and the plug-ins are only rebuilt by the plugins mode: once the cache holds
+# the submodules and the built plug-ins, start at step 3 (--update: don't).
+cache_complete() {
+    local p path
+    for p in IO Misc CImg Arena GMIC; do
+        plugin_built "$p" || return 1
+    done
+    for path in $(awk '$1 == "path" {print $3}' "$SRC/.gitmodules"); do
+        [ -n "$(ls -A "$CACHE/tmp/Natron/$path" 2>/dev/null)" ] || return 1
+    done
+}
+SKIP_CHECKOUT=0
+case "$MODE" in
+    all|build)
+        if [ "$UPDATE" = "0" ] && cache_complete; then
+            SKIP_CHECKOUT=1
+            STEPS="BUILD_FROM=3 ${STEPS#BUILD_FROM=1 }"
         fi
         ;;
 esac
@@ -396,6 +451,12 @@ INFO
         ;;
     esac
 
+    # launchBuildMain.sh restarts itself (after a 5 s pause) when the source's
+    # copy differs from the one being run: run the source's from the start.
+    if [ -f "$tmp/Natron/tools/jenkins/launchBuildMain.sh" ] &&
+       ! cmp -s "$tmp/Natron/tools/jenkins/launchBuildMain.sh" launchBuildMain.sh; then
+        cp "$tmp/Natron/tools/jenkins/launchBuildMain.sh" launchBuildMain.sh
+    fi
     env $STEPS WORKSPACE="$workspace" "${LAUNCH[@]}" || status=$?
 
     # Natron got built (the installer step may still have failed): record
@@ -423,6 +484,11 @@ if [ "$MODE" = "installer" ]; then
     # file names: give the commit of the build being packaged.
     GIT_COMMIT="$(git -C "$CACHE/tmp/Natron" rev-parse HEAD 2>/dev/null || true)"
     [ -n "$GIT_COMMIT" ] && export GIT_COMMIT
+elif [ "$SKIP_CHECKOUT" = "1" ]; then
+    # Same, for the commit being built. (With the checkout step, GIT_COMMIT
+    # would make it check the commit out over the uncommitted changes.)
+    GIT_COMMIT="$(git -C "$SRC" rev-parse HEAD)"
+    export GIT_COMMIT
 fi
 export BUILD_NAME="$NAME"
 export BUILD_NUMBER="$NUMBER"

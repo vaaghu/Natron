@@ -432,6 +432,9 @@ export LD_LIBRARY_PATH LD_RUN_PATH DYLD_LIBRARY_PATH LIBRARY_PATH CPATH PKG_CONF
 
 if [ "${QT_VERSION_MAJOR}" = 4 ]; then
     QT_VERSION=$(pkg-config --modversion QtCore)
+elif [ "${QT_VERSION_MAJOR}" -ge 6 ] && [ -x "$QTDIR/bin/qmake${QT_VERSION_MAJOR}" ]; then
+    # MSYS2: qmake6 (qmake may be another Qt's)
+    QT_VERSION=$("$QTDIR/bin/qmake${QT_VERSION_MAJOR}" -query QT_VERSION)
 elif [ "${QT_VERSION_MAJOR}" -ge 6 ] && [ -x "$QTDIR/bin/qmake" ]; then
     QT_VERSION=$("$QTDIR/bin/qmake" -query QT_VERSION)
 else

@@ -150,6 +150,23 @@ elif [ "$QT_VERSION_MAJOR" = "5" ]; then
     catDll libicuin
     catDll libpcre2-16-
     catDll libmd4c
+elif [ "$QT_VERSION_MAJOR" = "6" ]; then
+    # MSYS2's Qt 6 (the installer copies all its Qt6*.dll anyway)
+    catDll Qt6Concurrent
+    catDll Qt6Core
+    catDll Qt6DBus
+    catDll Qt6Gui
+    catDll Qt6Network
+    catDll Qt6OpenGL
+    catDll Qt6OpenGLWidgets
+    catDll Qt6Widgets
+    catDllOptional Qt6Svg
+
+    catDll libdouble-conversion
+    catDll libicuin
+    catDll libpcre2-16-
+    catDll libmd4c
+    catDll libb2-
 else
     echo "Unsupported QT_VERSION_MAJOR" ${QT_VERSION_MAJOR}
     exit 1
@@ -284,6 +301,10 @@ catDll libpython${PYVER}
 if [ "$PYV" = 2 ]; then
     catDll libpyside-python${PYVER}
     catDll libshiboken-python${PYVER}
+elif [ "$QT_VERSION_MAJOR" -ge 6 ]; then
+    # libpyside6.cp3XX-mingw_x86_64_msvcrt_gnu.dll (not libpyside6qml...)
+    catDll libpyside${QT_VERSION_MAJOR}.cp
+    catDll libshiboken${QT_VERSION_MAJOR}.cp
 else
     catDll libpyside
     catDll libshiboken

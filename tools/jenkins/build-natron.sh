@@ -313,14 +313,22 @@ if [ "$QT_VERSION_MAJOR" -ge 6 ]; then
     relwithdebinfo) NATRON_CMAKE_BUILD_TYPE=RelWithDebInfo ;;
     *) NATRON_CMAKE_BUILD_TYPE=Release ;;
     esac
+    NATRON_CMAKE_PYTHON="$SDK_HOME/bin/python${PYVER}"
+    if [ "$PKGOS" = "Windows" ]; then
+        NATRON_CMAKE_PYTHON="$SDK_HOME/bin/python3.exe" # CMake is a native program there
+    fi
+    if [ "$PKGOS" = "Linux" ]; then
+        # The SDK's Qt 6 is in its own prefix (on Windows, MSYS2's is in
+        # /mingw64, which CMake searches already)
+        CMAKE_FLAGS_EXTRA+=(-DCMAKE_PREFIX_PATH="$QTDIR;$SDK_HOME;$LLVM_INSTALL_DIR")
+    fi
     if [ "$NO_BUILD" != "1" ]; then
         printStatusMessage "Building Natron (CMake, Qt ${QT_VERSION})..."
         env CFLAGS="${BF:-}" CXXFLAGS="${BF:-}" cmake -S . -B build-qt6 -G Ninja \
             -DCMAKE_BUILD_TYPE="$NATRON_CMAKE_BUILD_TYPE" \
             -DCMAKE_C_COMPILER="$CC" -DCMAKE_CXX_COMPILER="$CXX" \
-            -DCMAKE_PREFIX_PATH="$QTDIR;$SDK_HOME;$LLVM_INSTALL_DIR" \
             -DNATRON_QT_MAJOR=6 \
-            -DPython3_EXECUTABLE="$SDK_HOME/bin/python${PYVER}" \
+            -DPython3_EXECUTABLE="$NATRON_CMAKE_PYTHON" \
             -DNATRON_BUILD_TESTS="$([ "${SKIP_NATRON_TESTS:-}" = "1" ] && echo OFF || echo ON)" \
             "${CMAKE_FLAGS_EXTRA[@]}"
         cmake --build build-qt6 --parallel "${MKJOBS}"
@@ -369,13 +377,18 @@ if [ "$PKGOS" = "Windows" ]; then
     if [ "${COMPILE_TYPE}" = "debug" ]; then
        WIN_BIN_TYPE=debug
     fi
-    NATRON_CONVERTER="$WIN_BIN_TYPE/${NATRON_CONVERTER}.exe"
-    NATRON_PYTHON_BIN="$WIN_BIN_TYPE/${NATRON_PYTHON_BIN}.exe"
-    NATRON_TEST="$WIN_BIN_TYPE/${NATRON_TEST}.exe"
-    NATRON_BIN="$WIN_BIN_TYPE/${NATRON_BIN}.exe"
-    RENDERER_BIN="$WIN_BIN_TYPE/${RENDERER_BIN}.exe"
-    CRASHGUI="$WIN_BIN_TYPE/${CRASHGUI}.exe"
-    CRASHCLI="$WIN_BIN_TYPE/${CRASHCLI}.exe"
+    # qmake builds put the executables in release/ or debug/, CMake builds (Qt 6) do not
+    WIN_BIN_DIR="$WIN_BIN_TYPE/"
+    if [ "$QT_VERSION_MAJOR" -ge 6 ]; then
+        WIN_BIN_DIR=""
+    fi
+    NATRON_CONVERTER="${WIN_BIN_DIR}${NATRON_CONVERTER}.exe"
+    NATRON_PYTHON_BIN="${WIN_BIN_DIR}${NATRON_PYTHON_BIN}.exe"
+    NATRON_TEST="${WIN_BIN_DIR}${NATRON_TEST}.exe"
+    NATRON_BIN="${WIN_BIN_DIR}${NATRON_BIN}.exe"
+    RENDERER_BIN="${WIN_BIN_DIR}${RENDERER_BIN}.exe"
+    CRASHGUI="${WIN_BIN_DIR}${CRASHGUI}.exe"
+    CRASHCLI="${WIN_BIN_DIR}${CRASHCLI}.exe"
 fi
 
 

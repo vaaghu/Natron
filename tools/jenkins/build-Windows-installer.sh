@@ -394,6 +394,8 @@ for location in "${COPY_LOCATIONS[@]}"; do
     fi
 
     rm "$location/bin/sqldrivers"/{*mysql*,*psql*,*ibase*} || true
+    # MSYS2's PySide6 adds a Qt Designer plug-in to the Qt plug-ins
+    rm -rf "$location/bin/designer" || true
 
     if [ "$COMPILE_TYPE" != "debug" ]; then
         dir="$location/bin"
@@ -411,8 +413,10 @@ cp -a "$SDK_HOME/lib/python${PYVER}" "${TMP_PORTABLE_DIR}/lib/"
 
 
 if [[ ${QT_VERSION_MAJOR} -ge 5 ]]; then
-    PYSIDE_PLUGIN_PATH="${TMP_PORTABLE_DIR}/Plugins/PySide2"
-    mv "${TMP_PORTABLE_DIR}/lib/python${PYVER}/site-packages/PySide2" "${TMP_PORTABLE_DIR}/lib/python${PYVER}/site-packages/shiboken2" "${TMP_PORTABLE_DIR}/Plugins"
+    # PySide2/shiboken2 for Qt 5, PySide6/shiboken6 for Qt 6
+    PYSIDE_N=$([ "${QT_VERSION_MAJOR}" = 5 ] && echo 2 || echo "${QT_VERSION_MAJOR}")
+    PYSIDE_PLUGIN_PATH="${TMP_PORTABLE_DIR}/Plugins/PySide${PYSIDE_N}"
+    mv "${TMP_PORTABLE_DIR}/lib/python${PYVER}/site-packages/PySide${PYSIDE_N}" "${TMP_PORTABLE_DIR}/lib/python${PYVER}/site-packages/shiboken${PYSIDE_N}" "${TMP_PORTABLE_DIR}/Plugins"
 else
     PYSIDE_PLUGIN_PATH="${TMP_PORTABLE_DIR}/Plugins/PySide"
     mv "${TMP_PORTABLE_DIR}/lib/python${PYVER}/site-packages/PySide" "${TMP_PORTABLE_DIR}/Plugins"

@@ -428,9 +428,9 @@ PyObject* initializePython2(const std::vector<char*>& commandLineArgsUtf8)
 
     // Release the GIL, because PyEval_InitThreads acquires the GIL
     // see https://docs.python.org/3.7/c-api/init.html#c.PyEval_InitThreads
-    PyThreadState *_save = PyEval_SaveThread();
-    // The lock should be released just before PyFinalize() using:
-    // PyEval_RestoreThread(_save);
+    PyEval_SaveThread();
+    // The lock should be acquired again just before PyFinalize() using
+    // PyEval_RestoreThread() with the thread state returned above.
 
     return mainModule;
 } // initializePython

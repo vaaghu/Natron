@@ -43,3 +43,7 @@ target_include_directories(NatronCustom
     PUBLIC
         ..
 )
+
+if(NATRON_BUILD_TESTS)
+    add_subdirectory(tests)
+endif()

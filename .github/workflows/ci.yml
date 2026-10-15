@@ -112,6 +112,48 @@ jobs:
         if: steps.run-unix-tests-debug.outcome == 'failure' || steps.run-unix-tests-release.outcome == 'failure'
         run: exit 1
 
+  unix_test_qt6:
+    # Qt 6.8 LTS with PySide6/Shiboken6 6.8 from Debian trixie.
+    # Not blocking while the Qt 6 port is being finished.
+    name: Test Qt 6 (Debian trixie)
+    runs-on: ubuntu-latest
+    container: debian:trixie
+    continue-on-error: true
+    env:
+      CI: 'True'
+      OCIO_CONFIG_VERSION: 2.5
+    steps:
+      - name: Install system packages
+        run: |
+          apt-get update
+          apt-get install -y --no-install-recommends ca-certificates git wget unzip xvfb xauth \
+            build-essential cmake pkg-config libboost-serialization-dev libboost-system-dev libexpat1-dev libcairo2-dev \
+            qt6-base-dev libgl-dev \
+            python3-dev libshiboken6-dev shiboken6 libpyside6-dev python3-pyside6.qtwidgets python3-qtpy \
+            libwayland-dev libegl-dev extra-cmake-modules \
+            clang llvm  # shiboken6 needs clang's built-in headers and llvm-config
+
+      - name: Checkout branch
+        uses: actions/checkout@v7
+        with:
+          submodules: recursive
+
+      - name: Download OpenColorIO-Configs
+        run: |
+          wget https://github.com/NatronGitHub/OpenColorIO-Configs/archive/Natron-v${OCIO_CONFIG_VERSION}.tar.gz
+          tar xzf Natron-v${OCIO_CONFIG_VERSION}.tar.gz
+          mv OpenColorIO-Configs-Natron-v${OCIO_CONFIG_VERSION} OpenColorIO-Configs
+
+      - name: Build (release)
+        run: |
+          cmake -S . -B release -DNATRON_QT_MAJOR=6
+          cmake --build release -j2
+
+      - name: Run tests (release)
+        run: |
+          cd release
+          OCIO=$PWD/../OpenColorIO-Configs/blender/config.ocio xvfb-run --auto-servernum ctest -V
+
   win-test:
     # Disabled for now (only the Linux tests are used)
     if: false

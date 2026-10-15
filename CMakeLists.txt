@@ -138,7 +138,7 @@ if (NOT MSVC)
     add_compile_options(-Wall -Wextra -Wmissing-declarations -Wno-multichar -Winit-self -Wno-long-long
                         -Wvla -Wdate-time -Wshift-overflow=2
                         -Wduplicated-cond -Wno-stringop-overflow -Wno-format-overflow
-                        -Wno-deprecated-copy)
+                        $<$<COMPILE_LANGUAGE:CXX>:-Wno-deprecated-copy>)
 endif()
 
 if(NATRON_SYSTEM_LIBS)

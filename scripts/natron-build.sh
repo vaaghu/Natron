@@ -16,8 +16,9 @@
 #   setup      windows: set up this machine to build (MSYS2 packages, Natron SDK,
 #              Windows SDK), see scripts/natron-setup-windows.sh; --check only reports
 #   sdk        build the SDK image of the Qt version: natron-sdk-qt6:latest
-#              (scripts/docker/natron-sdk-qt6/Dockerfile: LLVM, Qt 6 and PySide6
-#              from source, hours) or, with --qt5, natron-sdk-qt5:latest
+#              (scripts/docker/natron-sdk-qt6/Dockerfile: Qt 6 and PySide6 from
+#              source, on natron-sdk-qt6-llvm:latest, Dockerfile.llvm: LLVM, hours,
+#              built when missing or with --rebuild) or, with --qt5, natron-sdk-qt5:latest
 #              (scripts/docker/natron-sdk-qt5/Dockerfile)
 #   clean      delete the cache (the next run starts from scratch)
 #
@@ -82,6 +83,7 @@ OUT="${NATRON_BUILD_OUT:-$(dirname "$SRC")/builds}"
 IMAGE="${NATRON_SDK_IMAGE:-}" # chosen once the Qt version is known
 QT5_IMAGE="natron-sdk-qt5:latest"
 QT6_IMAGE="natron-sdk-qt6:latest"
+QT6_LLVM_IMAGE="natron-sdk-qt6-llvm:latest" # its first stage, see sdk
 CONTAINER="natron-build"
 
 case "$(uname -s)" in
@@ -214,7 +216,12 @@ case "$MODE" in
         if [ "$QT" = "5" ]; then
             docker build -t "$QT5_IMAGE" "$SRC/scripts/docker/natron-sdk-qt5"
         else
-            # The recipes are in tools/jenkins: the build context.
+            # The recipes are in tools/jenkins: the build context. LLVM (hours)
+            # is its own image, only built when missing (--rebuild: again).
+            if [ "$REBUILD" = "1" ] || ! docker image inspect "$QT6_LLVM_IMAGE" >/dev/null 2>&1; then
+                docker build --build-arg MKJOBS="$JOBS" -t "$QT6_LLVM_IMAGE" \
+                    -f "$SRC/scripts/docker/natron-sdk-qt6/Dockerfile.llvm" "$SRC/tools/jenkins"
+            fi
             docker build --build-arg MKJOBS="$JOBS" -t "$QT6_IMAGE" \
                 -f "$SRC/scripts/docker/natron-sdk-qt6/Dockerfile" "$SRC/tools/jenkins"
         fi

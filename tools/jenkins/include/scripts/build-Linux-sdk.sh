@@ -31,6 +31,7 @@
 # LAST_STEP=step_name : Only build until this step (be careful, as dependent packages are not rebuilt).
 # FORCE_BUILD=1 : Force build, even if up-to-date. If LAST_STEP is specified, only force-build this step.
 # DOWNLOAD=1 : build nothing, just download the sources
+# ONLY_STEPS="step1 step2" : build only these steps, e.g. ONLY_STEPS="llvm qt6 pyside6" adds Qt 6 to an existing SDK
 #
 # Only available when GEN_DOCKERFILE, LIST_STEPS and LAST_STEPS are not set:
 #
@@ -302,6 +303,11 @@ function build_step ()
         if [ "$step" != "$prevstep" ]; then
             echo "$step"
         fi
+        prevstep="$step"
+        return 1
+    fi
+    # ONLY_STEPS="a b": only these steps may build (e.g. on top of an existing SDK image)
+    if [ -n "${ONLY_STEPS:-}" ] && [[ " ${ONLY_STEPS} " != *" ${step} "* ]]; then
         prevstep="$step"
         return 1
     fi
@@ -599,6 +605,8 @@ if dobuild; then
 
     export QT4PREFIX="$SDK_HOME/qt4"
     export QT5PREFIX="$SDK_HOME/qt5"
+    export QT6PREFIX="$SDK_HOME/qt6"
+    export LLVM_PREFIX="$SDK_HOME/llvm" # libclang for the shiboken6 generator
 
     export PATH="$SDK_HOME/bin:$PATH"
     export LD_LIBRARY_PATH="$SDK_HOME/lib:$QT4PREFIX/lib:$QT5PREFIX/lib${LD_LIBRARY_PATH:+:$LD_LIBRARY_PATH}"
@@ -897,9 +905,22 @@ checkpoint
 
 build pyside2
 
+checkpoint
+
+# Qt 6: Qt and PySide6 in $SDK_HOME/qt6, built with the libclang of $SDK_HOME/llvm
+build llvm
+
+checkpoint
+
+build qt6
+
+checkpoint
+
+build pyside6
+
 if dobuild; then
     # make sure all libs are user-writable and executable
-    for subdir in . ffmpeg-gpl2 ffmpeg-lgpl libraw-gpl2 libraw-lgpl qt4; do
+    for subdir in . ffmpeg-gpl2 ffmpeg-lgpl libraw-gpl2 libraw-lgpl qt4 qt6; do
         if compgen -G "$SDK_HOME/$subdir/lib*/lib*.so*" > /dev/null; then
             chmod 755 "$SDK_HOME"/$subdir/lib*/lib*.so*
         fi
@@ -919,7 +940,7 @@ if dobuild; then
 
     echo
     echo "Check for broken libraries and binaries... (everything is OK if nothing is printed)"
-    for subdir in . ffmpeg-gpl2 ffmpeg-lgpl libraw-gpl2 libraw-lgpl qt4 qt5; do
+    for subdir in . ffmpeg-gpl2 ffmpeg-lgpl libraw-gpl2 libraw-lgpl qt4 qt5 qt6; do
         [ -d "$SDK_HOME/$subdir/lib" ] && LD_LIBRARY_PATH="$SDK_HOME/$subdir/lib:${LD_LIBRARY_PATH:+:$LD_LIBRARY_PATH}" find "$SDK_HOME/$subdir/lib" -name '*.so' -exec bash -c 'ldd {} 2>&1 | fgrep "not found" &>/dev/null' \; -print
         [ -d "$SDK_HOME/$subdir/bin" ] && LD_LIBRARY_PATH="$SDK_HOME/$subdir/lib:${LD_LIBRARY_PATH:+:$LD_LIBRARY_PATH}" find "$SDK_HOME/$subdir/bin" -maxdepth 1 -exec bash -c 'ldd {} 2>&1 | fgrep "not found" &>/dev/null' \; -print
     done

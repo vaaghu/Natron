@@ -139,8 +139,7 @@ struct OSGLContext_waylandPrivate
     void createContextEGL(OSGLContext_egl_data* eglInfo, const FramebufferConfig& fbconfig, int major, int minor, bool coreProfile, int rendererID, const OSGLContext_wayland* shareContext);
 
     void createWindow(OSGLContext_egl_data* eglInfo,
-                      const EGLConfig& native,
-                      int depth);
+                      const EGLConfig& native);
 };
 
 static bool
@@ -171,7 +170,7 @@ getProcAddress(const OSGLContext_egl_data* data,
 }
 
 static void
-registry_handle_global(void* data, wl_registry* registry, uint32_t id, const char* interface, uint32_t version)
+registry_handle_global(void* data, wl_registry* registry, uint32_t id, const char* interface, uint32_t /*version*/)
 {
     auto state = reinterpret_cast<WaylandData*>(data);
     if (std::strcmp(interface, wl_compositor_interface.name) == 0) {
@@ -180,7 +179,7 @@ registry_handle_global(void* data, wl_registry* registry, uint32_t id, const cha
 }
 
 static void
-registry_handle_global_remove(void* data, wl_registry* registry, uint32_t id)
+registry_handle_global_remove(void* /*data*/, wl_registry* /*registry*/, uint32_t /*id*/)
 {
 }
 
@@ -394,7 +393,7 @@ chooseFBConfig(const OSGLContext_egl_data* eglInfo,
 // Create the Wayland window (and its colormap)
 //
 void
-OSGLContext_waylandPrivate::createWindow(OSGLContext_egl_data* eglInfo, const EGLConfig& native, int depth)
+OSGLContext_waylandPrivate::createWindow(OSGLContext_egl_data* eglInfo, const EGLConfig& native)
 {
     const int width = 32;
     const int height = 32;
@@ -522,10 +521,8 @@ OSGLContext_wayland::OSGLContext_wayland(const FramebufferConfig& pixelFormatAtt
 
     EGLConfig native;
 
-    int depth;
-
     chooseFBConfig(eglInfo, pixelFormatAttrs, &native);
-    _imp->createWindow(eglInfo, native, depth);
+    _imp->createWindow(eglInfo, native);
     _imp->createContextEGL(eglInfo, pixelFormatAttrs, major, minor, coreProfile, rendererID.renderID, shareContext);
 }
 

@@ -1,8 +1,10 @@
 name: Build Installer
 
+# Disabled for now (only the Linux CI and Jenkins are used): run by hand
+# from the Actions tab. Fails until tools/MINGW-packages has a pacman repo
+# version that upstream still publishes.
 on:
   workflow_dispatch: {}
-  push:
 
 env:
   NATRON_BUILD_WORKSPACE: 'D:/nbw'
@@ -18,7 +20,7 @@ jobs:
 
     steps:
       - name: Checkout branch
-        uses: actions/checkout@v4.1.1
+        uses: actions/checkout@v7
         with:
           submodules: recursive
 
@@ -68,7 +70,7 @@ jobs:
           pacman -Rs --noconfirm mingw-w64-x86_64-natron-build-deps-qt5
 
       - name: Upload artifacts
-        uses: actions/upload-artifact@v4.3.1
+        uses: actions/upload-artifact@v7
         with:
           name:  ${{ steps.build.outputs.INSTALLER_NAME }}
           path:  ${{ steps.build.outputs.INSTALLER_DIR }}
@@ -91,7 +93,7 @@ jobs:
 
     steps:
       - name: Checkout branch
-        uses: actions/checkout@v4.1.1
+        uses: actions/checkout@v7
         with:
           submodules: recursive
 
@@ -151,13 +153,13 @@ jobs:
           pacman -Rs --noconfirm mingw-w64-x86_64-natron-build-deps-qt5
 
       - name: Upload installer
-        uses: actions/upload-artifact@v4.3.1
+        uses: actions/upload-artifact@v7
         with:
           name:  ${{ steps.build.outputs.INSTALLER_NAME }}
           path:  ${{ steps.build.outputs.INSTALLER_DIR }}
 
       - name: Upload symbols
-        uses: actions/upload-artifact@v4.3.1
+        uses: actions/upload-artifact@v7
         with:
           name:  ${{ steps.build.outputs.SYMBOLS_NAME }}
           path:  ${{ steps.build.outputs.SYMBOLS_DIR }}

@@ -1289,9 +1289,7 @@ void PyPanelWrapper::wheelEvent(QWheelEvent * event)
 
 const QMetaObject* PyPanelWrapper::metaObject() const
 {
-    #if QT_VERSION >= 0x040700
     if (QObject::d_ptr->metaObject) return QObject::d_ptr->metaObject;
-    #endif
     SbkObject* pySelf = Shiboken::BindingManager::instance().retrieveWrapper(this);
     if (pySelf == NULL)
         return PyPanel::metaObject();

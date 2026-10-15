@@ -74,11 +74,7 @@ natronIcon(NATRON_ENUM::PixmapEnum e)
 QString
 escape(const QString& text)
 {
-#if QT_VERSION >= QT_VERSION_CHECK(5, 0, 0)
     return text.toHtmlEscaped();
-#else
-    return Qt::escape(text);
-#endif
 }
 
 NATRON_NAMESPACE_ANONYMOUS_EXIT

@@ -594,15 +594,8 @@ DashboardWindow::onApplyDefaultSizes()
     }
 
     const int listWidth = qMax(160, width() * kDashboardSceneListPercent / 100);
-#if QT_VERSION >= QT_VERSION_CHECK(5, 6, 0)
     resizeDocks(QList<QDockWidget*>() << _scenesDock << _switcherDock, QList<int>() << listWidth << width() - listWidth, Qt::Horizontal);
     resizeDocks(QList<QDockWidget*>() << _switcherDock << _sceneDock, QList<int>() << height() * 55 / 100 << height() * 45 / 100, Qt::Vertical);
-#else
-    // No resizeDocks(): hold the scene list at that width while the docks
-    // are laid out, then let it be resized again.
-    _scenesDock->setFixedWidth(listWidth);
-    QTimer::singleShot( 100, this, SLOT(onReleaseDockWidths()) );
-#endif
 }
 
 void

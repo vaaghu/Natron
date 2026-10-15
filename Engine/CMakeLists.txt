@@ -59,10 +59,6 @@ if(UNIX AND NOT APPLE)
     endif()
 endif()
 
-if(APPLE)
-    list(APPEND NatronEngine_SOURCES QUrlFix.mm)
-endif()
-
 list(APPEND NatronEngine_SOURCES
     ${NatronEngine_SOURCES}
     ${PyEngine_SOURCES}

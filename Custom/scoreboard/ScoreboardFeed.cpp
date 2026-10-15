@@ -234,11 +234,7 @@ void ScoreboardFeed::start(unsigned short port)
 
   if (port != 0)
   {
-#if QT_VERSION >= 0x050000
     const QHostAddress any(QHostAddress::AnyIPv4);
-#else
-    const QHostAddress any(QHostAddress::Any);
-#endif
     // Shared, so another program can listen to the console as well.
     if (!m_socket.bind(any, port, QUdpSocket::ShareAddress | QUdpSocket::ReuseAddressHint))
     {

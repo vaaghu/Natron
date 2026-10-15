@@ -326,11 +326,7 @@ bool SceneRenderer::signalProcess(Run *run, int sig)
   {
     return false;
   }
-#if QT_VERSION >= QT_VERSION_CHECK(5, 3, 0)
   const qint64 pid = run->process->processId();
-#else
-  const qint64 pid = run->process->pid();
-#endif
   return pid > 0 && ::kill(static_cast<pid_t>(pid), sig) == 0;
 #else
   Q_UNUSED(run);

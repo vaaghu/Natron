@@ -88,7 +88,6 @@
 #include <QtCore/QDateTime>
 #include <QtCore/QDebug>
 #include <QtCore/QDir>
-#include <QtCore/QTextCodec>
 #include <QtCore/QCoreApplication>
 #include <QtCore/QSettings>
 #include <QtCore/QThreadPool>
@@ -142,10 +141,6 @@
 #include "sbkversion.h" // shiboken/pyside version
 
 #include "AppManagerPrivate.h" // include breakpad after Engine, because it includes /usr/include/AssertMacros.h on OS X which defines a check(x) macro, which conflicts with boost
-
-#if QT_VERSION < QT_VERSION_CHECK(5, 0, 0)
-Q_DECLARE_METATYPE(QAbstractSocket::SocketState)
-#endif
 
 NATRON_NAMESPACE_ENTER
 
@@ -325,14 +320,6 @@ AppManager::loadFromArgs(const CLArgs& cl)
     }
 #endif
 #endif
-
-    // Ensure Qt knows C-strings are UTF-8 before creating the QApplication for argv
-#if QT_VERSION < QT_VERSION_CHECK(5, 0, 0)
-    // be forward compatible: source code is UTF-8, and Qt5 assumes UTF-8 by default
-    QTextCodec::setCodecForCStrings( QTextCodec::codecForName("UTF-8") );
-    QTextCodec::setCodecForTr( QTextCodec::codecForName("UTF-8") );
-#endif
-
 
     // This needs to be done BEFORE creating qApp because
     // on Linux, X11 will create a context that would corrupt
@@ -2053,18 +2040,10 @@ AppManager::registerPlugin(const QString& resourcesPath,
                            int minor,
                            bool isDeprecated)
 {
-#if QT_VERSION >= QT_VERSION_CHECK(5, 14, 0)
     QRecursiveMutex* pluginMutex = nullptr;
-#else
-    QMutex* pluginMutex = 0;
-#endif
 
     if (mustCreateMutex) {
-#if QT_VERSION >= QT_VERSION_CHECK(5, 14, 0)
         pluginMutex = new QRecursiveMutex();
-#else
-        pluginMutex = new QMutex(QMutex::Recursive);
-#endif
     }
     Plugin* plugin = new Plugin(binary, resourcesPath, pluginID, pluginLabel, pluginIconPath, groupIconPath, groups, pluginMutex, major, minor,
                                 isReader, isWriter, isDeprecated);
@@ -2546,9 +2525,6 @@ AppManager::registerEngineMetaTypes() const
     qRegisterMetaType<ViewSpec>("ViewSpec");
     qRegisterMetaType<NodePtr>("NodePtr");
     qRegisterMetaType<std::list<double> >("std::list<double>");
-#if QT_VERSION < QT_VERSION_CHECK(5, 0, 0)
-    qRegisterMetaType<QAbstractSocket::SocketState>("SocketState");
-#endif
 }
 
 void
@@ -3052,11 +3028,7 @@ AppManager::initPython()
     }
     // Set QT_API for QtPy
     // https://github.com/spyder-ide/qtpy
-#if QT_VERSION < QT_VERSION_CHECK(5, 0, 0)
-    qputenv("QT_API", "pyside");
-#else
     qputenv("QT_API", "pyside2");
-#endif
 } // AppManager::initPython
 
 void

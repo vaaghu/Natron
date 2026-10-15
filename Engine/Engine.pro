@@ -545,8 +545,3 @@ OTHER_FILES += \
 # SHIBOKEN.clean = dummy # don't remove the %_wrapper.cpp file by "make clean"
 
 # QMAKE_EXTRA_COMPILERS += SHIBOKEN
-macx {
-
-OBJECTIVE_SOURCES += \
-    QUrlFix.mm
-}

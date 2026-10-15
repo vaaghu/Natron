@@ -64,11 +64,7 @@ PlainItemDelegate::paint(QPainter* painter,
                          const QStyleOptionViewItem& option,
                          const QModelIndex& index) const
 {
-#if QT_VERSION < QT_VERSION_CHECK(5, 0, 0)
-    QStyleOptionViewItemV4 opt(option); // text and widget are in V4 with Qt 4
-#else
     QStyleOptionViewItem opt(option);
-#endif
 
     opt.state &= ~QStyle::State_HasFocus;
 

@@ -61,7 +61,10 @@ class QNetworkRequest;
 class QProcess;
 class QSettings;
 class QString;
+#include <QtCore/qcontainerfwd.h> // QStringList is an alias of QList<QString> in Qt 6
+#if QT_VERSION < QT_VERSION_CHECK(6, 0, 0)
 class QStringList;
+#endif
 class QThread;
 class QTimer;
 class QUrl;

@@ -687,6 +687,8 @@ Q_DECLARE_FLAGS(StandardButtons, StandardButtonEnum)
 
 #ifdef SBK_RUN
 }
+// the inline code parsed by shiboken uses the enum values unqualified
+using namespace NATRON_ENUM;
 NATRON_NAMESPACE_ENTER
 #endif
 

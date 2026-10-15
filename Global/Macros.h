@@ -59,6 +59,11 @@ namespace Python { }
 #define NATRON_PYTHON_NAMESPACE_ENTER
 #define NATRON_PYTHON_NAMESPACE_EXIT
 
+// defined by the build for the compiled code, not when shiboken parses the headers
+#ifndef NATRON_BUILD_NUMBER
+#define NATRON_BUILD_NUMBER 0
+#endif
+
 #else // !SBK_RUN
 
 #define NATRON_NAMESPACE Natron

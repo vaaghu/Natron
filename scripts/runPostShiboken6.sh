@@ -51,6 +51,9 @@ if [ "$wrapper_name" = "natrongui" ]; then
     $SED -e "/SbkPySide6_QtCoreTypeConverters;/d" -i'.bak' "$wrapper_dir/$wrapper_source"
     $SED -e '/SbkNatronEngineTypes;/d' -i'.bak' "$wrapper_dir/$wrapper_source"
     $SED -e '/SbkNatronEngineTypeConverters;/d' -i'.bak' "$wrapper_dir/$wrapper_source"
+    # shiboken6 names the type arrays *TypeStructs: they are defined by the QtCore and NatronEngine modules
+    $SED -e "/SbkPySide6_QtCoreTypeStructs;/d" -i'.bak' "$wrapper_dir/$wrapper_source"
+    $SED -e '/SbkNatronEngineTypeStructs;/d' -i'.bak' "$wrapper_dir/$wrapper_source"
     $SED -e 's/cleanTypesAttributes/cleanGuiTypesAttributes/g' -i'.bak' "$wrapper_dir/$wrapper_source"
 fi
 
@@ -62,10 +65,14 @@ GCC_DIAG_OFF(unused-parameter)\
 GCC_DIAG_OFF(missing-field-initializers)\
 GCC_DIAG_OFF(missing-declarations)\
 GCC_DIAG_OFF(uninitialized)\
+GCC_DIAG_OFF(cast-function-type) /* PyCFunction casts in the method tables */\
 GCC_DIAG_UNUSED_LOCAL_TYPEDEFS_OFF\
 // clang-format on\
 #include <pysidesignal.h>\
-#include <shiboken.h> // produces many warnings@' -i'.bak' "$wrapper_dir"/*.cpp
+#include <shiboken.h> // produces many warnings\
+// shiboken6 refers to the wrapped classes from the global namespace (::Param)\
+namespace Natron { namespace Python { } }\
+NATRON_NAMESPACE_USING NATRON_PYTHON_NAMESPACE_USING@' -i'.bak' "$wrapper_dir"/*.cpp
 
 $SED -e 's@// inner classes@// inner classes\
 NATRON_NAMESPACE_USING NATRON_PYTHON_NAMESPACE_USING@' -i'.bak' "$wrapper_dir"/*.cpp
@@ -79,7 +86,8 @@ $SED -e 's@"1:NatronEngine\.NATRON_NAMESPACE@"1:NatronEngine.Natron@g' -e 's@, N
 #sed -e 's@" ::\([^s][^t][^d]\)@ NATRON_NAMESPACE::\1@g' -i'.bak' Engine/Qt5/NatronEngine/*.cpp Engine/Qt5/NatronEngine/*.h Gui/Qt5/NatronGui/*.cpp Gui/Qt5/NatronGui/*.h
 
 $SED -e 's@SbkType< ::@SbkType<NATRON_NAMESPACE::NATRON_PYTHON_NAMESPACE::@g' -e 's@SbkType<NATRON_NAMESPACE.*::QFlags<@SbkType< ::QFlags<::@g' -e's@NATRON_NAMESPACE::NATRON_PYTHON_NAMESPACE::Rect@NATRON_NAMESPACE::Rect@g' -i'.bak' "$wrapper_dir/$wrapper_header"
-$SED -e 's@^class @NATRON_NAMESPACE_ENTER NATRON_PYTHON_NAMESPACE_ENTER\
+$SED -e 's@^class @NATRON_NAMESPACE_USING NATRON_PYTHON_NAMESPACE_USING\
+NATRON_NAMESPACE_ENTER NATRON_PYTHON_NAMESPACE_ENTER\
 class @g;T;{:y;/^};/! {n;by}};s@^};@};\
 NATRON_PYTHON_NAMESPACE_EXIT NATRON_NAMESPACE_EXIT@g' -i'.bak' "$wrapper_dir"/*.h
 

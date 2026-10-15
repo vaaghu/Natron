@@ -77,7 +77,8 @@ class TileGrid;
  * like the inputs of a vision mixer: its picture, render status and
  * controls, and its NDI playout), the KVs of the scene, and its NDI output.
  * With a Program output (see ProgramOutput), clicking an input box puts it
- * on Preview and Ctrl+1-9 puts it on air.
+ * on Preview and Ctrl+Alt+1-9 puts it on air; cutToScene() puts a whole
+ * scene on air (the dashboard's scene shortcuts, see SceneShortcutsDialog).
  **/
 class ScenePanel
     : public QWidget
@@ -126,6 +127,10 @@ public:
     // or Program, and show which ones are there.
     void setProgramOutput(::ProgramOutput* program);
 
+    // All the inputs of a scene on Program (as Preview Scene shows them);
+    // Preview stays. Asks to turn the scene's NDI output on if it is off.
+    void cutToScene(const QString& sceneId);
+
 Q_SIGNALS:
 
     void currentSceneChanged();
@@ -157,7 +162,7 @@ private Q_SLOTS:
     void onTileLayerClicked();       // the item is the sender's "item" property
     void onLayerSelectedClicked();
     void onPreviewSceneClicked();    // every input of the scene as Preview layers
-    void onNumberShortcut();         // 1-9: Preview, Ctrl+1-9: Cut (the action's data)
+    void onNumberShortcut();         // 1-9: Preview, Ctrl+Alt+1-9: Cut (the action's data)
     void onBusChanged();
 
     // Per-row render controls (the item is the sender's "item" property).
@@ -226,10 +231,10 @@ private:
     void previewInput(const QString& item);
     void cutToInput(const QString& item);
     void layerInput(const QString& item); // on top of Preview
-    // The opened scene plays its inputs through NDI: asks to turn it on if
-    // it is off (askAgain false: not if the user already said no for this
-    // scene). True if on.
-    bool ensureNdiEnabled(bool askAgain);
+    // A scene plays its inputs through NDI: asks to turn it on if it is
+    // off (askAgain false: not if the user already said no for this scene).
+    // True if on.
+    bool ensureNdiEnabled(const QString& sceneId, bool askAgain);
     void refreshKvTable();
     void refreshKvRow(int row, const ::Scene& scene);
 

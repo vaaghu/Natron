@@ -31,6 +31,8 @@
 CLANG_DIAG_OFF(deprecated)
 CLANG_DIAG_OFF(uninitialized)
 #include <QByteArray>
+#include <QHash>
+#include <QList>
 #include <QMainWindow>
 #include <QString>
 #include <QStringList>
@@ -84,7 +86,9 @@ class HoverLineEdit;
  * NotificationCenter); clicking one, or its system notification, opens what
  * it is about (the Settings field, the scene's input box).
  * The Settings menu (first in the menu bar) opens the render hardware and
- * Program output (NDI, SDI) settings (see DashboardSettingsDialog).
+ * Program output (NDI, SDI) settings (see DashboardSettingsDialog), and the
+ * scene shortcuts: a key combination per scene puts it on Program (by
+ * default Ctrl+1 to Ctrl+9, see SceneShortcutsDialog).
  * Closing it quits the application (after asking to save open projects).
  **/
 class DashboardWindow
@@ -116,6 +120,9 @@ public Q_SLOTS:
 private Q_SLOTS:
 
     void onSettingsClicked();
+    void onSceneShortcutsClicked();
+    void rebuildSceneShortcuts();
+    void onSceneShortcut(); // the sender's data: the scene id
     void onNewProjectClicked();
     void onOpenProjectClicked();
     void onOpenRecentClicked();
@@ -170,6 +177,8 @@ private:
     void saveLayout();
 
     QStringList selectedRecentProjects() const;
+    // The dashboard's shortcuts but the scene ones: PortableText -> action.
+    QHash<QString, QString> takenShortcuts() const;
 
     void rebuildTable();
     int findRow(const QString& key) const;
@@ -225,6 +234,7 @@ private:
     QLineEdit* _searchEdit; // filters the Data table (Ctrl+F)
     QAction* _newProjectAction;  // Ctrl+Shift+N in the Projects panel
     QAction* _openProjectAction; // Ctrl+O in the Projects panel
+    QList<QAction*> _sceneShortcutActions; // see rebuildSceneShortcuts()
 
     // Set while the table is filled from the store, so the resulting
     // itemChanged signals are not written back to the store.

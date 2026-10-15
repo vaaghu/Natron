@@ -213,6 +213,7 @@ SOURCES += \
     StateBindingTab.cpp \
     DashboardWindow.cpp \
     DashboardSettingsDialog.cpp \
+    SceneShortcutsDialog.cpp \
     SingleInstance.cpp \
     NotificationCenter.cpp \
     ScenePanel.cpp \
@@ -376,6 +377,7 @@ HEADERS += \
     StateBindingTab.h \
     DashboardWindow.h \
     DashboardSettingsDialog.h \
+    SceneShortcutsDialog.h \
     SingleInstance.h \
     NotificationCenter.h \
     ScenePanel.h \

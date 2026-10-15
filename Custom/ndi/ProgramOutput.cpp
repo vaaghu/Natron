@@ -690,16 +690,24 @@ void ProgramOutput::setPreview(const Source &source)
 
 void ProgramOutput::cutTo(const Source &source)
 {
-  if (source.isEmpty() || m_program == (Layers() << source))
+  if (!source.isEmpty())
+  {
+    cutTo(Layers() << source);
+  }
+}
+
+void ProgramOutput::cutTo(const Layers &layers)
+{
+  if (layers.isEmpty() || m_program == layers)
   {
     return;
   }
-  if (m_preview == (Layers() << source))
+  if (m_preview == layers)
   {
     cut();
     return;
   }
-  setLayers(eProgram, Layers() << source);
+  setLayers(eProgram, layers);
 }
 
 void ProgramOutput::cut()

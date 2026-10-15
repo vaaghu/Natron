@@ -689,7 +689,7 @@ ScenePanel::createSceneDetail()
     _tileGrid = new TileGrid;
     _tileGrid->setContextMenuPolicy(Qt::CustomContextMenu);
     _tileGrid->setToolTip( tr("Click an input to put only it on Preview, + adds it as a layer. "
-                              "Keys 1-9: Preview, Shift+1-9: add as layer, Ctrl+1-9: Cut. Right-click for more actions.") );
+                              "Keys 1-9: Preview, Shift+1-9: add as layer, Ctrl+Alt+1-9: Cut. Right-click for more actions.") );
     _tileScroll->setWidget(_tileGrid);
     layout->addWidget(_tileScroll, 1);
     _tileHint = KvGui::secondaryLabel(detail);
@@ -737,7 +737,7 @@ ScenePanel::createSceneDetail()
     for (int i = 0; i < kSceneNumberShortcuts; ++i) {
         QAction* preview = makeShortcutAction( detail, tr("Preview Input %1").arg(i + 1), QKeySequence(Qt::Key_1 + i), this, SLOT(onNumberShortcut()) );
         preview->setData(i);
-        QAction* cut = makeShortcutAction( detail, tr("Cut to Input %1").arg(i + 1), QKeySequence(Qt::CTRL + Qt::Key_1 + i), this, SLOT(onNumberShortcut()) );
+        QAction* cut = makeShortcutAction( detail, tr("Cut to Input %1").arg(i + 1), QKeySequence(Qt::CTRL + Qt::ALT + Qt::Key_1 + i), this, SLOT(onNumberShortcut()) );
         cut->setData(kSceneCutShortcutData + i);
         QAction* layer = makeShortcutAction( detail, tr("Layer Input %1 on Preview").arg(i + 1), QKeySequence(Qt::SHIFT + Qt::Key_1 + i), this, SLOT(onNumberShortcut()) );
         layer->setData(kSceneLayerShortcutData + i);
@@ -2070,7 +2070,7 @@ ScenePanel::onPreviewSceneClicked()
     }
     // In the scene's order: the first Write node at the bottom.
     const QString sceneId = _currentSceneId;
-    ensureNdiEnabled(false);
+    ensureNdiEnabled(sceneId, false);
     ::ProgramOutput::Layers layers;
     for (int i = 0; i < items.size(); ++i) {
         layers << ::ProgramOutput::Source( sceneId, items.at(i) );
@@ -2085,7 +2085,7 @@ ScenePanel::layerInput(const QString& item)
         return;
     }
     const QString sceneId = _currentSceneId;
-    ensureNdiEnabled(false);
+    ensureNdiEnabled(sceneId, false);
     _program->addLayer( ::ProgramOutput::ePreview, ::ProgramOutput::Source(sceneId, item) );
 }
 
@@ -2118,11 +2118,12 @@ ScenePanel::onNumberShortcut()
 }
 
 bool
-ScenePanel::ensureNdiEnabled(bool askAgain)
+ScenePanel::ensureNdiEnabled(const QString& sceneId,
+                             bool askAgain)
 {
     ::Scene scene;
 
-    if ( !_ndi || !_scenes->scene(_currentSceneId, &scene) ) {
+    if ( !_ndi || !_scenes->scene(sceneId, &scene) ) {
         return false;
     }
     if (scene.ndiEnabled) {
@@ -2155,7 +2156,7 @@ ScenePanel::previewInput(const QString& item)
     }
     // Without NDI it still shows its last render.
     const QString sceneId = _currentSceneId;
-    ensureNdiEnabled(false);
+    ensureNdiEnabled(sceneId, false);
     _program->setPreview( ::ProgramOutput::Source(sceneId, item) );
 }
 
@@ -2167,8 +2168,27 @@ ScenePanel::cutToInput(const QString& item)
     }
     // Without NDI there would be nothing to put on air.
     const QString sceneId = _currentSceneId;
-    if ( ensureNdiEnabled(true) ) {
+    if ( ensureNdiEnabled(sceneId, true) ) {
         _program->cutTo( ::ProgramOutput::Source(sceneId, item) );
+    }
+}
+
+void
+ScenePanel::cutToScene(const QString& sceneId)
+{
+    ::Scene scene;
+
+    if ( !_program || !_scenes->scene(sceneId, &scene) || scene.items.isEmpty() ) {
+        return;
+    }
+    // In the scene's order: the first Write node at the bottom.
+    ::ProgramOutput::Layers layers;
+    for (int i = 0; i < scene.items.size(); ++i) {
+        layers << ::ProgramOutput::Source( sceneId, scene.items.at(i) );
+    }
+    // Without NDI there would be nothing to put on air.
+    if ( ensureNdiEnabled(sceneId, true) ) {
+        _program->cutTo(layers);
     }
 }
 

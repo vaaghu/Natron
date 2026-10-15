@@ -80,6 +80,7 @@ CLANG_DIAG_ON(uninitialized)
 #include "Gui/NotificationCenter.h"
 #include "Gui/KvGuiUtils.h"
 #include "Gui/ScenePanel.h"
+#include "Gui/SceneShortcutsDialog.h"
 #include "Gui/SwitcherPanel.h"
 
 #include "Custom/server/HttpServer.h"
@@ -331,8 +332,13 @@ DashboardWindow::DashboardWindow(::StateStore* store,
         QObject::connect( _sceneRenderer, SIGNAL(allFinished()), this, SLOT(onAllRendersFinished()) );
     }
 
+    if (_sceneStore) {
+        QObject::connect( _sceneStore, SIGNAL(scenesChanged()), this, SLOT(rebuildSceneShortcuts()) );
+    }
+
     refreshRecentProjects();
     rebuildTable();
+    rebuildSceneShortcuts();
     onServerStatusChanged();
 }
 
@@ -390,6 +396,8 @@ DashboardWindow::createPanels()
     QAction* settingsAction = settingsMenu->addAction( tr("Render and Program Output..."), this, SLOT(onSettingsClicked()) );
     settingsAction->setShortcut( QKeySequence(Qt::CTRL + Qt::Key_Comma) );
     settingsAction->setShortcutContext(Qt::WindowShortcut);
+    QAction* sceneShortcuts = settingsMenu->addAction( tr("Scene Shortcuts..."), this, SLOT(onSceneShortcutsClicked()) );
+    sceneShortcuts->setEnabled(_sceneStore != 0);
 
     // Edit: undo / redo of scene and data changes.
     _undoStack = new QUndoStack(this);
@@ -482,6 +490,80 @@ DashboardWindow::onSettingsClicked()
     DashboardSettingsDialog dialog(_sceneRenderer, _program, this);
 
     dialog.exec();
+}
+
+void
+DashboardWindow::onSceneShortcutsClicked()
+{
+    SceneShortcutsDialog dialog( _sceneStore, takenShortcuts(), this );
+
+    QObject::connect( &dialog, SIGNAL(applied()), this, SLOT(rebuildSceneShortcuts()) );
+    dialog.exec();
+}
+
+QHash<QString, QString>
+DashboardWindow::takenShortcuts() const
+{
+    QHash<QString, QString> taken;
+    const QList<QAction*> actions = findChildren<QAction*>();
+
+    for (int i = 0; i < actions.size(); ++i) {
+        QAction* action = actions.at(i);
+        if ( _sceneShortcutActions.contains(action) ) {
+            continue;
+        }
+        QString text = action->text();
+        text.remove( QLatin1Char('&') );
+        text.remove( QString::fromUtf8("...") );
+        const QList<QKeySequence> keys = action->shortcuts();
+        for (int k = 0; k < keys.size(); ++k) {
+            if ( !keys.at(k).isEmpty() ) {
+                taken.insert( keys.at(k).toString(QKeySequence::PortableText), QString::fromUtf8("\"%1\"").arg(text) );
+            }
+        }
+    }
+
+    return taken;
+}
+
+void
+DashboardWindow::rebuildSceneShortcuts()
+{
+    // Later: this may run from one of them (a scene's NDI turned on).
+    for (int i = 0; i < _sceneShortcutActions.size(); ++i) {
+        removeAction( _sceneShortcutActions.at(i) );
+        _sceneShortcutActions.at(i)->deleteLater();
+    }
+    _sceneShortcutActions.clear();
+    if (!_sceneStore) {
+        return;
+    }
+    // On the window: from any panel (but not from the editor windows).
+    const QList< ::Scene > scenes = _sceneStore->scenes();
+    const QHash<QString, QString> keys = SceneShortcutsDialog::shortcuts(scenes);
+    for (int i = 0; i < scenes.size(); ++i) {
+        const QString portable = keys.value( scenes.at(i).id );
+        if ( portable.isEmpty() ) {
+            continue;
+        }
+        QAction* action = new QAction(tr("%1 on Program").arg( scenes.at(i).name ), this);
+        action->setShortcut( QKeySequence(portable, QKeySequence::PortableText) );
+        action->setShortcutContext(Qt::WindowShortcut);
+        action->setData( scenes.at(i).id );
+        addAction(action);
+        QObject::connect( action, SIGNAL(triggered()), this, SLOT(onSceneShortcut()) );
+        _sceneShortcutActions << action;
+    }
+}
+
+void
+DashboardWindow::onSceneShortcut()
+{
+    QAction* action = qobject_cast<QAction*>( sender() );
+
+    if (action && _scenePanel) {
+        _scenePanel->cutToScene( action->data().toString() );
+    }
 }
 
 void

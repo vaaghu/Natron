@@ -119,6 +119,8 @@ public:
   void setPreview(const Source &source);
   // Only this input on Program; Preview stays (unless it is just that input: then like cut()).
   void cutTo(const Source &source);
+  // Only these layers (one scene's, bottom first) on Program; the same as above.
+  void cutTo(const Layers &layers);
 
   void cut();
   void fade(int durationMs);

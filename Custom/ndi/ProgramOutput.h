@@ -121,6 +121,8 @@ public:
   void cutTo(const Source &source);
   // Only these layers (one scene's, bottom first) on Program; the same as above.
   void cutTo(const Layers &layers);
+  // All the inputs of a scene, in its order (the first at the bottom).
+  static Layers sceneLayers(const Scene &scene);
 
   void cut();
   void fade(int durationMs);

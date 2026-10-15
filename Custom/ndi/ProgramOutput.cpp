@@ -710,6 +710,16 @@ void ProgramOutput::cutTo(const Layers &layers)
   setLayers(eProgram, layers);
 }
 
+ProgramOutput::Layers ProgramOutput::sceneLayers(const Scene &scene)
+{
+  Layers layers;
+  for (int i = 0; i < scene.items.size(); ++i)
+  {
+    layers << Source(scene.id, scene.items.at(i));
+  }
+  return layers;
+}
+
 void ProgramOutput::cut()
 {
   if (m_preview.isEmpty())

@@ -87,6 +87,7 @@ CLANG_DIAG_ON(uninitialized)
 #include "Custom/state/Json.h"
 #include "Custom/state/KvValue.h"
 #include "Custom/scene/SceneRenderer.h"
+#include "Custom/scene/SceneShortcuts.h"
 #include "Custom/scene/SceneStore.h"
 #include "Custom/state/StateStore.h"
 
@@ -540,7 +541,7 @@ DashboardWindow::rebuildSceneShortcuts()
     }
     // On the window: from any panel (but not from the editor windows).
     const QList< ::Scene > scenes = _sceneStore->scenes();
-    const QHash<QString, QString> keys = SceneShortcutsDialog::shortcuts(scenes);
+    const QHash<QString, QString> keys = SceneShortcuts::load(scenes);
     for (int i = 0; i < scenes.size(); ++i) {
         const QString portable = keys.value( scenes.at(i).id );
         if ( portable.isEmpty() ) {

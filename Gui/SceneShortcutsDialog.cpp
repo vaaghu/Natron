@@ -36,8 +36,6 @@ CLANG_DIAG_OFF(uninitialized)
 #include <QLabel>
 #include <QLineEdit>
 #include <QPushButton>
-#include <QSet>
-#include <QSettings>
 #include <QTableWidget>
 #include <QVariantMap>
 #include <QVBoxLayout>
@@ -46,24 +44,15 @@ CLANG_DIAG_ON(uninitialized)
 
 #include "Gui/KvGuiUtils.h"
 
+#include "Custom/scene/SceneShortcuts.h"
 #include "Custom/scene/SceneStore.h"
 
-// QSettings key: scene id -> QKeySequence::PortableText (empty: none).
-// Scenes not in it get the default of their place in the list.
-#define kSettingsSceneShortcuts "dashboard/sceneShortcuts"
-#define kSceneShortcutDefaults 9 // Ctrl+1 to Ctrl+9
 #define kColumnScene 0
 #define kColumnShortcut 1
 
 NATRON_NAMESPACE_ENTER
 
 namespace {
-QString
-defaultShortcut(int index)
-{
-    return (index < kSceneShortcutDefaults) ? QKeySequence(Qt::CTRL + Qt::Key_1 + index).toString(QKeySequence::PortableText) : QString();
-}
-
 QString
 nativeText(const QString& portable)
 {
@@ -171,7 +160,7 @@ SceneShortcutsDialog::SceneShortcutsDialog(::SceneStore* scenes,
     layout->addWidget(intro);
 
     const QList< ::Scene > list = _scenes ? _scenes->scenes() : QList< ::Scene >();
-    const QHash<QString, QString> current = shortcuts(list);
+    const QHash<QString, QString> current = SceneShortcuts::load(list);
     _table = new QTableWidget(list.size(), 2, this);
     _table->setHorizontalHeaderLabels( QStringList() << tr("Scene") << tr("Shortcut") );
     _table->verticalHeader()->setVisible(false);
@@ -222,32 +211,6 @@ SceneShortcutsDialog::SceneShortcutsDialog(::SceneStore* scenes,
     validate();
 }
 
-QHash<QString, QString>
-SceneShortcutsDialog::shortcuts(const QList< ::Scene >& scenes)
-{
-    const QVariantMap saved = QSettings().value( QString::fromUtf8(kSettingsSceneShortcuts) ).toMap();
-    QHash<QString, QString> out;
-    QSet<QString> used;
-
-    for (int i = 0; i < scenes.size(); ++i) {
-        const QString keys = saved.value( scenes.at(i).id ).toString();
-        if ( !keys.isEmpty() ) {
-            out.insert(scenes.at(i).id, keys);
-            used.insert(keys);
-        }
-    }
-    // Scenes not saved (added since): the default of their place, if free.
-    for (int i = 0; i < scenes.size(); ++i) {
-        const QString keys = defaultShortcut(i);
-        if ( !saved.contains( scenes.at(i).id ) && !keys.isEmpty() && !used.contains(keys) ) {
-            out.insert(scenes.at(i).id, keys);
-            used.insert(keys);
-        }
-    }
-
-    return out;
-}
-
 QLineEdit*
 SceneShortcutsDialog::recorder(int row) const
 {
@@ -257,23 +220,21 @@ SceneShortcutsDialog::recorder(int row) const
 void
 SceneShortcutsDialog::validate()
 {
-    QStringList problems;
-    QHash<QString, int> rows; // keys -> first row using them
+    QList<QString> keys;
 
     for (int row = 0; row < _sceneIds.size(); ++row) {
-        const QString keys = static_cast<ShortcutRecorder*>( recorder(row) )->keys();
-        if ( keys.isEmpty() ) {
-            continue;
-        }
-        const QString name = _table->item(row, kColumnScene)->text();
-        if ( rows.contains(keys) ) {
-            problems << tr("%1 is set for both \"%2\" and \"%3\".").arg( nativeText(keys) )
-                .arg( _table->item(rows.value(keys), kColumnScene)->text() ).arg(name);
+        keys << static_cast<ShortcutRecorder*>( recorder(row) )->keys();
+    }
+    QStringList problems;
+    const QList<SceneShortcuts::Conflict> conflicts = SceneShortcuts::conflicts(keys, _taken);
+    for (int i = 0; i < conflicts.size(); ++i) {
+        const SceneShortcuts::Conflict& c = conflicts.at(i);
+        const QString name = _table->item(c.row, kColumnScene)->text();
+        if (c.otherRow >= 0) {
+            problems << tr("%1 is set for both \"%2\" and \"%3\".").arg( nativeText(c.keys) )
+                .arg( _table->item(c.otherRow, kColumnScene)->text() ).arg(name);
         } else {
-            rows.insert(keys, row);
-        }
-        if ( _taken.contains(keys) ) {
-            problems << tr("%1 (\"%2\") is already used by %3 in the dashboard.").arg( nativeText(keys) ).arg(name).arg( _taken.value(keys) );
+            problems << tr("%1 (\"%2\") is already used by %3 in the dashboard.").arg( nativeText(c.keys) ).arg(name).arg(c.taken);
         }
     }
     _status->setText( problems.join( QString::fromUtf8("\n") ) );
@@ -298,7 +259,7 @@ void
 SceneShortcutsDialog::onDefaultsClicked()
 {
     for (int row = 0; row < _sceneIds.size(); ++row) {
-        static_cast<ShortcutRecorder*>( recorder(row) )->setKeys( defaultShortcut(row) );
+        static_cast<ShortcutRecorder*>( recorder(row) )->setKeys( SceneShortcuts::defaultShortcut(row) );
     }
 }
 
@@ -329,7 +290,7 @@ SceneShortcutsDialog::apply()
     for (int row = 0; row < _sceneIds.size(); ++row) {
         saved.insert( _sceneIds.at(row), static_cast<ShortcutRecorder*>( recorder(row) )->keys() );
     }
-    QSettings().setValue(QString::fromUtf8(kSettingsSceneShortcuts), saved);
+    SceneShortcuts::save(saved);
     Q_EMIT applied();
 }
 

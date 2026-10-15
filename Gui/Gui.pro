@@ -227,6 +227,7 @@ SOURCES += \
     ../Custom/state/KvValue.cpp \
     ../Custom/scene/ProjectInfo.cpp \
     ../Custom/scene/SceneStore.cpp \
+    ../Custom/scene/SceneShortcuts.cpp \
     ../Custom/scene/SceneRenderer.cpp \
     ../Custom/util/BundledTool.cpp \
     ../Custom/ndi/NdiOutput.cpp \
@@ -391,6 +392,7 @@ HEADERS += \
     ../Custom/state/KvValue.h \
     ../Custom/scene/ProjectInfo.h \
     ../Custom/scene/SceneStore.h \
+    ../Custom/scene/SceneShortcuts.h \
     ../Custom/scene/SceneRenderer.h \
     ../Custom/util/BundledTool.h \
     ../Custom/ndi/FrameSink.h \

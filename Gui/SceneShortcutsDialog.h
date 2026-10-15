@@ -45,7 +45,6 @@ class QLineEdit;
 class QPushButton;
 class QTableWidget;
 class SceneStore; // Custom/scene/SceneStore.h
-struct Scene; // Custom/scene/SceneStore.h
 
 NATRON_NAMESPACE_ENTER
 
@@ -53,8 +52,8 @@ NATRON_NAMESPACE_ENTER
  * @brief The dashboard's scene shortcuts (Settings menu), kept between runs:
  * a key combination per scene puts all its inputs on Program at once
  * (ScenePanel::cutToScene()), wherever the focus is in the dashboard.
- * By default the first nine scenes of the list get Ctrl+1 to Ctrl+9.
- * A combination used twice, or by another dashboard action, cannot be
+ * By default the first nine scenes of the list get Ctrl+1 to Ctrl+9 (see
+ * Custom/scene/SceneShortcuts). A combination used twice, or by another dashboard action, cannot be
  * applied (it would do neither).
  **/
 class SceneShortcutsDialog
@@ -71,11 +70,6 @@ public:
     SceneShortcutsDialog(::SceneStore* scenes,
                          const QHash<QString, QString>& taken,
                          QWidget* parent = 0);
-
-    // The shortcut of each scene that has one: scene id ->
-    // QKeySequence::PortableText. The saved ones, else the default of the
-    // scene's place in the list (unless another scene uses it).
-    static QHash<QString, QString> shortcuts(const QList< ::Scene >& scenes);
 
 Q_SIGNALS:
 

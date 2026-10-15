@@ -2181,14 +2181,9 @@ ScenePanel::cutToScene(const QString& sceneId)
     if ( !_program || !_scenes->scene(sceneId, &scene) || scene.items.isEmpty() ) {
         return;
     }
-    // In the scene's order: the first Write node at the bottom.
-    ::ProgramOutput::Layers layers;
-    for (int i = 0; i < scene.items.size(); ++i) {
-        layers << ::ProgramOutput::Source( sceneId, scene.items.at(i) );
-    }
     // Without NDI there would be nothing to put on air.
     if ( ensureNdiEnabled(sceneId, true) ) {
-        _program->cutTo(layers);
+        _program->cutTo( ::ProgramOutput::sceneLayers(scene) );
     }
 }
 

@@ -11,6 +11,8 @@ add_library(NatronCustom STATIC
     scene/ProjectInfo.cpp
     scene/SceneStore.h
     scene/SceneStore.cpp
+    scene/SceneShortcuts.h
+    scene/SceneShortcuts.cpp
     scene/SceneRenderer.h
     scene/SceneRenderer.cpp
     util/BundledTool.h

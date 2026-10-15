@@ -300,7 +300,7 @@ fi
 RELINK=0
 BUILD_INFO="$CACHE/tmp/Natron/Global/BuildInfo.h"
 if [ "$MODE" = "installer" ] &&
-   { ! grep -qs "NATRON_BUILD_NUMBER \"$NUMBER\"" "$BUILD_INFO" || ! grep -qs "NATRON_BUILD_NAME \"$NAME\"" "$BUILD_INFO"; }; then
+   { ! grep -qs "NATRON_PACKAGE_BUILD_NUMBER \"$NUMBER\"" "$BUILD_INFO" || ! grep -qs "NATRON_BUILD_NAME \"$NAME\"" "$BUILD_INFO"; }; then
     RELINK=1
     STEPS="BUILD_FROM=3 BUILD_TO=4"
     echo "The cached build is numbered differently: relinking it as $NAME #$NUMBER first."
@@ -340,7 +340,7 @@ prepare_and_build() {
 #define NATRON_BUILDINFO_H_
 // Written by scripts/natron-build.sh.
 #define NATRON_BUILD_NAME "$BUILD_NAME"
-#define NATRON_BUILD_NUMBER "$BUILD_NUMBER"
+#define NATRON_PACKAGE_BUILD_NUMBER "$BUILD_NUMBER"
 #define NATRON_BUILD_DATE "$(date '+%Y-%m-%d %H:%M')"
 #define NATRON_BUILD_REPO_URL "$repo"
 #endif

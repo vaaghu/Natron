@@ -4,7 +4,7 @@
 // Identifies a packaged build (shown in the About window). Written by
 // scripts/natron-build.sh into the copy it compiles; empty otherwise.
 #define NATRON_BUILD_NAME ""
-#define NATRON_BUILD_NUMBER ""
+#define NATRON_PACKAGE_BUILD_NUMBER ""
 #define NATRON_BUILD_DATE ""
 // Repository the build comes from (links to its branch and commit).
 #define NATRON_BUILD_REPO_URL "https://github.com/NatronGitHub/Natron"

@@ -126,10 +126,10 @@ AboutWindow::AboutWindow(QWidget* parent)
 #endif
         }
         // Packaged builds: "Build temp2 #3, 2026-10-11 14:02, commit 7c93c40"
-        if ( !QString::fromUtf8(NATRON_BUILD_NUMBER).isEmpty() ) {
+        if ( !QString::fromUtf8(NATRON_PACKAGE_BUILD_NUMBER).isEmpty() ) {
             aboutText.append( QString::fromUtf8("<p>%1</p>").arg( tr("Build %1 #%2, %3, commit %4")
                                                                    .arg( QString::fromUtf8(NATRON_BUILD_NAME) )
-                                                                   .arg( QString::fromUtf8(NATRON_BUILD_NUMBER) )
+                                                                   .arg( QString::fromUtf8(NATRON_PACKAGE_BUILD_NUMBER) )
                                                                    .arg( QString::fromUtf8(NATRON_BUILD_DATE) )
                                                                    .arg( QString::fromUtf8(GIT_COMMIT).mid(0, 7) ) ) );
         }

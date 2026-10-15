@@ -58,7 +58,7 @@ TEST(BundledTool, PutsTheBundleLibFolderFirst)
   const QString lib = QDir(QDir(dir.path()).absoluteFilePath(QString::fromUtf8("lib"))).absolutePath();
 
   {
-    LibraryPathGuard guard(QByteArray());
+    LibraryPathGuard guard{QByteArray()};
     EXPECT_EQ(lib, bundledToolEnvironment(tool).value(QString::fromUtf8(kVar)));
   }
   {
@@ -80,7 +80,7 @@ TEST(BundledTool, PrepareAppliesToTheProcess)
   QTemporaryDir dir;
   ASSERT_TRUE(QDir(dir.path()).mkpath(QString::fromUtf8("lib")));
   const QString tool = QDir(dir.path()).absoluteFilePath(QString::fromUtf8("bin/ffprobe"));
-  LibraryPathGuard guard(QByteArray());
+  LibraryPathGuard guard{QByteArray()};
 
   QProcess process;
   prepareBundledTool(&process, tool);

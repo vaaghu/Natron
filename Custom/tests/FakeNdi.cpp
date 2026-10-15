@@ -13,6 +13,11 @@
 #define FAKE_NDI_EXPORT extern "C" __attribute__((visibility("default")))
 #endif
 
+// The exported functions are only looked up with dlsym(): they have no header.
+#if defined(__GNUC__)
+#pragma GCC diagnostic ignored "-Wmissing-declarations"
+#endif
+
 namespace
 {
 // Same layouts as in NdiOutput.cpp.

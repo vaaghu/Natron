@@ -5,10 +5,12 @@
 //   Repository URL      git@github.com:vaaghu/Natron.git
 //   Branches to build   */stable
 //   Script Path         Jenkinsfile
-//   Build Triggers      "GitHub hook trigger for GITScm polling"
-// GitHub webhook (repo Settings -> Webhooks): http://<jenkins>/github-webhook/,
-// content type application/json, push events only. Run the job once by hand
-// so Jenkins links it to the webhook.
+// Run the job once by hand: Jenkins reads the trigger below from this file
+// on the first run and then polls on its own.
+//
+// Jenkins runs on a local machine GitHub cannot reach, so instead of a push
+// webhook it polls GitHub every 2 minutes and builds when stable has new
+// commits.
 //
 // The agent needs docker (the jenkins user in the docker group) and rsync.
 
@@ -16,7 +18,7 @@ pipeline {
     agent any
 
     triggers {
-        githubPush()
+        pollSCM('H/2 * * * *')
     }
 
     options {

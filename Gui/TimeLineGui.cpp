@@ -831,7 +831,7 @@ TimeLineGui::paintGL()
             glEnd();
 
             /*QString kfStr = QString::number(*it);
-               double kfXposWidget = kfBtmWidgetCoord.x() - fontM.width(kfStr) / (2. * _imp->_screenPixelRatio);
+               double kfXposWidget = kfBtmWidgetCoord.x() - fontM.horizontalAdvance(kfStr) / (2. * _imp->_screenPixelRatio);
                double kfTextPos = toTimeLine(kfXposWidget);
                renderText(kfTextPos,kfTopLeft.y(), kfStr, userKeyColor, *_imp->_textFont, Qt::AlignHCenter);*/
         }
@@ -1007,7 +1007,7 @@ TimeLineGui::mouseMoveEvent(QMouseEvent* e)
 } // TimeLineGui::mouseMoveEvent
 
 void
-TimeLineGui::enterEvent(QEvent* e)
+TimeLineGui::enterEvent(QtEnterEvent* e)
 {
     _imp->alphaCursor = true;
     update();

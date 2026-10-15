@@ -549,7 +549,7 @@ bool SceneRenderer::startJob(const Job &job)
   process->setProcessEnvironment(env);
 
   connect(process, SIGNAL(finished(int,QProcess::ExitStatus)), this, SLOT(onFinished(int,QProcess::ExitStatus)));
-  connect(process, SIGNAL(error(QProcess::ProcessError)), this, SLOT(onError(QProcess::ProcessError)));
+  connect(process, SIGNAL(errorOccurred(QProcess::ProcessError)), this, SLOT(onError(QProcess::ProcessError)));
   connect(process, SIGNAL(readyRead()), this, SLOT(onOutput()));
 
   QStringList args;

@@ -61,7 +61,7 @@ GCC_DIAG_UNUSED_PRIVATE_FIELD_OFF
 #include <QtGui/QKeyEvent>
 GCC_DIAG_UNUSED_PRIVATE_FIELD_ON
 #include <QtGui/QColor>
-#include <QtWidgets/QAction>
+#include <QAction>
 #include <QtWidgets/QApplication>
 #include <QtWidgets/QStylePainter>
 #include <QtWidgets/QStyleOptionViewItem>
@@ -238,7 +238,7 @@ SequenceFileDialog::SequenceFileDialog( QWidget* parent, // necessary to transmi
     _lookInCombobox = new FileDialogComboBox(this, _buttonsWidget);
     _lookInCombobox->setMinimumWidth(200);
     _buttonsLayout->addWidget(_lookInCombobox);
-    QObject::connect( _lookInCombobox, SIGNAL(activated(QString)), this, SLOT(onLookingComboboxChanged(QString)) );
+    QObject::connect( _lookInCombobox, SIGNAL(textActivated(QString)), this, SLOT(onLookingComboboxChanged(QString)) );
     _lookInCombobox->setInsertPolicy(QComboBox::NoInsert);
     _lookInCombobox->setDuplicatesEnabled(false);
 

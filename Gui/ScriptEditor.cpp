@@ -621,7 +621,7 @@ ScriptEditor::printAutoDeclaredVariable(const QString& str)
 }
 
 void
-ScriptEditor::enterEvent(QEvent *e)
+ScriptEditor::enterEvent(QtEnterEvent *e)
 {
     enterEventBase();
     QWidget::enterEvent(e);

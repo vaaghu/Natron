@@ -529,7 +529,7 @@ CallbacksManager::initInternal()
     QObject::connect( _natronProcess, SIGNAL(readyReadStandardOutput()), this, SLOT(onNatronProcessStdOutWrittenTo()) );
     QObject::connect( _natronProcess, SIGNAL(readyReadStandardError()), this, SLOT(onNatronProcessStdErrWrittenTo()) );
     QObject::connect( _natronProcess, SIGNAL(finished(int,QProcess::ExitStatus)), this, SLOT(onSpawnedProcessFinished(int,QProcess::ExitStatus)) );
-    QObject::connect( _natronProcess, SIGNAL(error(QProcess::ProcessError)), this, SLOT(onSpawnedProcessError(QProcess::ProcessError)) );
+    QObject::connect( _natronProcess, SIGNAL(errorOccurred(QProcess::ProcessError)), this, SLOT(onSpawnedProcessError(QProcess::ProcessError)) );
     QStringList processArgs;
     for (int i = 1; i < _argc; ++i) {
         processArgs.push_back( QString::fromUtf8(_argv[i]) );
@@ -709,7 +709,7 @@ getLinuxVersionString()
         if ( os_release.open(QIODevice::ReadOnly | QIODevice::Text) ) {
             QString os_release_data = QString::fromUtf8( os_release.readAll() );
             if ( !os_release_data.isEmpty() ) {
-                QStringList os_release_split = os_release_data.split(QString::fromUtf8("\n"), QString::SkipEmptyParts);
+                QStringList os_release_split = os_release_data.split(QString::fromUtf8("\n"), Qt::SkipEmptyParts);
                 for (int i = 0; i < os_release_split.size(); ++i) {
                     if ( os_release_split.at(i).startsWith( QString::fromUtf8("PRETTY_NAME=") ) ) {
                         linux_release = os_release_split.at(i);

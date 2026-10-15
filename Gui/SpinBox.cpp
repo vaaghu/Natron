@@ -1000,7 +1000,7 @@ KnobSpinBox::~KnobSpinBox()
 }
 
 void
-KnobSpinBox::enterEvent(QEvent* e)
+KnobSpinBox::enterEvent(QtEnterEvent* e)
 {
     _dnd->mouseEnter(e);
     SpinBox::enterEvent(e);

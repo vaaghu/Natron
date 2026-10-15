@@ -68,7 +68,7 @@ RightClickableWidget::keyPressEvent(QKeyEvent* e)
 }
 
 void
-RightClickableWidget::enterEvent(QEvent* e)
+RightClickableWidget::enterEvent(QtEnterEvent* e)
 {
     // always running in the main thread
     assert( qApp && qApp->thread() == QThread::currentThread() );

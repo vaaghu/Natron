@@ -42,6 +42,8 @@ CLANG_DIAG_OFF(uninitialized)
 CLANG_DIAG_ON(deprecated)
 CLANG_DIAG_ON(uninitialized)
 
+#include "Gui/GuiFwd.h"
+
 class QAbstractItemView;
 class QAction;
 class QDockWidget;
@@ -137,7 +139,7 @@ Q_SIGNALS:
 
 protected:
 
-    virtual void enterEvent(QEvent* e) OVERRIDE;
+    virtual void enterEvent(QtEnterEvent* e) OVERRIDE;
     virtual void leaveEvent(QEvent* e) OVERRIDE;
     virtual void resizeEvent(QResizeEvent* e) OVERRIDE;
 
@@ -176,7 +178,7 @@ public:
 protected:
 
     virtual bool eventFilter(QObject* watched, QEvent* e) OVERRIDE;
-    virtual void enterEvent(QEvent* e) OVERRIDE;
+    virtual void enterEvent(QtEnterEvent* e) OVERRIDE;
     virtual void leaveEvent(QEvent* e) OVERRIDE;
     virtual void paintEvent(QPaintEvent* e) OVERRIDE;
 

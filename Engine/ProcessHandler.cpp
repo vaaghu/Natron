@@ -102,7 +102,7 @@ ProcessHandler::ProcessHandler(const QString & projectPath,
     ///connect the useful slots of the process
     QObject::connect( _process, SIGNAL(readyReadStandardOutput()), this, SLOT(onStandardOutputBytesWritten()) );
     QObject::connect( _process, SIGNAL(readyReadStandardError()), this, SLOT(onStandardErrorBytesWritten()) );
-    QObject::connect( _process, SIGNAL(error(QProcess::ProcessError)), this, SLOT(onProcessError(QProcess::ProcessError)) );
+    QObject::connect( _process, SIGNAL(errorOccurred(QProcess::ProcessError)), this, SLOT(onProcessError(QProcess::ProcessError)) );
     QObject::connect( _process, SIGNAL(finished(int,QProcess::ExitStatus)), this, SLOT(onProcessEnd(int,QProcess::ExitStatus)) );
 
 

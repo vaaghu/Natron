@@ -57,9 +57,6 @@ GCC_DIAG_UNUSED_PRIVATE_FIELD_ON
 #include <QCursor>
 #include <QCheckBox>
 #include <QTreeView>
-#ifdef Q_WS_X11
-#include <QtGui/QX11Info>
-#endif
 
 #include "Global/QtCompat.h"
 

@@ -1324,7 +1324,7 @@ TabWidget::paintEvent(QPaintEvent* e)
         QString text = tr("(Viewer Pane)");
         QFontMetrics fm(f);
         QPointF pos(width() / 2., height() / 2.);
-        pos.rx() -= (fm.width(text) / 2.);
+        pos.rx() -= (fm.horizontalAdvance(text) / 2.);
         pos.ry() -= (fm.height() / 2.);
         p.drawText(pos, text);
     }
@@ -2065,7 +2065,7 @@ TabWidget::leaveEvent(QEvent* e)
 }
 
 void
-TabWidget::enterEvent(QEvent* e)
+TabWidget::enterEvent(QtEnterEvent* e)
 {
     if (_imp->gui) {
         _imp->gui->setLastEnteredTabWidget(this);

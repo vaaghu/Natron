@@ -203,7 +203,7 @@ HoverLineEdit::setActionIcon(const QIcon& icon,
 }
 
 void
-HoverLineEdit::enterEvent(QEvent* e)
+HoverLineEdit::enterEvent(QtEnterEvent* e)
 {
     QLineEdit::enterEvent(e);
     if ( !_button->icon().isNull() ) {
@@ -307,7 +307,7 @@ DockTitleBar::eventFilter(QObject* watched,
 }
 
 void
-DockTitleBar::enterEvent(QEvent* e)
+DockTitleBar::enterEvent(QtEnterEvent* e)
 {
     QWidget::enterEvent(e);
     _dockHovered = true; // the dock may not have seen its Enter yet

@@ -1018,7 +1018,7 @@ BusTimeline::paintEvent(QPaintEvent* /*e*/)
     const int stepCount = int( sizeof(steps) / sizeof(steps[0]) );
     double minor = steps[stepCount - 1];
     double major = steps[stepCount - 1];
-    const int labelWidth = painter.fontMetrics().width( QString::fromUtf8("00:00") ) + 12;
+    const int labelWidth = painter.fontMetrics().horizontalAdvance( QString::fromUtf8("00:00") ) + 12;
     for (int i = stepCount - 1; i >= 0; --i) {
         if (steps[i] * pixelsPerSecond >= 8) {
             minor = steps[i];

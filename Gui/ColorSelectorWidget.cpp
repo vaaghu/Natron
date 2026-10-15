@@ -646,7 +646,7 @@ ColorSelectorWidget::ColorSelectorWidget(bool withAlpha, QWidget *parent)
                          this, SLOT( handleSliderAMoved(double) ) );
     }
 
-    QObject::connect( _buttonColorGroup, SIGNAL( buttonClicked(int) ),
+    QObject::connect( _buttonColorGroup, SIGNAL( idClicked(int) ),
                       this, SLOT( handleButtonColorClicked(int) ) );
 
     QObject::connect( paletteAddColorButton, SIGNAL( clicked(bool) ),

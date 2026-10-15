@@ -35,6 +35,7 @@
 
 #include <QtCore/QtGlobal> // for Q_OS_*
 #include <QtCore/QMutex>
+#include <QtCore/QRecursiveMutex>
 #include <QtCore/QString>
 #include <QtCore/QAtomicInt>
 #include <QtCore/QCoreApplication>
@@ -161,7 +162,7 @@ public:
 #endif
 
 #ifdef USE_NATRON_GIL
-    QMutex natronPythonGIL;
+    QRecursiveMutex natronPythonGIL;
 #endif
 
 #ifdef Q_OS_WIN32

@@ -248,13 +248,21 @@ PY_EXE="$SDK_HOME/bin/python${PYV}"
 
 
 QT_VERSION_MAJOR=${QT_VERSION_MAJOR:-4}
-if version_gt "${RELEASE_TAG:-0}" 2.5.99; then
-    QT_VERSION_MAJOR=5
+# Natron 2.6 and later need Qt 5 or later (QT_VERSION_MAJOR=6 is kept)
+if [ "$QT_VERSION_MAJOR" = 4 ]; then
+    if version_gt "${RELEASE_TAG:-0}" 2.5.99; then
+        QT_VERSION_MAJOR=5
+    fi
+    case "${GIT_BRANCH:-}" in
+    RB-2.[6789])
+        QT_VERSION_MAJOR=5
+    esac
 fi
-case "${GIT_BRANCH:-}" in
-RB-2.[6789])
-    QT_VERSION_MAJOR=5
-esac
+if [ "$QT_VERSION_MAJOR" -ge 6 ]; then
+    # Qt 6 builds use CMake (build-natron.sh), which does not build the
+    # breakpad crash reporter.
+    DISABLE_BREAKPAD=1
+fi
 
 unset LD_LIBRARY_PATH LD_RUN_PATH DYLD_LIBRARY_PATH LIBRARY_PATH CPATH PKG_CONFIG_PATH
 # save the default PATH to avoid growing it each time we source this file
@@ -424,6 +432,8 @@ export LD_LIBRARY_PATH LD_RUN_PATH DYLD_LIBRARY_PATH LIBRARY_PATH CPATH PKG_CONF
 
 if [ "${QT_VERSION_MAJOR}" = 4 ]; then
     QT_VERSION=$(pkg-config --modversion QtCore)
+elif [ "${QT_VERSION_MAJOR}" -ge 6 ] && [ -x "$QTDIR/bin/qmake" ]; then
+    QT_VERSION=$("$QTDIR/bin/qmake" -query QT_VERSION)
 else
     QT_VERSION=$(pkg-config --modversion Qt${QT_VERSION_MAJOR}Core)
 fi

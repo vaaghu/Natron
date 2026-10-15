@@ -392,6 +392,19 @@ for location in "${COPY_LOCATIONS[@]}"; do
             cp -f "$z" "${location}/lib/"
         fi
     done
+    # Qt 6's xcb platform plug-in needs the xcb-util libraries (from the
+    # system of the SDK): many desktops do not install them (e.g. libxcb-cursor,
+    # without which Qt 6 applications do not start under X11).
+    if [ "${QT_VERSION_MAJOR}" -ge 6 ]; then
+        for xlib in libxcb-cursor.so.0 libxcb-icccm.so.4 libxcb-image.so.0 libxcb-keysyms.so.1 libxcb-render-util.so.0 libxcb-util.so.1 libxkbcommon-x11.so.0; do
+            for d in /usr/lib64 /usr/lib; do
+                if [ -e "$d/$xlib" ]; then
+                    cp -fL "$d/$xlib" "${location}/lib/"
+                    break
+                fi
+            done
+        done
+    fi
 
 
     # Copy gcc compat libs
@@ -429,7 +442,13 @@ fi
 # The whitelist of python site-packages:
 #python_site_packages=(easy_install.py easy_install.pyc pip pkg_resources PySide README setuptools wheel shiboken.so)
 # Note that pip and dependencies were already installed by get-pip.py
-python_site_packages=(PySide shiboken.so)
+# PySide and shiboken for the Qt version (PYSIDE_NAME is moved to Plugins/).
+case "${QT_VERSION_MAJOR}" in
+4) PYSIDE_NAME=PySide; SHIBOKEN_NAME=shiboken.so ;;
+5) PYSIDE_NAME=PySide2; SHIBOKEN_NAME=shiboken2 ;;
+*) PYSIDE_NAME="PySide${QT_VERSION_MAJOR}"; SHIBOKEN_NAME="shiboken${QT_VERSION_MAJOR}" ;;
+esac
+python_site_packages=("$PYSIDE_NAME" "$SHIBOKEN_NAME")
 
 mkdir -p "${TMP_PORTABLE_DIR}/lib/python${PYVER}"
 
@@ -443,14 +462,14 @@ for pydir in "${SDK_HOME}/lib/python${PYVER}"; do
 done
 
 # Move PySide to plug-ins directory and keep a symbolic link in site-packages
-mv "${TMP_PORTABLE_DIR}/lib/python${PYVER}/site-packages/PySide" "${TMP_PORTABLE_DIR}/Plugins/"
-(cd "${TMP_PORTABLE_DIR}/lib/python${PYVER}/site-packages"; ln -sf "../../../Plugins/PySide" . )
+mv "${TMP_PORTABLE_DIR}/lib/python${PYVER}/site-packages/${PYSIDE_NAME}" "${TMP_PORTABLE_DIR}/Plugins/"
+(cd "${TMP_PORTABLE_DIR}/lib/python${PYVER}/site-packages"; ln -sf "../../../Plugins/${PYSIDE_NAME}" . )
 
 # Remove unused stuff
 rm -rf "${TMP_PORTABLE_DIR}/lib/python${PYVER}"/{test,config,config-"${PYVER}${PYTHON_ABIFLAGS}"}
 
 # Copy PySide dependencies
-PYSIDE_DEPENDS=$(ldd $(find "${SDK_HOME}/lib/python${PYVER}/site-packages/PySide" -maxdepth 1 -type f) | grep "$SDK_HOME" | awk '{print $3}'|sort|uniq)
+PYSIDE_DEPENDS=$(ldd $(find "${SDK_HOME}/lib/python${PYVER}/site-packages/${PYSIDE_NAME}" "${SDK_HOME}/lib/python${PYVER}/site-packages/${SHIBOKEN_NAME}" -maxdepth 1 -type f -name '*.so*' 2>/dev/null) | grep "$SDK_HOME" | awk '{print $3}'|sort|uniq)
 for y in $PYSIDE_DEPENDS; do
     dep=$(basename "$y")
     if [ ! -f "${TMP_PORTABLE_DIR}/lib/$dep" ]; then
@@ -463,7 +482,7 @@ done
 
 # Strip pyside and python depends
 if [ "${COMPILE_TYPE}" != "debug" ]; then
-    strip -s "${TMP_PORTABLE_DIR}/Plugins/PySide"/* "${TMP_PORTABLE_DIR}/lib"/python*/* "${TMP_PORTABLE_DIR}/lib"/python*/*/* &>/dev/null || true
+    strip -s "${TMP_PORTABLE_DIR}/Plugins/${PYSIDE_NAME}"/* "${TMP_PORTABLE_DIR}/lib"/python*/* "${TMP_PORTABLE_DIR}/lib"/python*/*/* &>/dev/null || true
 fi
 
 # Remove pyo files and prune unneeded files using python-exclude file
@@ -472,11 +491,15 @@ find "${PYDIR}" -type f -name '*.pyo' -exec rm {} \;
 (cd "${PYDIR}"; xargs rm -rf || true) < "$INC_PATH/python-exclude.txt"
 
 # python zip
-if [ "${USE_QT5:-}" != 1 ]; then
+if [ "${QT_VERSION_MAJOR}" != 5 ]; then
     rm -rf "$PYDIR"/site-packages/shiboken2* "$PYDIR"/site-packages/PySide2 || true
 fi
 
-fixrpath "${TMP_PORTABLE_DIR}/Plugins/PySide" "/../../lib"
+fixrpath "${TMP_PORTABLE_DIR}/Plugins/${PYSIDE_NAME}" "/../../lib"
+if [ -d "${TMP_PORTABLE_DIR}/lib/python${PYVER:-}/site-packages/${SHIBOKEN_NAME}" ]; then
+    # shiboken2/shiboken6 are packages: one level deeper
+    fixrpath "${TMP_PORTABLE_DIR}/lib/python${PYVER:-}/site-packages/${SHIBOKEN_NAME}" "/../../.."
+fi
 fixrpath "${TMP_PORTABLE_DIR}/lib/python${PYVER:-}/lib-dynload ${TMP_PORTABLE_DIR}/lib/python${PYVER:-}/site-packages" "/../.."
 
 export PY_BIN="${SDK_HOME}/bin/python${PYVER:-}"
@@ -495,7 +518,7 @@ if [ -x "${NATRON_PYTHON}" ]; then
     "${NATRON_PYTHON}" get-pip.py
     rm get-pip.py
     # Install qtpy
-    if [ "${USE_QT5:-}" != 1 ]; then
+    if [ "${QT_VERSION_MAJOR}" = 4 ]; then
         # Qt4 support was dropped after QtPy 1.11.2
         "${NATRON_PYTHON}" -m pip install qtpy==1.11.2
         # qtpy bug fix for Qt4
@@ -518,7 +541,7 @@ fi
 cp -pPR "$PYDIR" "$LIBS_PACKAGE_PATH/data/lib/"
 cp "${TMP_PORTABLE_DIR}"/lib/python*.zip "${LIBS_PACKAGE_PATH}/data/lib/"
 mkdir -p "$LIBS_PACKAGE_PATH/data/Plugins/"
-cp -pPR "${TMP_PORTABLE_DIR}/Plugins/PySide" "$LIBS_PACKAGE_PATH/data/Plugins/"
+cp -pPR "${TMP_PORTABLE_DIR}/Plugins/${PYSIDE_NAME}" "$LIBS_PACKAGE_PATH/data/Plugins/"
 
 # Fix RPATH (we don't want to link against system libraries when deployed)
 for location in "$LIBS_PACKAGE_PATH/data" "${TMP_PORTABLE_DIR}"; do

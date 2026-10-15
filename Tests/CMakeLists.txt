@@ -44,9 +44,17 @@ target_include_directories(Tests
     PRIVATE
         ..
         ../libs/SequenceParsing
+)
+# google-test and google-mock: don't show their warnings
+target_include_directories(Tests
+    SYSTEM PRIVATE
         google-test/include
         google-test
         google-mock/include
         google-mock
 )
+if(NOT MSVC)
+    set_source_files_properties(google-test/src/gtest-all.cc google-mock/src/gmock-all.cc
+                                PROPERTIES COMPILE_OPTIONS -w)
+endif()
 add_test(NAME Tests COMMAND Tests)

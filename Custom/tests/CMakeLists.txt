@@ -27,11 +27,16 @@ add_executable(CustomTests
     main.cpp
     ${CustomTests_TESTS}
 )
+# google-test: don't show its warnings
 target_include_directories(CustomTests
-    PRIVATE
+    SYSTEM PRIVATE
         ${NATRON_ROOT}/Tests/google-test/include
         ${NATRON_ROOT}/Tests/google-test
 )
+if(NOT MSVC)
+    set_source_files_properties(${NATRON_ROOT}/Tests/google-test/src/gtest-all.cc
+                                PROPERTIES COMPILE_OPTIONS -w)
+endif()
 target_link_libraries(CustomTests
     PRIVATE
         NatronCustom

@@ -44,6 +44,12 @@ set(HostSupport_SOURCES
     ${HostSupport_HEADERS}
 )
 add_library(HostSupport STATIC ${HostSupport_SOURCES})
+# the OpenFX submodule: don't show its warnings
+if(NOT MSVC)
+    set(OpenFX_SOURCES ${HostSupport_SOURCES})
+    list(FILTER OpenFX_SOURCES INCLUDE REGEX "libs/OpenFX/HostSupport/src/")
+    set_source_files_properties(${OpenFX_SOURCES} PROPERTIES COMPILE_OPTIONS -w)
+endif()
 target_link_libraries(HostSupport
     PRIVATE
         EXPAT::EXPAT

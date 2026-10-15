@@ -29,3 +29,18 @@ endif()
 add_subdirectory(libmv)
 add_subdirectory(openMVG)
 add_subdirectory(qhttpserver)
+
+# Vendored third-party code: don't show its warnings (qhttpserver is patched
+# here, so its warnings stay on).
+set(NATRON_VENDORED_TARGETS hoedown tess mv openMVG)
+if(NOT glog_FOUND)
+    list(APPEND NATRON_VENDORED_TARGETS gflags glog)
+endif()
+if(NOT Ceres_FOUND)
+    list(APPEND NATRON_VENDORED_TARGETS ceres)
+endif()
+if(NOT MSVC)
+    foreach(target ${NATRON_VENDORED_TARGETS})
+        target_compile_options(${target} PRIVATE -w)
+    endforeach()
+endif()

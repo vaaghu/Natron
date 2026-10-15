@@ -27,6 +27,9 @@
 #include <QtCore/QUrl>
 #include <QtCore/QFileInfo>
 #include <QtCore/QRegularExpression>
+#include <QtCore/QMutex>
+
+#include <functional>
 
 NATRON_NAMESPACE_ENTER
 
@@ -52,6 +55,30 @@ removeFileExtension(QString & filename)
 // See https://bugreports.qt.io/browse/QTBUG-40449
 inline QUrl
 toLocalFileUrlFixed(const QUrl& url) { return url; }
+
+/* Locks a QMutex or a QRecursiveMutex until destroyed: QMutexLocker is a
+ * class template in Qt 6, so one QMutexLocker pointer cannot hold either.*/
+class ScopedMutexLock
+{
+public:
+    template <class Mutex>
+    explicit ScopedMutexLock(Mutex* mutex)
+        : _unlock([mutex]() { mutex->unlock(); })
+    {
+        mutex->lock();
+    }
+
+    ~ScopedMutexLock()
+    {
+        _unlock();
+    }
+
+    ScopedMutexLock(const ScopedMutexLock&) = delete;
+    ScopedMutexLock& operator=(const ScopedMutexLock&) = delete;
+
+private:
+    std::function<void()> _unlock;
+};
 
 /* Converts a wildcard pattern to an anchored QRegularExpression pattern,
  * matching like QRegExp::Wildcard (or QRegExp::WildcardUnix with

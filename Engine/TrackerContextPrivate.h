@@ -41,6 +41,11 @@ GCC_DIAG_OFF(maybe-uninitialized)
 #include <libmv/autotrack/autotrack.h>
 #include <libmv/autotrack/predict_tracks.h>
 #include <libmv/logging/logging.h>
+// libmv's log macros clash with names used by Qt 6 headers included after this one
+#undef LG
+#undef V0
+#undef V1
+#undef V2
 GCC_DIAG_ON(unused-function)
 GCC_DIAG_ON(unused-parameter)
 

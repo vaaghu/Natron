@@ -25,16 +25,6 @@
 
 #include "TrackerFrameAccessor.h"
 
-// clang-format off
-GCC_DIAG_OFF(unused-function)
-GCC_DIAG_OFF(unused-parameter)
-#include <libmv/image/array_nd.h>
-#include <libmv/autotrack/region.h>
-#include <libmv/logging/logging.h>
-GCC_DIAG_ON(unused-function)
-GCC_DIAG_ON(unused-parameter)
-// clang-format on
-
 #include <QtCore/QDebug>
 
 #include "Engine/AbortableRenderInfo.h"
@@ -45,6 +35,17 @@ GCC_DIAG_ON(unused-parameter)
 #include "Engine/Image.h"
 #include "Engine/Node.h"
 #include "Engine/TrackerContext.h"
+
+// after the Qt headers: libmv/logging/logging.h defines V0, V1, V2... which Qt 6 uses as names
+// clang-format off
+GCC_DIAG_OFF(unused-function)
+GCC_DIAG_OFF(unused-parameter)
+#include <libmv/image/array_nd.h>
+#include <libmv/autotrack/region.h>
+#include <libmv/logging/logging.h>
+GCC_DIAG_ON(unused-function)
+GCC_DIAG_ON(unused-parameter)
+// clang-format on
 
 NATRON_NAMESPACE_ENTER
 

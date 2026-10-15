@@ -395,7 +395,7 @@ DashboardWindow::createPanels()
     // Settings: render hardware, SDI output.
     QMenu* settingsMenu = menuBar()->addMenu( tr("&Settings") );
     QAction* settingsAction = settingsMenu->addAction( tr("Render and Program Output..."), this, SLOT(onSettingsClicked()) );
-    settingsAction->setShortcut( QKeySequence(Qt::CTRL + Qt::Key_Comma) );
+    settingsAction->setShortcut( QKeySequence(int(Qt::CTRL) + Qt::Key_Comma) );
     settingsAction->setShortcutContext(Qt::WindowShortcut);
     QAction* sceneShortcuts = settingsMenu->addAction( tr("Scene Shortcuts..."), this, SLOT(onSceneShortcutsClicked()) );
     sceneShortcuts->setEnabled(_sceneStore != 0);
@@ -632,9 +632,9 @@ DashboardWindow::createProjectsPanel()
     QToolButton* menuButton = KvGui::panelMenuButton(recent, &menu);
     menuButton->setToolTip( tr("Project actions") );
     _newProjectAction = new QAction(tr("New Project"), recent);
-    _newProjectAction->setShortcut( QKeySequence(Qt::CTRL + Qt::SHIFT + Qt::Key_N) );
+    _newProjectAction->setShortcut( QKeySequence(int(Qt::CTRL) + int(Qt::SHIFT) + Qt::Key_N) );
     _openProjectAction = new QAction(tr("Open Project..."), recent);
-    _openProjectAction->setShortcut( QKeySequence(Qt::CTRL + Qt::Key_O) );
+    _openProjectAction->setShortcut( QKeySequence(int(Qt::CTRL) + Qt::Key_O) );
     QAction* projectActions[] = { _newProjectAction, _openProjectAction };
     for (int i = 0; i < 2; ++i) {
         // Only while the focus is in this panel: the editor has its own.

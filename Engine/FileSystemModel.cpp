@@ -48,6 +48,7 @@ CLANG_DIAG_OFF(uninitialized)
 #include <QtCore/QUrl>
 #include <QtCore/QMimeData>
 #include <QtCore/QRegularExpression>
+#include <QtCore/QLocale>
 CLANG_DIAG_ON(deprecated)
 CLANG_DIAG_ON(uninitialized)
 
@@ -844,7 +845,7 @@ FileSystemModel::data(const QModelIndex &index,
         data = item->fileExtension();
         break;
     case DateModified:
-        data = item->getLastModified().toString(Qt::LocalDate);
+        data = QLocale::system().toString(item->getLastModified(), QLocale::ShortFormat);
         break;
     default:
         break;

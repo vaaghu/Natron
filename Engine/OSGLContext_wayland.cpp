@@ -32,14 +32,15 @@
 
 #include <dlfcn.h>
 
+// Qt 6 headers must come before the EGL ones, which include X11 (Status, Bool...)
+#include "Engine/AppManager.h"
+#include "Engine/OSGLContext.h"
+#include "Global/GLIncludes.h"
+
 #include <EGL/egl.h>
 #include <EGL/eglext.h>
 #include <wayland-client.h>
 #include <wayland-egl.h>
-
-#include "Engine/AppManager.h"
-#include "Engine/OSGLContext.h"
-#include "Global/GLIncludes.h"
 
 NATRON_NAMESPACE_ENTER
 

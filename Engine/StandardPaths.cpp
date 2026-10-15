@@ -74,7 +74,7 @@ StandardPaths::writableLocation(StandardLocationEnum type)
         path = QStandardPaths::HomeLocation;
         break;
     case StandardPaths::eStandardLocationData:
-        path = QStandardPaths::DataLocation;
+        path = QStandardPaths::AppLocalDataLocation; // what DataLocation was
         break;
     case StandardPaths::eStandardLocationCache:
         path = QStandardPaths::CacheLocation;

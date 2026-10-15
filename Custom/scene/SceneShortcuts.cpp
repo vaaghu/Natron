@@ -19,7 +19,7 @@ QString defaultShortcut(int index)
   {
     return QString();
   }
-  return QKeySequence(Qt::CTRL + Qt::Key_1 + index).toString(QKeySequence::PortableText);
+  return QKeySequence(int(Qt::CTRL) + Qt::Key_1 + index).toString(QKeySequence::PortableText);
 }
 
 QHash<QString, QString> shortcuts(const QList<Scene> &scenes, const QVariantMap &saved)

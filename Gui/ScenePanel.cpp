@@ -624,7 +624,7 @@ ScenePanel::createSceneList()
     layout->addWidget(_sceneList);
 
     QObject::connect( _sceneList, SIGNAL(customContextMenuRequested(QPoint)), this, SLOT(onSceneListContextMenu(QPoint)) );
-    _newSceneAction = makeShortcutAction( w, tr("New Scene..."), QKeySequence(Qt::CTRL + Qt::Key_N), this, SLOT(onNewSceneClicked()) );
+    _newSceneAction = makeShortcutAction( w, tr("New Scene..."), QKeySequence(int(Qt::CTRL) + Qt::Key_N), this, SLOT(onNewSceneClicked()) );
     _renameSceneAction = makeShortcutAction( w, tr("Rename..."), QKeySequence(Qt::Key_F2), this, SLOT(onRenameSceneClicked()) );
     _deleteSceneAction = makeShortcutAction( w, tr("Delete"), QKeySequence(QKeySequence::Delete), this, SLOT(onDeleteSceneClicked()) );
     QObject::connect( _sceneList, SIGNAL(itemSelectionChanged()), this, SLOT(onSceneSelectionChanged()) );
@@ -731,15 +731,15 @@ ScenePanel::createSceneDetail()
 
     _detailStack->addWidget(detail);
 
-    _renderAction = makeShortcutAction( detail, tr("Render"), QKeySequence(Qt::CTRL + Qt::Key_R), this, SLOT(onRenderClicked()) );
-    _openInEditorAction = makeShortcutAction( detail, tr("Open in Editor"), QKeySequence(Qt::CTRL + Qt::Key_E), this, SLOT(onOpenInEditorClicked()) );
+    _renderAction = makeShortcutAction( detail, tr("Render"), QKeySequence(int(Qt::CTRL) + Qt::Key_R), this, SLOT(onRenderClicked()) );
+    _openInEditorAction = makeShortcutAction( detail, tr("Open in Editor"), QKeySequence(int(Qt::CTRL) + Qt::Key_E), this, SLOT(onOpenInEditorClicked()) );
     _removeProjectsAction = makeShortcutAction( detail, tr("Remove from Scene"), QKeySequence(QKeySequence::Delete), this, SLOT(onRemoveProjectsClicked()) );
     for (int i = 0; i < kSceneNumberShortcuts; ++i) {
         QAction* preview = makeShortcutAction( detail, tr("Preview Input %1").arg(i + 1), QKeySequence(Qt::Key_1 + i), this, SLOT(onNumberShortcut()) );
         preview->setData(i);
-        QAction* cut = makeShortcutAction( detail, tr("Cut to Input %1").arg(i + 1), QKeySequence(Qt::CTRL + Qt::ALT + Qt::Key_1 + i), this, SLOT(onNumberShortcut()) );
+        QAction* cut = makeShortcutAction( detail, tr("Cut to Input %1").arg(i + 1), QKeySequence(int(Qt::CTRL) + int(Qt::ALT) + Qt::Key_1 + i), this, SLOT(onNumberShortcut()) );
         cut->setData(kSceneCutShortcutData + i);
-        QAction* layer = makeShortcutAction( detail, tr("Layer Input %1 on Preview").arg(i + 1), QKeySequence(Qt::SHIFT + Qt::Key_1 + i), this, SLOT(onNumberShortcut()) );
+        QAction* layer = makeShortcutAction( detail, tr("Layer Input %1 on Preview").arg(i + 1), QKeySequence(int(Qt::SHIFT) + Qt::Key_1 + i), this, SLOT(onNumberShortcut()) );
         layer->setData(kSceneLayerShortcutData + i);
     }
 

@@ -33,6 +33,11 @@
 
 #include <dlfcn.h>
 
+// Qt 6 headers must come before the X11 ones, which define Status, Bool...
+#include "Engine/AppManager.h"
+#include "Engine/OSGLContext.h"
+#include "Global/GLIncludes.h"
+
 extern "C"
 {
 #include <X11/Xlib.h>
@@ -40,10 +45,6 @@ extern "C"
 #include <X11/Xmd.h>
 #include <X11/Xresource.h>
 }
-
-#include "Engine/AppManager.h"
-#include "Engine/OSGLContext.h"
-#include "Global/GLIncludes.h"
 
 #define GLX_VENDOR 1
 #define GLX_RGBA_BIT 0x00000001

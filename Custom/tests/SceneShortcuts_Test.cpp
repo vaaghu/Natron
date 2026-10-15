@@ -209,9 +209,9 @@ TEST(SceneShortcuts, PerInputCutKeysDoNotClashWithTheDefaults)
   QHash<QString, QString> taken;
   for (int i = 0; i < SceneShortcuts::kDefaults; ++i)
   {
-    taken.insert(QKeySequence(Qt::CTRL + Qt::ALT + Qt::Key_1 + i).toString(QKeySequence::PortableText), QStringLiteral("Cut to Input"));
+    taken.insert(QKeySequence(int(Qt::CTRL) + int(Qt::ALT) + Qt::Key_1 + i).toString(QKeySequence::PortableText), QStringLiteral("Cut to Input"));
     taken.insert(QKeySequence(Qt::Key_1 + i).toString(QKeySequence::PortableText), QStringLiteral("Preview Input"));
-    taken.insert(QKeySequence(Qt::SHIFT + Qt::Key_1 + i).toString(QKeySequence::PortableText), QStringLiteral("Layer Input"));
+    taken.insert(QKeySequence(int(Qt::SHIFT) + Qt::Key_1 + i).toString(QKeySequence::PortableText), QStringLiteral("Layer Input"));
   }
   QList<QString> rows;
   for (int i = 0; i < SceneShortcuts::kDefaults; ++i)

@@ -13,6 +13,8 @@
 #              builds first if that build is not of the current source
 #   plugins    re-clone and rebuild the OFX plug-ins (otherwise built once and kept)
 #   status     show what the cache holds
+#   setup      windows: set up this machine to build (MSYS2 packages, Natron SDK,
+#              Windows SDK), see scripts/natron-setup-windows.sh; --check only reports
 #   sdk        build the SDK image of the Qt version: natron-sdk-qt6:latest
 #              (scripts/docker/natron-sdk-qt6/Dockerfile: LLVM, Qt 6 and PySide6
 #              from source, hours) or, with --qt5, natron-sdk-qt5:latest
@@ -29,11 +31,13 @@
 #   --no-portable  installer only, no portable .tar.xz archive (saves a few minutes)
 #   --rebuild      compile even if the cache holds a build of this source
 #   --committed    refuse to build with uncommitted changes (build = HEAD)
+#   --check        setup mode: only report what is missing
 #   --update       fetch Natron's submodules and the plug-in repositories again
 #                  (the checkout step; otherwise only run while the cache lacks them)
 #   --qt4, --qt5, --qt6
 #                  Qt to build against (default: 4 if the source has the Qt 4
-#                  bindings, Engine/Qt4, else 6). natrongithub/natron-sdk only
+#                  bindings, Engine/Qt4, else 6; 5 on macos, whose installer
+#                  script does not know Qt 6 yet). natrongithub/natron-sdk only
 #                  builds Qt 4: --qt5 builds in natron-sdk-qt5:latest, --qt6 in
 #                  natron-sdk-qt6:latest (make them once with the sdk mode)
 #
@@ -105,6 +109,7 @@ PORTABLE=1
 REBUILD=0
 COMMITTED=0
 UPDATE=0
+CHECK=0
 QT=""
 
 usage() {
@@ -131,6 +136,7 @@ while [ $# -gt 0 ]; do
         --qt4) QT=4 ;;
         --qt5) QT=5 ;;
         --qt6) QT=6 ;;
+        --check) CHECK=1 ;;
         -h|--help) usage ;;
         *) echo "Unknown option: $1" >&2; usage 1 ;;
     esac
@@ -151,13 +157,21 @@ if [ "$PLATFORM" != "linux" ] && [ "$DETACH" = "1" ]; then
     exit 1
 fi
 
+# Default Qt: what the source supports (the scripts would otherwise pick it
+# from the branch name). Only sources with the Qt 4 bindings build Qt 4; the
+# macOS installer script does not know Qt 6 yet.
+if [ -z "$QT" ]; then
+    if [ -d "$SRC/Engine/Qt4" ]; then
+        QT=4
+    elif [ "$PLATFORM" = "macos" ]; then
+        QT=5
+    else
+        QT=6
+    fi
+fi
+
 if [ "$PLATFORM" = "linux" ]; then
     CACHE="${NATRON_BUILD_CACHE:-$(dirname "$SRC")/natron-build-cache}"
-    # Default: what the source supports (the scripts would otherwise pick it
-    # from the branch name). Only sources with the Qt 4 bindings build Qt 4.
-    if [ -z "$QT" ]; then
-        QT="$([ -d "$SRC/Engine/Qt4" ] && echo 4 || echo 6)"
-    fi
     if [ -z "$IMAGE" ]; then
         case "$QT" in
             5) IMAGE="$QT5_IMAGE" ;;
@@ -185,6 +199,13 @@ plugin_built() {
 }
 
 case "$MODE" in
+    setup)
+        if [ "$PLATFORM" != "windows" ]; then
+            echo "setup is for windows machines (linux builds only need docker)." >&2
+            exit 1
+        fi
+        exec bash "$SRC/scripts/natron-setup-windows.sh" --qt"$QT" $([ "$CHECK" = "1" ] && echo --check)
+        ;;
     sdk)
         if [ "$PLATFORM" != "linux" ]; then
             echo "The SDK image is for linux builds." >&2

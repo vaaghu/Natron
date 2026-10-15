@@ -27,6 +27,7 @@
 
 #include <stdexcept>
 
+#include <QtCore/QLocale>
 #include <QFormLayout> // in QtGui on Qt4, in QtWidgets on Qt5
 #include <QHBoxLayout> // in QtGui on Qt4, in QtWidgets on Qt5
 #include <QtCore/QDebug>
@@ -226,7 +227,7 @@ KnobGuiFile::updateGUI(int /*dimension*/)
 
             QString tt = toolTip();
             tt.append( QString::fromUtf8("\n\nLast modified: ") );
-            tt.append( dateTime.toString(Qt::SystemLocaleShortDate) );
+            tt.append( QLocale::system().toString(dateTime, QLocale::ShortFormat) );
             _lineEdit->setToolTip(tt);
         }
     }

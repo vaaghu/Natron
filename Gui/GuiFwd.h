@@ -38,13 +38,6 @@
 // Qt
 #include <QtCore/QtGlobal>
 
-// QWidget::enterEvent() takes a QEnterEvent* in Qt 6, a QEvent* in Qt 5
-#if QT_VERSION >= QT_VERSION_CHECK(6, 0, 0)
-typedef QEnterEvent QtEnterEvent;
-#else
-typedef QEvent QtEnterEvent;
-#endif
-
 class QAbstractButton;
 class QAction;
 class QCheckBox;
@@ -56,6 +49,14 @@ class QDragMoveEvent;
 class QDropEvent;
 class QEvent;
 class QEnterEvent;
+
+// QWidget::enterEvent() takes a QEnterEvent* in Qt 6, a QEvent* in Qt 5
+#if QT_VERSION >= QT_VERSION_CHECK(6, 0, 0)
+typedef QEnterEvent QtEnterEvent;
+#else
+typedef QEvent QtEnterEvent;
+#endif
+
 class QFileSystemModel;
 class QFileSystemWatcher;
 class QFont;

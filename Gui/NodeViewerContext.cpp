@@ -25,6 +25,7 @@
 
 #include "NodeViewerContext.h"
 
+#include <QtCore/QFile>
 #include <QMouseEvent>
 #include <QStyle>
 #include <QToolBar>

@@ -1816,7 +1816,7 @@ ScenePanel::chooseItems(const QStringList& projects)
         const ProjectInfo info = readProjectInfo(path);
         QTreeWidgetItem* projectItem = new QTreeWidgetItem( tree, QStringList( QFileInfo(path).fileName() ) );
         projectItem->setToolTip( 0, QDir::toNativeSeparators(path) );
-        projectItem->setFlags( projectItem->flags() | Qt::ItemIsUserCheckable | Qt::ItemIsTristate );
+        projectItem->setFlags( projectItem->flags() | Qt::ItemIsUserCheckable | Qt::ItemIsAutoTristate );
         const QStringList items = ::SceneItem::allOf(path);
         for (int w = 0; w < items.size(); ++w) {
             const QString writer = ::SceneItem::writer( items.at(w) );

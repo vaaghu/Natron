@@ -14,7 +14,10 @@
 #include <unistd.h>
 #endif
 
-namespace
+// The DeckLink interfaces are not in the anonymous namespace: the library
+// implements them, and GCC devirtualizes (and drops) calls on classes that
+// have internal linkage and no implementation in this file.
+namespace NatronDeckLink
 {
 #if defined(Q_OS_LINUX)
 // ---- Minimal declarations of the DeckLink API (DeckLinkAPI.h, SDK 10.11) ----
@@ -178,6 +181,13 @@ public:
 };
 
 typedef IDeckLinkIterator *(*CreateIteratorFn)();
+#endif // Q_OS_LINUX
+} // namespace NatronDeckLink
+
+namespace
+{
+#if defined(Q_OS_LINUX)
+using namespace NatronDeckLink;
 
 struct DeckLinkApi
 {

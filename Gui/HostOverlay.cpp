@@ -1750,9 +1750,10 @@ PositionInteract::penMotion(double time,
 
         EffectInstancePtr holder = _overlay->getNode()->getNode()->getEffectInstance();
         holder->setMultipleParamsEditLevel(KnobHolder::eMultipleParamsEditOnCreateNewCommand);
+        KeyFrame k;
         // Do not use setValues(x,y) (see note at the top of this file).
-        knob->setValue(p[0], ViewSpec::all(), 0, eValueChangedReasonNatronGuiEdited);
-        knob->setValue(p[1], ViewSpec::all(), 1, eValueChangedReasonNatronGuiEdited);
+        knob->setValue(p[0], ViewSpec::all(), 0, eValueChangedReasonNatronGuiEdited, &k);
+        knob->setValue(p[1], ViewSpec::all(), 1, eValueChangedReasonNatronGuiEdited, &k);
         holder->setMultipleParamsEditLevel(KnobHolder::eMultipleParamsEditOff);
     }
 
@@ -2197,20 +2198,20 @@ TransformInteract::penMotion(double time,
         if (centerChanged) {
             KnobDoublePtr knob = _center.lock();
             // Do not use setValues(x,y) (see note at the top of this file).
-            knob->setValue(center.x, ViewSpec::all(), 0, eValueChangedReasonNatronGuiEdited);
-            knob->setValue(center.y, ViewSpec::all(), 1, eValueChangedReasonNatronGuiEdited);
+            knob->setValue(center.x, ViewSpec::all(), 0, eValueChangedReasonNatronGuiEdited, &k);
+            knob->setValue(center.y, ViewSpec::all(), 1, eValueChangedReasonNatronGuiEdited, &k);
         }
         if (translateChanged) {
             KnobDoublePtr knob = _translate.lock();
             // Do not use setValues(x,y) (see note at the top of this file).
-            knob->setValue(translate.x, ViewSpec::all(), 0, eValueChangedReasonNatronGuiEdited);
-            knob->setValue(translate.y, ViewSpec::all(), 1, eValueChangedReasonNatronGuiEdited);
+            knob->setValue(translate.x, ViewSpec::all(), 0, eValueChangedReasonNatronGuiEdited, &k);
+            knob->setValue(translate.y, ViewSpec::all(), 1, eValueChangedReasonNatronGuiEdited, &k);
         }
         if (scaleChanged) {
             KnobDoublePtr knob = _scale.lock();
             // Do not use setValues(x,y) (see note at the top of this file).
-            knob->setValue(scale.x, ViewSpec::all(), 0, eValueChangedReasonNatronGuiEdited);
-            knob->setValue(scale.y, ViewSpec::all(), 1, eValueChangedReasonNatronGuiEdited);
+            knob->setValue(scale.x, ViewSpec::all(), 0, eValueChangedReasonNatronGuiEdited, &k);
+            knob->setValue(scale.y, ViewSpec::all(), 1, eValueChangedReasonNatronGuiEdited, &k);
         }
         if (rotateChanged) {
             KnobDoublePtr knob = _rotate.lock();
@@ -2403,9 +2404,10 @@ PositionInteract::penUp(double time,
 
             EffectInstancePtr holder = _overlay->getNode()->getNode()->getEffectInstance();
             holder->setMultipleParamsEditLevel(KnobHolder::eMultipleParamsEditOnCreateNewCommand);
+            KeyFrame k;
             // Do not use setValues(x,y) (see note at the top of this file).
-            knob->setValue(p[0], ViewSpec::all(), 0, eValueChangedReasonNatronGuiEdited);
-            knob->setValue(p[1], ViewSpec::all(), 1, eValueChangedReasonNatronGuiEdited);
+            knob->setValue(p[0], ViewSpec::all(), 0, eValueChangedReasonNatronGuiEdited, &k);
+            knob->setValue(p[1], ViewSpec::all(), 1, eValueChangedReasonNatronGuiEdited, &k);
             holder->setMultipleParamsEditLevel(KnobHolder::eMultipleParamsEditOff);
         }
 

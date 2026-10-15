@@ -130,7 +130,7 @@ QString typeName(Type type)
 
 Type typeOf(const QVariant &value)
 {
-  if (value.type() != QVariant::Map)
+  if (value.userType() != QMetaType::QVariantMap)
   {
     return eTypeInvalid;
   }
@@ -239,20 +239,20 @@ bool fitsBinding(const QVariant &value, const QString &boundType)
 
 QVariant normalize(const QVariant &input, bool strict, QString *error)
 {
-  switch (input.type())
+  switch (input.userType())
   {
-  case QVariant::Invalid:
+  case QMetaType::UnknownType:
     return makeText(QString());
-  case QVariant::Bool:
+  case QMetaType::Bool:
     return makeText(input.toBool() ? s("true") : s("false"));
-  case QVariant::List:
-  case QVariant::StringList:
+  case QMetaType::QVariantList:
+  case QMetaType::QStringList:
     return makeText(QString::fromUtf8(Json::serialize(input)));
-  case QVariant::Map:
+  case QMetaType::QVariantMap:
     break;
   default:
     // Numbers are written as JSON writes them (42, 0.5).
-    if (input.type() == QVariant::String)
+    if (input.userType() == QMetaType::QString)
     {
       return makeText(input.toString());
     }
@@ -265,11 +265,11 @@ QVariant normalize(const QVariant &input, bool strict, QString *error)
   if (type == s("text"))
   {
     const QVariant value = map.value(s("value"));
-    if (value.type() == QVariant::Map || value.type() == QVariant::List)
+    if (value.userType() == QMetaType::QVariantMap || value.userType() == QMetaType::QVariantList)
     {
       return makeText(QString::fromUtf8(Json::serialize(value)));
     }
-    if (value.type() == QVariant::String || !value.isValid())
+    if (value.userType() == QMetaType::QString || !value.isValid())
     {
       return makeText(value.toString());
     }
@@ -294,7 +294,7 @@ QVariant normalize(const QVariant &input, bool strict, QString *error)
   {
     const QVariant v = map.value(s("value"));
     const QString text = v.toString().trimmed().toLower();
-    if (v.type() == QVariant::Bool)
+    if (v.userType() == QMetaType::Bool)
     {
       return makeBool(v.toBool());
     }

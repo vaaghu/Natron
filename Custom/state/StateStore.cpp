@@ -197,7 +197,7 @@ bool StateStore::loadAndAutoSave(const QString &path)
   QString error;
   const QVariant doc = Json::parse(file.readAll(), &ok, &error);
 
-  if (!ok || doc.type() != QVariant::Map)
+  if (!ok || doc.userType() != QMetaType::QVariantMap)
   {
     qWarning() << "StateStore: ignoring invalid file" << path << ":" << error;
     return false;

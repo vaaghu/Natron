@@ -1240,7 +1240,7 @@ DashboardWindow::onImportValues()
     bool ok = false;
     QString parseError;
     const QVariant parsed = Json::parse(file.readAll(), &ok, &parseError);
-    if ( !ok || (parsed.type() != QVariant::Map) ) {
+    if ( !ok || (parsed.userType() != QMetaType::QVariantMap) ) {
         QMessageBox::warning( this, tr("Import Values"), tr("%1 is not a JSON object of keys and values. %2")
                               .arg( QDir::toNativeSeparators(path) ).arg(parseError) );
 

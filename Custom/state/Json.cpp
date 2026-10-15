@@ -548,23 +548,23 @@ void writeString(QByteArray &out, const QString &s)
 
 void writeValue(QByteArray &out, const QVariant &value)
 {
-  switch (value.type())
+  switch (value.userType())
   {
-  case QVariant::Invalid:
+  case QMetaType::UnknownType:
     out.append("null");
     break;
-  case QVariant::Bool:
+  case QMetaType::Bool:
     out.append(value.toBool() ? "true" : "false");
     break;
-  case QVariant::Int:
-  case QVariant::LongLong:
+  case QMetaType::Int:
+  case QMetaType::LongLong:
     out.append(QByteArray::number(value.toLongLong()));
     break;
-  case QVariant::UInt:
-  case QVariant::ULongLong:
+  case QMetaType::UInt:
+  case QMetaType::ULongLong:
     out.append(QByteArray::number(value.toULongLong()));
     break;
-  case QVariant::Double:
+  case QMetaType::Double:
   {
     const double d = value.toDouble();
     // JSON has no NaN/Infinity.
@@ -588,8 +588,8 @@ void writeValue(QByteArray &out, const QVariant &value)
     }
     break;
   }
-  case QVariant::List:
-  case QVariant::StringList:
+  case QMetaType::QVariantList:
+  case QMetaType::QStringList:
   {
     const QVariantList list = value.toList();
     out.append('[');
@@ -604,7 +604,7 @@ void writeValue(QByteArray &out, const QVariant &value)
     out.append(']');
     break;
   }
-  case QVariant::Map:
+  case QMetaType::QVariantMap:
   {
     const QVariantMap map = value.toMap();
     out.append('{');

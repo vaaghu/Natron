@@ -426,7 +426,7 @@ void HttpServer::handleSetState(QTcpSocket *socket, const QByteArray &body)
   bool ok = false;
   const QVariant doc = Json::parse(body, &ok);
 
-  if (!ok || doc.type() != QVariant::Map)
+  if (!ok || doc.userType() != QMetaType::QVariantMap)
   {
     sendResponse(
         socket,

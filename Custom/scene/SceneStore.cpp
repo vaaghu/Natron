@@ -129,7 +129,7 @@ bool SceneStore::loadAndAutoSave(const QString &path)
   bool ok = false;
   QString error;
   const QVariant doc = Json::parse(file.readAll(), &ok, &error);
-  if (!ok || doc.type() != QVariant::Map)
+  if (!ok || doc.userType() != QMetaType::QVariantMap)
   {
     qWarning() << "SceneStore: ignoring invalid file" << path << ":" << error;
     return false;
@@ -178,7 +178,7 @@ bool SceneStore::loadAndAutoSave(const QString &path)
     for (QVariantMap::const_iterator p = pauseAt.constBegin(); p != pauseAt.constEnd(); ++p)
     {
       QList<double> points;
-      const QVariantList values = (p.value().type() == QVariant::List) ? p.value().toList() : (QVariantList() << p.value());
+      const QVariantList values = (p.value().userType() == QMetaType::QVariantList) ? p.value().toList() : (QVariantList() << p.value());
       for (int v = 0; v < values.size(); ++v)
       {
         if (values.at(v).toDouble() >= 0 && !points.contains(values.at(v).toDouble()))

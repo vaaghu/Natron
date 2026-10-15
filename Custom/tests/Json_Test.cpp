@@ -44,7 +44,7 @@ TEST(Json, ParsesLiterals)
 TEST(Json, ParsesIntegersAsLongLong)
 {
   const QVariant v = parseOk("42");
-  EXPECT_EQ(QVariant::LongLong, v.type());
+  EXPECT_EQ(int(QMetaType::LongLong), v.userType());
   EXPECT_EQ(42, v.toLongLong());
   EXPECT_EQ(-12, parseOk("-12").toLongLong());
   EXPECT_EQ(0, parseOk("0").toLongLong());
@@ -52,7 +52,7 @@ TEST(Json, ParsesIntegersAsLongLong)
 
 TEST(Json, ParsesFractionsAndExponentsAsDouble)
 {
-  EXPECT_EQ(QVariant::Double, parseOk("-0.5").type());
+  EXPECT_EQ(int(QMetaType::Double), parseOk("-0.5").userType());
   EXPECT_DOUBLE_EQ(-0.5, parseOk("-0.5").toDouble());
   EXPECT_DOUBLE_EQ(100000.0, parseOk("1e5").toDouble());
   EXPECT_DOUBLE_EQ(0.025, parseOk("2.5E-2").toDouble());
@@ -62,7 +62,7 @@ TEST(Json, ParsesFractionsAndExponentsAsDouble)
 TEST(Json, OutOfRangeIntegerFallsBackToDouble)
 {
   const QVariant v = parseOk("9223372036854775808");
-  EXPECT_EQ(QVariant::Double, v.type());
+  EXPECT_EQ(int(QMetaType::Double), v.userType());
   EXPECT_DOUBLE_EQ(9223372036854775808.0, v.toDouble());
 }
 
@@ -100,7 +100,7 @@ TEST(Json, RejectsBadStrings)
 TEST(Json, ParsesObjectsAndArrays)
 {
   const QVariant v = parseOk(" \t\n{ \"a\" : [1, \"x\", null, {\"b\": false}], \"c\": {} } \r\n");
-  ASSERT_EQ(QVariant::Map, v.type());
+  ASSERT_EQ(int(QMetaType::QVariantMap), v.userType());
   const QVariantMap map = v.toMap();
   EXPECT_EQ(2, map.size());
   const QVariantList list = map.value(QString::fromUtf8("a")).toList();

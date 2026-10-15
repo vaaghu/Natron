@@ -957,14 +957,14 @@ TableItemEditorFactory::createEditor(int userType,
                                      QWidget *parent) const
 {
     switch (userType) {
-    case QVariant::UInt: {
+    case QMetaType::UInt: {
         SpinBox *sb = new SpinBox(parent, SpinBox::eSpinBoxTypeInt);
         sb->setFrame(false);
         sb->setMaximum(std::numeric_limits<int>::max());
 
         return sb;
     }
-    case QVariant::Int: {
+    case QMetaType::Int: {
         SpinBox *sb = new SpinBox(parent, SpinBox::eSpinBoxTypeInt);
         sb->setFrame(false);
         sb->setMinimum(std::numeric_limits<int>::min());
@@ -972,10 +972,10 @@ TableItemEditorFactory::createEditor(int userType,
 
         return sb;
     }
-    case QVariant::Pixmap:
+    case QMetaType::QPixmap:
 
         return new Label(parent);
-    case QVariant::Double: {
+    case QMetaType::Double: {
         SpinBox *sb = new SpinBox(parent, SpinBox::eSpinBoxTypeDouble);
         sb->setFrame(false);
         sb->setMinimum(std::numeric_limits<double>::lowest());
@@ -983,7 +983,7 @@ TableItemEditorFactory::createEditor(int userType,
 
         return sb;
     }
-    case QVariant::String:
+    case QMetaType::QString:
     default: {
         // the default editor is a lineedit
         ExpandingLineEdit *le = new ExpandingLineEdit(parent);
@@ -1003,12 +1003,12 @@ QByteArray
 TableItemEditorFactory::valuePropertyName(int userType) const
 {
     switch (userType) {
-    case QVariant::UInt:
-    case QVariant::Int:
-    case QVariant::Double:
+    case QMetaType::UInt:
+    case QMetaType::Int:
+    case QMetaType::Double:
 
         return "value";
-    case QVariant::String:
+    case QMetaType::QString:
     default:
 
         // the default editor is a lineedit

@@ -19,6 +19,11 @@
 
 CONFIG += c++11 c++14
 
+# The sources need Qt 5.15; Qt 6 is only supported by the CMake build (-DNATRON_QT_MAJOR=6).
+!equals(QT_MAJOR_VERSION, 5)|lessThan(QT_MINOR_VERSION, 15) {
+    error("The qmake build needs Qt 5.15 (found $$[QT_VERSION]); build with CMake and -DNATRON_QT_MAJOR=6 for Qt 6.")
+}
+
 # libs may modify the config (eg openmp), so it must be included before
 include(libs.pri)
 

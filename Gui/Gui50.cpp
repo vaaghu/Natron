@@ -98,6 +98,7 @@ GCC_DIAG_UNUSED_PRIVATE_FIELD_ON
 #include "Gui/SequenceFileDialog.h"
 #include "Gui/PropertiesBinWrapper.h"
 #include "Gui/Histogram.h"
+#include "Gui/QtEventCompat.h"
 
 #if defined(Q_OS_WIN)
 #include <winuser.h>
@@ -1301,7 +1302,7 @@ Gui::dropEvent(QDropEvent* e)
 
     QList<QUrl> urls = e->mimeData()->urls();
 
-    handleOpenFilesFromUrls( urls, mapToGlobal( e->pos() ) );
+    handleOpenFilesFromUrls( urls, mapToGlobal( QtCompat::eventPos(e) ) );
 } // dropEvent
 
 NATRON_NAMESPACE_EXIT

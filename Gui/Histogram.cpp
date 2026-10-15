@@ -66,6 +66,7 @@ GCC_DIAG_UNUSED_PRIVATE_FIELD_ON
 #include "Gui/ViewerTab.h"
 #include "Gui/ZoomContext.h"
 #include "Gui/ticks.h"
+#include "Gui/QtEventCompat.h"
 
 #include <QOpenGLContext>
 
@@ -281,8 +282,7 @@ public:
     std::vector<double> viewerPickerColor;
 };
 
-Histogram::Histogram(Gui* gui,
-                     const QOpenGLWidget* shareWidget)
+Histogram::Histogram(Gui* gui)
     : QOpenGLWidget(gui)
     , PanelWidget(this, gui)
     , _imp( new HistogramPrivate(this) )
@@ -1265,7 +1265,7 @@ Histogram::mousePressEvent(QMouseEvent* e)
         _imp->state = eEventStateDraggingView;
         _imp->oldClick = e->pos();
     } else if ( buttonDownIsRight(e) ) {
-        _imp->showMenu( e->globalPos() );
+        _imp->showMenu( QtCompat::eventGlobalPos(e) );
     } else if ( ( (e->buttons() & Qt::MiddleButton) &&
                   ( ( buttonMetaAlt(e) == Qt::AltModifier) || (e->buttons() & Qt::LeftButton) ) ) ||
                 ( (e->buttons() & Qt::LeftButton) &&
@@ -1284,7 +1284,7 @@ Histogram::mouseMoveEvent(QMouseEvent* e)
     // always running in the main thread
     assert( qApp && qApp->thread() == QThread::currentThread() );
 
-    QPointF newClick_opengl = _imp->zoomCtx.toZoomCoordinates( e->x(), e->y() );
+    QPointF newClick_opengl = _imp->zoomCtx.toZoomCoordinates( QtCompat::eventPos(e).x(), QtCompat::eventPos(e).y() );
     QPointF oldClick_opengl = _imp->zoomCtx.toZoomCoordinates( _imp->oldClick.x(), _imp->oldClick.y() );
 
 
@@ -1301,12 +1301,12 @@ Histogram::mouseMoveEvent(QMouseEvent* e)
         computeHistogramAndRefresh();
         break;
     case eEventStateZoomingView: {
-        int delta = 2 * ( ( e->x() - _imp->oldClick.x() ) - ( e->y() - _imp->oldClick.y() ) );
+        int delta = 2 * ( ( QtCompat::eventPos(e).x() - _imp->oldClick.x() ) - ( QtCompat::eventPos(e).y() - _imp->oldClick.y() ) );
         const double zoomFactor_min = 0.000001;
         const double zoomFactor_max = 1000000.;
         double zoomFactor;
         double scaleFactor = std::pow( NATRON_WHEEL_ZOOM_PER_DELTA, delta); // no need to use ipow() here, because the result is not cast to int
-        QPointF zoomCenter = _imp->zoomCtx.toZoomCoordinates( e->x(), e->y() );
+        QPointF zoomCenter = _imp->zoomCtx.toZoomCoordinates( QtCompat::eventPos(e).x(), QtCompat::eventPos(e).y() );
 
 
         // Wheel: zoom values and time, keep point under mouse

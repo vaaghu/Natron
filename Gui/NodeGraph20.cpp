@@ -49,6 +49,7 @@ GCC_DIAG_UNUSED_PRIVATE_FIELD_ON
 #include "Gui/GuiApplicationManager.h"
 #include "Gui/GuiMacros.h"
 #include "Gui/NodeGui.h"
+#include "Gui/QtEventCompat.h"
 
 #include "Global/QtCompat.h"
 
@@ -500,7 +501,7 @@ NodeGraph::mouseMoveEvent(QMouseEvent* e)
         break;
     }
     case eEventStateZoomingArea: {
-        int delta = 2 * ( ( e->x() - _imp->_lastMousePos.x() ) - ( e->y() - _imp->_lastMousePos.y() ) );
+        int delta = 2 * ( ( QtCompat::eventPos(e).x() - _imp->_lastMousePos.x() ) - ( QtCompat::eventPos(e).y() - _imp->_lastMousePos.y() ) );
         setTransformationAnchor(QGraphicsView::AnchorViewCenter);
         wheelEventInternal(modCASIsControl(e), delta);
         setTransformationAnchor(QGraphicsView::AnchorUnderMouse);

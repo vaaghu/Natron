@@ -351,7 +351,7 @@ Gui::onDoDialog(int type,
         warning.setWindowFlags(warning.windowFlags() | Qt::WindowStaysOnTopHint);
         ignore_result( warning.exec() );
     } else if (type == 2) { // information dialog
-        if (msg.count() < 1000) {
+        if (msg.size() < 1000) {
             QMessageBox info(QMessageBox::Information, title, msg, QMessageBox::NoButton, this, Qt::Dialog | Qt::MSWindowsFixedSizeDialogHint | Qt::WindowStaysOnTopHint);
             setQMessageBoxAppropriateFont(&info);
             info.setTextFormat(Qt::RichText);

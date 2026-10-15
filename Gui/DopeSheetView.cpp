@@ -73,6 +73,7 @@
 #include "Gui/ViewerTab.h"
 #include "Gui/ZoomContext.h"
 #include "Gui/TabWidget.h"
+#include "Gui/QtEventCompat.h"
 
 #include <QOpenGLContext>
 
@@ -2171,7 +2172,7 @@ DopeSheetViewPrivate::computeGroupRange(DSNode *group)
 void
 DopeSheetViewPrivate::onMouseLeftButtonDrag(QMouseEvent *e)
 {
-    QPointF mouseZoomCoords = zoomContext.toZoomCoordinates( e->x(), e->y() );
+    QPointF mouseZoomCoords = zoomContext.toZoomCoordinates( QtCompat::eventPos(e).x(), QtCompat::eventPos(e).y() );
     QPointF lastZoomCoordsOnMousePress = zoomContext.toZoomCoordinates( lastPosOnMousePress.x(),
                                                                         lastPosOnMousePress.y() );
     QPointF lastZoomCoordsOnMouseMove = zoomContext.toZoomCoordinates( lastPosOnMouseMove.x(),
@@ -3330,7 +3331,7 @@ DopeSheetView::mousePressEvent(QMouseEvent *e)
         return;
     }
 
-    QPointF clickZoomCoords = _imp->zoomContext.toZoomCoordinates( e->x(), e->y() );
+    QPointF clickZoomCoords = _imp->zoomContext.toZoomCoordinates( QtCompat::eventPos(e).x(), QtCompat::eventPos(e).y() );
 
     if ( buttonDownIsLeft(e) ) {
         if ( !_imp->selectedKeysBRect.isNull() && _imp->isNearbySelectedKeysBRec( e->pos() ) ) {
@@ -3425,7 +3426,7 @@ DopeSheetView::mousePressEvent(QMouseEvent *e)
         } // if (!didSomething)
 
         if (!didSomething) {
-            QTreeWidgetItem *treeItem = _imp->hierarchyView->itemAt( 0, e->y() );
+            QTreeWidgetItem *treeItem = _imp->hierarchyView->itemAt( 0, QtCompat::eventPos(e).y() );
             //Did not find a range node, look for keyframes
             if (treeItem) {
                 DSTreeItemNodeMap dsNodeItems = _imp->model->getItemNodeMap();
@@ -3496,14 +3497,14 @@ DopeSheetView::mouseMoveEvent(QMouseEvent *e)
 {
     running_in_main_thread();
 
-    QPointF mouseZoomCoords = _imp->zoomContext.toZoomCoordinates( e->x(), e->y() );
+    QPointF mouseZoomCoords = _imp->zoomContext.toZoomCoordinates( QtCompat::eventPos(e).x(), QtCompat::eventPos(e).y() );
 
     if (e->buttons() == Qt::NoButton) {
         setCursor( _imp->getCursorDuringHover( e->pos() ) );
     } else if (_imp->eventState == DopeSheetView::esZoomingView) {
         _imp->zoomOrPannedSinceLastFit = true;
 
-        int deltaX = 2 * ( e->x() - _imp->lastPosOnMouseMove.x() );
+        int deltaX = 2 * ( QtCompat::eventPos(e).x() - _imp->lastPosOnMouseMove.x() );
         double scaleFactorX = std::pow( NATRON_WHEEL_ZOOM_PER_DELTA, deltaX);
         QPointF zoomCenter = _imp->zoomContext.toZoomCoordinates( _imp->lastPosOnMousePress.x(),
                                                                   _imp->lastPosOnMousePress.y() );

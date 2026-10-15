@@ -61,6 +61,7 @@ GCC_DIAG_UNUSED_PRIVATE_FIELD_ON
 #include "Gui/ViewerGL.h"
 #include "Gui/ViewerTab.h"
 #include "Gui/ticks.h"
+#include "Gui/QtEventCompat.h"
 
 #include <QOpenGLContext>
 
@@ -899,7 +900,7 @@ TimeLineGui::seek(SequenceTime time)
 void
 TimeLineGui::mousePressEvent(QMouseEvent* e)
 {
-    _imp->mousePressX = e->x();
+    _imp->mousePressX = QtCompat::eventPos(e).x();
     _imp->mouseMoveX = _imp->mousePressX;
     if ( buttonDownIsMiddle(e) ) {
         _imp->state = eTimelineStatePanning;
@@ -919,8 +920,8 @@ TimeLineGui::mousePressEvent(QMouseEvent* e)
             _imp->state = eTimelineStateDraggingBoundary;
             int firstPos = toWidget(leftBound - 1);
             int lastPos = toWidget(rightBound + 1);
-            int distFromFirst = std::abs(e->x() - firstPos);
-            int distFromLast = std::abs(e->x() - lastPos);
+            int distFromFirst = std::abs(QtCompat::eventPos(e).x() - firstPos);
+            int distFromLast = std::abs(QtCompat::eventPos(e).x() - lastPos);
             if (distFromFirst  > distFromLast) {
                 setBoundariesInternal(leftBound, tseq, true); // moving last frame anchor
             } else {
@@ -939,7 +940,7 @@ TimeLineGui::mouseMoveEvent(QMouseEvent* e)
     int mouseMoveXprev = _imp->mouseMoveX;
 
     _imp->lastMouseEventWidgetCoord = e->pos();
-    _imp->mouseMoveX = e->x();
+    _imp->mouseMoveX = QtCompat::eventPos(e).x();
     const double t = toTimeLine(_imp->mouseMoveX);
     SequenceTime tseq = std::floor(t + 0.5);
     bool distortViewPort = false;
@@ -973,8 +974,8 @@ TimeLineGui::mouseMoveEvent(QMouseEvent* e)
         }
         int firstPos = toWidget(leftBound - 1);
         int lastPos = toWidget(rightBound + 1);
-        int distFromFirst = std::abs(e->x() - firstPos);
-        int distFromLast = std::abs(e->x() - lastPos);
+        int distFromFirst = std::abs(QtCompat::eventPos(e).x() - firstPos);
+        int distFromLast = std::abs(QtCompat::eventPos(e).x() - lastPos);
         if (distFromFirst  > distFromLast) { // moving last frame anchor
             if (leftBound <= tseq) {
                 setBoundariesInternal(leftBound, tseq, true);
@@ -1029,7 +1030,7 @@ TimeLineGui::mouseReleaseEvent(QMouseEvent* e)
         // - if the last selected frame is the same as the first selected frame, zoom on the PROJECT range
         //   (NOT the playback range as in the following, and NOT adding margins as centerOn() does)
         // - if they are different, zoom on that range
-        double t = toTimeLine( e->x() );
+        double t = toTimeLine( QtCompat::eventPos(e).x() );
         int leftBound = std::floor(t + 0.5);
         int rightBound = std::floor(toTimeLine(_imp->mousePressX) + 0.5);
         if (leftBound > rightBound) {
@@ -1065,7 +1066,7 @@ TimeLineGui::mouseReleaseEvent(QMouseEvent* e)
 
 
         if (onEditingFinishedOnly) {
-            double t = toTimeLine( e->x() );
+            double t = toTimeLine( QtCompat::eventPos(e).x() );
             SequenceTime tseq = std::floor(t + 0.5);
             if ( ( tseq != _imp->timeline->currentFrame() ) ) {
                 _imp->gui->getApp()->setLastViewerUsingTimeline( _imp->viewer->getNode() );

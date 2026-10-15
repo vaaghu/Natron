@@ -64,6 +64,7 @@ GCC_DIAG_UNUSED_PRIVATE_FIELD_ON
 #include "Gui/PythonPanels.h" // PyModelDialog
 #include "Gui/TabWidget.h"
 #include "Gui/ViewerGL.h"
+#include "Gui/QtEventCompat.h"
 
 #include <QOpenGLContext>
 
@@ -112,8 +113,7 @@ CurveWidget::getUndoStack() const
 CurveWidget::CurveWidget(Gui* gui,
                          CurveSelection* selection,
                          TimeLinePtr timeline,
-                         QWidget* parent,
-                         const QOpenGLWidget* shareWidget)
+                         QWidget* parent)
     : QOpenGLWidget(parent)
     , _imp( new CurveWidgetPrivate(gui, selection, timeline, this) )
 {
@@ -803,7 +803,7 @@ CurveWidget::mouseDoubleClickEvent(QMouseEvent* e)
         int dialogW = dialog->sizeHint().width();
         QScreen* desktop = QGuiApplication::primaryScreen();
         QRect screen = desktop->availableGeometry();
-        QPoint gP = e->globalPos();
+        QPoint gP = QtCompat::eventGlobalPos(e);
         if ( gP.x() > (screen.width() - dialogW) ) {
             gP.rx() -= dialogW;
         }
@@ -1252,7 +1252,7 @@ CurveWidget::mouseMoveEvent(QMouseEvent* e)
         }
     }
 
-    QPointF newClick_opengl = _imp->zoomCtx.toZoomCoordinates( e->x(), e->y() );
+    QPointF newClick_opengl = _imp->zoomCtx.toZoomCoordinates( QtCompat::eventPos(e).x(), QtCompat::eventPos(e).y() );
     QPointF oldClick_opengl = _imp->zoomCtx.toZoomCoordinates( _imp->_lastMousePos.x(), _imp->_lastMousePos.y() );
     double dx = ( oldClick_opengl.x() - newClick_opengl.x() );
     double dy = ( oldClick_opengl.y() - newClick_opengl.y() );
@@ -1294,7 +1294,7 @@ CurveWidget::mouseMoveEvent(QMouseEvent* e)
         }
         break;
     case eEventStateSelecting:
-        _imp->refreshSelectionRectangle( (double)e->x(), (double)e->y() );
+        _imp->refreshSelectionRectangle( (double)QtCompat::eventPos(e).x(), (double)QtCompat::eventPos(e).y() );
         break;
 
     case eEventStateDraggingTangent:
@@ -1313,8 +1313,8 @@ CurveWidget::mouseMoveEvent(QMouseEvent* e)
         if ( (_imp->zoomCtx.screenWidth() > 0) && (_imp->zoomCtx.screenHeight() > 0) ) {
             _imp->zoomOrPannedSinceLastFit = true;
 
-            int deltaX = 2 * ( e->x() - _imp->_lastMousePos.x() );
-            int deltaY = -2 * ( e->y() - _imp->_lastMousePos.y() );
+            int deltaX = 2 * ( QtCompat::eventPos(e).x() - _imp->_lastMousePos.x() );
+            int deltaY = -2 * ( QtCompat::eventPos(e).y() - _imp->_lastMousePos.y() );
             // Wheel: zoom values and time, keep point under mouse
             double scaleFactorX = std::pow( NATRON_WHEEL_ZOOM_PER_DELTA, deltaX);
             double scaleFactorY = std::pow( NATRON_WHEEL_ZOOM_PER_DELTA, deltaY);

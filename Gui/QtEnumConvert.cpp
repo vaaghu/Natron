@@ -30,6 +30,9 @@
 
 NATRON_NAMESPACE_ENTER
 
+// Qt::Key_mu is deprecated in Qt 6, where it is named Qt::Key_micro, which Qt 5 does not have
+static constexpr Qt::Key kQtKeyMicro = Qt::Key(0x0b5);
+
 ///what a painful mapping!
 Key
 QtEnumConvert::fromQtKey(Qt::Key k)
@@ -569,7 +572,7 @@ QtEnumConvert::fromQtKey(Qt::Key k)
     case Qt::Key_acute:
 
         return Key_acute;
-    case Qt::Key_mu:
+    case kQtKeyMicro:
 
         return Key_mu;
     case Qt::Key_paragraph:
@@ -1251,7 +1254,7 @@ QtEnumConvert::toQtKey(Key k)
         return Qt::Key_acute;
     case Key_mu:
 
-        return Qt::Key_mu;
+        return kQtKeyMicro;
     case Key_paragraph:
 
         return Qt::Key_paragraph;

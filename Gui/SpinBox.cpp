@@ -53,6 +53,7 @@ GCC_DIAG_UNUSED_PRIVATE_FIELD_ON
 #include "Gui/KnobGui.h"
 #include "Gui/KnobWidgetDnD.h"
 #include "Gui/SpinBoxValidator.h"
+#include "Gui/QtEventCompat.h"
 
 #define SPINBOX_MAX_WIDTH 50
 #define SPINBOX_MIN_WIDTH 35
@@ -826,7 +827,7 @@ SpinBox::mouseMoveEvent(QMouseEvent *e)
              isReadOnly() ||
              !hasFocus() ) {
             // Multiply by some amount to resemble a wheel event
-            int delta = ( e->x() - _imp->lastMousePos.x() ) * 3;
+            int delta = ( QtCompat::eventPos(e).x() - _imp->lastMousePos.x() ) * 3;
             int shift = 0;
             if ( modCASIsShift(e) ) {
                 shift = 1;

@@ -77,6 +77,7 @@ CLANG_DIAG_ON(deprecated)
 #include "Gui/ScriptEditor.h"
 #include "Gui/Splitter.h"
 #include "Gui/ViewerTab.h"
+#include "Gui/QtEventCompat.h"
 
 #define LEFT_HAND_CORNER_BUTTON_TT "Manage the layouts for this pane"
 
@@ -1451,7 +1452,7 @@ TabBar::mouseMoveEvent(QMouseEvent* e)
     }
 
     if ( _tabWidget->getGui()->isDraggingPanel() ) {
-        const QPoint & globalPos = e->globalPos();
+        const QPoint & globalPos = QtCompat::eventGlobalPos(e);
         QWidget* widgetUnderMouse = qApp->widgetAt(globalPos);
         if (widgetUnderMouse) {
             TabWidget* topLvlTabWidget = findTabWidgetRecursive(widgetUnderMouse);
@@ -1496,7 +1497,7 @@ TabBar::mouseMoveEvent(QMouseEvent* e)
         _tabWidget->startDragTab(selectedTabIndex);
 
         _dragPix = new DragPixmap( pixmap, e->pos() );
-        _dragPix->update( e->globalPos() );
+        _dragPix->update( QtCompat::eventGlobalPos(e) );
         _dragPix->show();
         grabMouse();
     }
@@ -1568,7 +1569,7 @@ TabBar::mouseReleaseEvent(QMouseEvent* e)
 
     if ( _tabWidget->getGui()->isDraggingPanel() ) {
         releaseMouse();
-        const QPoint & p = e->globalPos();
+        const QPoint & p = QtCompat::eventGlobalPos(e);
         hasClosedTabWidget = _tabWidget->stopDragTab(p);
         _dragPix->hide();
         delete _dragPix;
@@ -2041,7 +2042,7 @@ TabWidget::mouseMoveEvent(QMouseEvent* e)
 {
     if (!_imp->tabBarVisible) {
         QSize size = _imp->header->sizeHint();
-        if ( e->y() <= (size.height() * 1.2) ) {
+        if ( QtCompat::eventPos(e).y() <= (size.height() * 1.2) ) {
             if ( !_imp->header->isVisible() ) {
                 _imp->header->setVisible(true);
             }
@@ -2052,7 +2053,7 @@ TabWidget::mouseMoveEvent(QMouseEvent* e)
         }
     }
     if ( _imp->gui && _imp->gui->isLeftToolBarDisplayedOnMouseHoverOnly() ) {
-        _imp->gui->refreshLeftToolBarVisibility( e->globalPos() );
+        _imp->gui->refreshLeftToolBarVisibility( QtCompat::eventGlobalPos(e) );
     }
     QFrame::mouseMoveEvent(e);
 }

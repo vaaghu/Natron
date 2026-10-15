@@ -42,6 +42,7 @@
 #include "Gui/AnimatedCheckBox.h"
 #include "Gui/ComboBox.h"
 #include "Gui/SpinBox.h"
+#include "Gui/QtEventCompat.h"
 
 NATRON_NAMESPACE_ENTER
 
@@ -1391,7 +1392,7 @@ TableView::dropEvent(QDropEvent* e)
     case QAbstractItemView::BelowItem:
         break;
     }
-    TableItem* into = itemAt( e->pos() );
+    TableItem* into = itemAt( QtCompat::eventPos(e) );
 
     if ( !into || _imp->draggedItems.empty() ) {
         return;

@@ -41,6 +41,7 @@ GCC_DIAG_UNUSED_PRIVATE_FIELD_ON
 #include "Gui/Histogram.h"
 #include "Gui/NodeGraph.h"
 #include "Gui/ViewerGL.h"
+#include "Gui/QtEventCompat.h"
 
 NATRON_NAMESPACE_ENTER
 
@@ -48,7 +49,7 @@ void
 RightClickableWidget::mousePressEvent(QMouseEvent* e)
 {
     if ( buttonDownIsRight(e) ) {
-        QWidget* underMouse = qApp->widgetAt( e->globalPos() );
+        QWidget* underMouse = qApp->widgetAt( QtCompat::eventGlobalPos(e) );
         if (underMouse == this) {
             Q_EMIT rightClicked( e->pos() );
             e->accept();

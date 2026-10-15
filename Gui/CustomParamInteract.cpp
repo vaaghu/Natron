@@ -39,6 +39,7 @@
 #include "Gui/Gui.h"
 #include "Gui/QtEnumConvert.h"
 #include "Gui/GuiApplicationManager.h"
+#include "Gui/QtEventCompat.h"
 
 #include "Engine/OfxOverlayInteract.h"
 #include "Engine/Knob.h"
@@ -323,8 +324,8 @@ CustomParamInteract::mousePressEvent(QMouseEvent* e)
     double time = _imp->knob.lock()->getKnob()->getHolder()->getApp()->getTimeLine()->currentFrame();
     OfxPointD pos;
     OfxPointI viewportPos;
-    pos.x = e->x();
-    pos.y = height() - 1 - e->y();
+    pos.x = QtCompat::eventPos(e).x();
+    pos.y = height() - 1 - QtCompat::eventPos(e).y();
     viewportPos.x = pos.x;
     viewportPos.y = pos.y;
     OfxStatus stat = _imp->entryPoint->penDownAction(time, scale, /*view=*/ 0, _imp->entryPoint->hasColorPicker() ? &_imp->entryPoint->getLastColorPickerColor() : /*colourPicker=*/0, pos, viewportPos, /*pressure=*/ 1.);
@@ -342,8 +343,8 @@ CustomParamInteract::mouseMoveEvent(QMouseEvent* e)
     double time = _imp->knob.lock()->getKnob()->getHolder()->getApp()->getTimeLine()->currentFrame();
     OfxPointD pos;
     OfxPointI viewportPos;
-    pos.x = e->x();
-    pos.y = height() - 1 - e->y();
+    pos.x = QtCompat::eventPos(e).x();
+    pos.y = height() - 1 - QtCompat::eventPos(e).y();
     viewportPos.x = pos.x;
     viewportPos.y = pos.y;
     OfxStatus stat = _imp->entryPoint->penMotionAction(time, scale, /*view=*/ 0, _imp->entryPoint->hasColorPicker() ? &_imp->entryPoint->getLastColorPickerColor() : /*colourPicker=*/0, pos, viewportPos, /*pressure=*/ 1.);
@@ -361,8 +362,8 @@ CustomParamInteract::mouseReleaseEvent(QMouseEvent* e)
     double time = _imp->knob.lock()->getKnob()->getHolder()->getApp()->getTimeLine()->currentFrame();
     OfxPointD pos;
     OfxPointI viewportPos;
-    pos.x = e->x();
-    pos.y = height() - 1 - e->y();
+    pos.x = QtCompat::eventPos(e).x();
+    pos.y = height() - 1 - QtCompat::eventPos(e).y();
     viewportPos.x = pos.x;
     viewportPos.y = pos.y;
     OfxStatus stat = _imp->entryPoint->penUpAction(time, scale, /*view=*/ 0, _imp->entryPoint->hasColorPicker() ? &_imp->entryPoint->getLastColorPickerColor() : /*colourPicker=*/0, pos, viewportPos, /*pressure=*/ 1.);

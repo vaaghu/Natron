@@ -361,6 +361,7 @@ HEADERS += \
     PythonPanels.h \
     QtColorTriangle.h \
     QtEnumConvert.h \
+    QtEventCompat.h \
     RegisteredTabs.h \
     RenderStatsDialog.h \
     ResizableMessageBox.h \

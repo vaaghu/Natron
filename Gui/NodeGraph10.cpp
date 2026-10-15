@@ -50,6 +50,7 @@ GCC_DIAG_UNUSED_PRIVATE_FIELD_ON
 #include "Gui/GuiMacros.h"
 #include "Gui/NodeGui.h"
 #include "Gui/NodeSettingsPanel.h"
+#include "Gui/QtEventCompat.h"
 
 #include "Global/QtCompat.h"
 
@@ -240,8 +241,8 @@ NodeGraph::mousePressEvent(QMouseEvent* e)
             int ih = _imp->unlockIcon.height();
             int w = width();
             int offset = 20;
-            if ( ( e->x() >= (w - iw - 10 - offset) ) && ( e->x() <= (w - 10 + offset) ) &&
-                 ( e->y() >= (10 - offset) ) && ( e->y() <= (10 + ih + offset) ) ) {
+            if ( ( QtCompat::eventPos(e).x() >= (w - iw - 10 - offset) ) && ( QtCompat::eventPos(e).x() <= (w - 10 + offset) ) &&
+                 ( QtCompat::eventPos(e).y() >= (10 - offset) ) && ( QtCompat::eventPos(e).y() <= (10 + ih + offset) ) ) {
                 assert(isGroup);
                 isGroup->getNode()->setPyPlugEdited(true);
                 NodesList nodes = isGroup->getNodes();

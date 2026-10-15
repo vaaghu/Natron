@@ -81,6 +81,7 @@ GCC_DIAG_UNUSED_PRIVATE_FIELD_ON
 #include "Gui/Shaders.h"
 #include "Gui/TabWidget.h"
 #include "Gui/ViewerTab.h"
+#include "Gui/QtEventCompat.h"
 
 #include <QOpenGLContext>
 
@@ -113,8 +114,7 @@ GCC_DIAG_UNUSED_PRIVATE_FIELD_ON
 NATRON_NAMESPACE_ENTER
 
 
-ViewerGL::ViewerGL(ViewerTab* parent,
-                   const QOpenGLWidget* shareWidget)
+ViewerGL::ViewerGL(ViewerTab* parent)
     : QOpenGLWidget(parent)
     , _imp( new Implementation(this, parent) )
 {
@@ -1720,8 +1720,6 @@ ViewerGL::setLut(int lut)
     _imp->displayingImageLut = (ViewerColorSpaceEnum)lut;
 }
 
-#define QMouseEventLocalPos(e) ( e->localPos() )
-
 void
 ViewerGL::mousePressEvent(QMouseEvent* e)
 {
@@ -1763,7 +1761,7 @@ ViewerGL::mousePressEvent(QMouseEvent* e)
     double zoomScreenPixelWidth, zoomScreenPixelHeight; // screen pixel size in zoom coordinates
     {
         QMutexLocker l(&_imp->zoomCtxMutex);
-        zoomPos = _imp->zoomCtx.toZoomCoordinates( e->x(), e->y() );
+        zoomPos = _imp->zoomCtx.toZoomCoordinates( QtCompat::eventPos(e).x(), QtCompat::eventPos(e).y() );
         zoomScreenPixelWidth = _imp->zoomCtx.screenPixelWidth();
         zoomScreenPixelHeight = _imp->zoomCtx.screenPixelHeight();
     }
@@ -1843,7 +1841,7 @@ ViewerGL::mousePressEvent(QMouseEvent* e)
     if (!overlaysCaught &&
         (_imp->ms == eMouseStateUndefined) &&
         _imp->overlay) {
-        overlaysCaught = _imp->viewerTab->notifyOverlaysPenDown(RenderScale::fromMipmapLevel(getCurrentMipmapLevel()), _imp->pointerTypeOnPress, QMouseEventLocalPos(e), zoomPos, _imp->pressureOnPress, currentTimeForEvent(e));
+        overlaysCaught = _imp->viewerTab->notifyOverlaysPenDown(RenderScale::fromMipmapLevel(getCurrentMipmapLevel()), _imp->pointerTypeOnPress, QtCompat::eventPosF(e), zoomPos, _imp->pressureOnPress, currentTimeForEvent(e));
         if (overlaysCaught) {
             mustRedraw = true;
         }
@@ -1854,7 +1852,7 @@ ViewerGL::mousePressEvent(QMouseEvent* e)
         displayingImage() ) {
         // picker with single-point selection
         _imp->pickerState = ePickerStatePoint;
-        if ( pickColor( e->x(), e->y(), false ) ) {
+        if ( pickColor( QtCompat::eventPos(e).x(), QtCompat::eventPos(e).y(), false ) ) {
             _imp->ms = eMouseStatePickingColor;
             mustRedraw = true;
             overlaysCaught = true;
@@ -1866,7 +1864,7 @@ ViewerGL::mousePressEvent(QMouseEvent* e)
         displayingImage() ) {
         // picker with single-point selection
         _imp->pickerState = ePickerStatePoint;
-        if ( pickColor( e->x(), e->y(), true ) ) {
+        if ( pickColor( QtCompat::eventPos(e).x(), QtCompat::eventPos(e).y(), true ) ) {
             _imp->ms = eMouseStatePickingInputColor;
             mustRedraw = true;
             overlaysCaught = true;
@@ -2041,9 +2039,9 @@ ViewerGL::mouseReleaseEvent(QMouseEvent* e)
     QPointF zoomPos;
     {
         QMutexLocker l(&_imp->zoomCtxMutex);
-        zoomPos = _imp->zoomCtx.toZoomCoordinates( e->x(), e->y() );
+        zoomPos = _imp->zoomCtx.toZoomCoordinates( QtCompat::eventPos(e).x(), QtCompat::eventPos(e).y() );
     }
-    if ( _imp->viewerTab->notifyOverlaysPenUp(RenderScale::fromMipmapLevel(getCurrentMipmapLevel()), QMouseEventLocalPos(e), zoomPos, currentTimeForEvent(e), _imp->pressureOnRelease) ) {
+    if ( _imp->viewerTab->notifyOverlaysPenUp(RenderScale::fromMipmapLevel(getCurrentMipmapLevel()), QtCompat::eventPosF(e), zoomPos, currentTimeForEvent(e), _imp->pressureOnRelease) ) {
         mustRedraw = true;
     }
     if (mustRedraw) {
@@ -2059,7 +2057,7 @@ ViewerGL::mouseReleaseEvent(QMouseEvent* e)
 void
 ViewerGL::mouseMoveEvent(QMouseEvent* e)
 {
-    if ( !penMotionInternal(e->x(), e->y(), /*pressure=*/ 1., currentTimeForEvent(e), e) ) {
+    if ( !penMotionInternal(QtCompat::eventPos(e).x(), QtCompat::eventPos(e).y(), /*pressure=*/ 1., currentTimeForEvent(e), e) ) {
         QOpenGLWidget::mouseMoveEvent(e);
     }
 } // mouseMoveEvent
@@ -2108,7 +2106,7 @@ ViewerGL::tabletEvent(QTabletEvent* e)
         break;
     }
     case QEvent::TabletMove: {
-        if ( !penMotionInternal(e->x(), e->y(), pressure, currentTimeForEvent(e), e) ) {
+        if ( !penMotionInternal(QtCompat::eventPos(e).x(), QtCompat::eventPos(e).y(), pressure, currentTimeForEvent(e), e) ) {
             QOpenGLWidget::tabletEvent(e);
         } else {
             e->accept();
@@ -2509,9 +2507,9 @@ ViewerGL::mouseDoubleClickEvent(QMouseEvent* e)
     QPointF pos_opengl;
     {
         QMutexLocker l(&_imp->zoomCtxMutex);
-        pos_opengl = _imp->zoomCtx.toZoomCoordinates( e->x(), e->y() );
+        pos_opengl = _imp->zoomCtx.toZoomCoordinates( QtCompat::eventPos(e).x(), QtCompat::eventPos(e).y() );
     }
-    if ( _imp->viewerTab->notifyOverlaysPenDoubleClick(RenderScale::fromMipmapLevel(getCurrentMipmapLevel()), QMouseEventLocalPos(e), pos_opengl) ) {
+    if ( _imp->viewerTab->notifyOverlaysPenDoubleClick(RenderScale::fromMipmapLevel(getCurrentMipmapLevel()), QtCompat::eventPosF(e), pos_opengl) ) {
         update();
     }
     QOpenGLWidget::mouseDoubleClickEvent(e);

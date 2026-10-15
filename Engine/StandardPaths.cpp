@@ -79,8 +79,23 @@ StandardPaths::writableLocation(StandardLocationEnum type)
     case StandardPaths::eStandardLocationCache:
         path = QStandardPaths::CacheLocation;
         break;
-    default:
+    case StandardPaths::eStandardLocationGenericData:
+        path = QStandardPaths::GenericDataLocation;
         break;
+    case StandardPaths::eStandardLocationRuntime:
+        path = QStandardPaths::RuntimeLocation;
+        break;
+    case StandardPaths::eStandardLocationConfig:
+        path = QStandardPaths::ConfigLocation;
+        break;
+    case StandardPaths::eStandardLocationDownload:
+        path = QStandardPaths::DownloadLocation;
+        break;
+    case StandardPaths::eStandardLocationGenericCache:
+        path = QStandardPaths::GenericCacheLocation;
+        break;
+    default:
+        return QString();
     }
 
     return QStandardPaths::writableLocation(path);

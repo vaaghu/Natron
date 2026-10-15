@@ -18,8 +18,16 @@
 # The packages are never upgraded (no pacman -Syu): a newer MSYS2 Python
 # would no longer load the PySide and Shiboken built for the current one.
 #
+# Qt 6 (the default for sources without the Qt 4 bindings, Engine/Qt4):
+# MSYS2's Qt 6 and PySide6 packages instead of the Natron SDK's Qt 4, PySide
+# and Shiboken. MSYS2 builds PySide6 for its current Python: when the installed
+# Python is older, Qt 6 needs a full MSYS2 update first (pacman -Syu), which
+# this script does not do (see above); after it, the SDK packages built for
+# the old Python must be rebuilt.
+#
 # Options:
-#   --check    only report what is missing, change nothing
+#   --check            only report what is missing, change nothing
+#   --qt4, --qt5, --qt6  Qt to set up for (default: as scripts/natron-build.sh)
 
 set -euo pipefail
 
@@ -30,9 +38,13 @@ WIN_SDK_ID="Microsoft.WindowsSDK.10.0.26100"
 WIN_KITS="/c/Program Files (x86)/Windows Kits/10/bin"
 
 CHECK=0
+QT=""
 for arg in "$@"; do
     case "$arg" in
         --check) CHECK=1 ;;
+        --qt4) QT=4 ;;
+        --qt5) QT=5 ;;
+        --qt6) QT=6 ;;
         *) echo "Unknown option: $arg" >&2; exit 1 ;;
     esac
 done
@@ -42,6 +54,10 @@ if [ "${MSYSTEM:-}" != "MINGW64" ]; then
     exit 1
 fi
 
+if [ -z "$QT" ]; then
+    QT="$([ -d "$SRC/Engine/Qt4" ] && echo 4 || echo 6)"
+fi
+echo "Setting up for Qt $QT"
 MISSING=() # what could not be set up, reported at the end
 
 step() {
@@ -58,6 +74,20 @@ not_installed() {
 step "MSYS2 packages"
 mapfile -t wanted < <(tr -d '\r' < "$PKG_DIR/msys2.txt" | grep -v '^$')
 wanted+=(zip unzip rsync)
+if [ "$QT" -ge 6 ]; then
+    # MSYS2's PySide6 is built for the Python of the repositories: installing
+    # it next to an older Python would give modules that do not load.
+    py_installed="$(pacman -Q "${PREFIX}python" 2>/dev/null | awk '{print $2}' | cut -d. -f1,2)"
+    py_repo="$(pacman -Si "${PREFIX}python" 2>/dev/null | awk '$1 == "Version" {print $3}' | cut -d. -f1,2)"
+    if [ -n "$py_installed" ] && [ -n "$py_repo" ] && [ "$py_installed" != "$py_repo" ]; then
+        echo "Qt 6: MSYS2's PySide6 is built for Python $py_repo, this MSYS2 has Python $py_installed"
+        MISSING+=("Qt 6: update MSYS2 first (pacman -Syu, twice; then rebuild the SDK packages of step 2), MSYS2's PySide6 needs Python $py_repo, not $py_installed")
+    else
+        for p in qt6-base qt6-svg qt6-imageformats pyside6 shiboken6; do
+            wanted+=("$PREFIX$p")
+        done
+    fi
+fi
 mapfile -t todo < <(not_installed "${wanted[@]}")
 install=()
 for p in "${todo[@]}"; do
@@ -83,6 +113,9 @@ fi
 step "Natron SDK packages"
 # Prebuilt packages, downloaded like get.sh does.
 PREBUILT="qt4 natron-setup osmesa imath openexr imagemagick libraw-gpl2 seexpr-git sox"
+if [ "$QT" -ge 6 ]; then
+    PREBUILT="${PREBUILT#qt4 }" # Qt 6 comes from MSYS2 (step 1)
+fi
 GET_URL="https://sourceforge.net/projects/natron/files/MINGW-packages/current"
 DOWNLOADS="$PKG_DIR/tmp-current"
 for name in $PREBUILT; do
@@ -107,6 +140,9 @@ done
 # Python: the prebuilt ones of get.sh are for an older Python and do not load.
 # They are built from their PKGBUILD in tools/MINGW-packages (makepkg-mingw).
 BUILT="natron_shiboken natron_pyside natron_openimageio natron_opencolorio-git natron_ffmpeg-gpl2 natron_x264 natron_poppler"
+if [ "$QT" -ge 6 ]; then
+    BUILT="${BUILT#natron_shiboken natron_pyside }" # Qt 4's: PySide6 comes from MSYS2
+fi
 for name in $BUILT; do
     if [ -z "$(not_installed "$PREFIX$name")" ]; then
         echo "installed: $PREFIX$name"
@@ -188,9 +224,16 @@ fi
 # Summary
 step "Summary"
 echo "gcc:     $(gcc -dumpfullversion 2>/dev/null || echo missing)"
-echo "Qt:      $(pkg-config --modversion QtCore 2>/dev/null || echo missing)"
+if [ "$QT" -ge 6 ]; then
+    echo "Qt:      $(qmake6 -query QT_VERSION 2>/dev/null || echo missing)"
+    echo "PySide6: $(python3 -c 'import PySide6; print(PySide6.__version__)' 2>/dev/null || echo missing)"
+    TOOLS="cmake ninja shiboken6 zip rsync" # Qt 6 builds use CMake
+else
+    echo "Qt:      $(pkg-config --modversion QtCore 2>/dev/null || echo missing)"
+    TOOLS="qmake zip rsync"
+fi
 echo "Python:  $(python3 -c 'import platform; print(platform.python_version())' 2>/dev/null || echo missing)"
-for tool in qmake zip rsync; do
+for tool in $TOOLS; do
     command -v "$tool" >/dev/null || MISSING+=("$tool")
 done
 if [ ${#MISSING[@]} -eq 0 ]; then

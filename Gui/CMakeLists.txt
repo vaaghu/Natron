@@ -102,6 +102,6 @@ target_include_directories(NatronGui
 target_compile_definitions(NatronGui
     PRIVATE
         NATRON_CUSTOM_BUILD_USER_TOKEN=${BUILD_USER_NAME}
-        NATRON_BUILD_NUMBER=0
+        ${NATRON_VERSION_DEFINITIONS}
         QT_NO_KEYWORDS
 )

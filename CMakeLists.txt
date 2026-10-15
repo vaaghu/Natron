@@ -42,6 +42,19 @@ endif()
 option(NATRON_SYSTEM_LIBS "use system versions of dependencies instead of bundled ones" OFF)
 option(NATRON_BUILD_TESTS "build the Natron test suite" ON)
 
+# Version of official builds, as qmake's CONFIG+=snapshot/alpha/beta/RC/stable
+# and BUILD_NUMBER=N (see Global/Macros.h): used by tools/jenkins/build-natron.sh.
+set(NATRON_BUILD_CONFIG "" CACHE STRING "SNAPSHOT, ALPHA, BETA, RC or STABLE (official builds only)")
+set(NATRON_BUILD_NUMBER 0 CACHE STRING "build number of ALPHA, BETA and RC builds")
+set(NATRON_VERSION_DEFINITIONS NATRON_BUILD_NUMBER=${NATRON_BUILD_NUMBER})
+if(NATRON_BUILD_CONFIG)
+    string(TOUPPER "${NATRON_BUILD_CONFIG}" _natron_build_config)
+    if(NOT _natron_build_config MATCHES "^(SNAPSHOT|ALPHA|BETA|RC|STABLE)$")
+        message(FATAL_ERROR "NATRON_BUILD_CONFIG must be SNAPSHOT, ALPHA, BETA, RC or STABLE, not ${NATRON_BUILD_CONFIG}")
+    endif()
+    list(APPEND NATRON_VERSION_DEFINITIONS NATRON_CONFIG_${_natron_build_config})
+endif()
+
 set(IS_DEBUG_BUILD OFF)
 if(CMAKE_BUILD_TYPE MATCHES "^(debug|Debug|DEBUG)$")
     set(IS_DEBUG_BUILD ON)

@@ -15,7 +15,7 @@
 #include <QImage>
 #include <QPainter>
 #include <QProcessEnvironment>
-#include <QRegExp>
+#include <QRegularExpression>
 #include <QThread>
 #include <QVariantMap>
 
@@ -594,28 +594,28 @@ void SceneRenderer::onOutput()
 void SceneRenderer::parseOutputLine(Run *run, const QString &line)
 {
   // "Write1 ==> Frame: 12, Progress: 60.0%, 14.2 Fps, Time Remaining: 3 seconds"
-  static const QRegExp frameLine(QString::fromUtf8(
+  static const QRegularExpression frameLine(QString::fromUtf8(
       "^(\\S+) ==> Frame: (-?\\d+), Progress: ([0-9.]+)%, ([0-9.]+) Fps, Time Remaining: (.*)$"));
   // "Write1 ==> Rendering started" / "Write1 ==> Rendering finished"
-  static const QRegExp stateLine(QString::fromUtf8("^(\\S+) ==> Rendering (started|finished)$"));
+  static const QRegularExpression stateLine(QString::fromUtf8("^(\\S+) ==> Rendering (started|finished)$"));
 
-  QRegExp frame(frameLine);
-  QRegExp state(stateLine);
+  const QRegularExpressionMatch frame = frameLine.match(line);
+  const QRegularExpressionMatch state = frame.hasMatch() ? QRegularExpressionMatch() : stateLine.match(line);
   RenderProgress &progress = run->progress;
 
-  if (frame.exactMatch(line))
+  if (frame.hasMatch())
   {
-    progress.currentFrame = frame.cap(2).toInt();
-    progress.node = frame.cap(1);
-    progress.percent = frame.cap(3).toDouble();
-    progress.fps = frame.cap(4).toDouble();
-    progress.timeRemaining = frame.cap(5).trimmed();
+    progress.currentFrame = frame.captured(2).toInt();
+    progress.node = frame.captured(1);
+    progress.percent = frame.captured(3).toDouble();
+    progress.fps = frame.captured(4).toDouble();
+    progress.timeRemaining = frame.captured(5).trimmed();
     Q_EMIT progressChanged(run->job.sceneId, run->job.item);
   }
-  else if (state.exactMatch(line))
+  else if (state.hasMatch())
   {
-    progress.node = state.cap(1);
-    if (state.cap(2) == QString::fromUtf8("started"))
+    progress.node = state.captured(1);
+    if (state.captured(2) == QString::fromUtf8("started"))
     {
       progress.percent = 0;
       progress.timeRemaining.clear();

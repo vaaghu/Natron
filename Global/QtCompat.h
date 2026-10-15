@@ -26,6 +26,7 @@
 #include <QtCore/QString>
 #include <QtCore/QUrl>
 #include <QtCore/QFileInfo>
+#include <QtCore/QRegularExpression>
 
 NATRON_NAMESPACE_ENTER
 
@@ -51,6 +52,68 @@ removeFileExtension(QString & filename)
 // See https://bugreports.qt.io/browse/QTBUG-40449
 inline QUrl
 toLocalFileUrlFixed(const QUrl& url) { return url; }
+
+/* Converts a wildcard pattern to an anchored QRegularExpression pattern,
+ * matching like QRegExp::Wildcard (or QRegExp::WildcardUnix with
+ * unixEscapes, where a backslash escapes the next character):
+ * '*' and '?' also match '/', unlike QRegularExpression::wildcardToRegularExpression
+ * in Qt 5, and "[...]"/"[!...]" sets are kept.*/
+inline QString
+wildcardToRegularExpression(const QString & wildcard,
+                            bool unixEscapes = false)
+{
+    QString rx;
+    const int n = wildcard.size();
+
+    for (int i = 0; i < n; ++i) {
+        const QChar c = wildcard.at(i);
+        if ( unixEscapes && ( c == QLatin1Char('\\') ) && (i + 1 < n) ) {
+            ++i;
+            rx += QRegularExpression::escape( QString( wildcard.at(i) ) );
+        } else if ( c == QLatin1Char('*') ) {
+            rx += QLatin1String(".*");
+        } else if ( c == QLatin1Char('?') ) {
+            rx += QLatin1Char('.');
+        } else if ( c == QLatin1Char('[') ) {
+            int j = i + 1;
+            if ( (j < n) && ( wildcard.at(j) == QLatin1Char('!') ) ) {
+                ++j;
+            }
+            if ( (j < n) && ( wildcard.at(j) == QLatin1Char(']') ) ) {
+                ++j;
+            }
+            while ( (j < n) && ( wildcard.at(j) != QLatin1Char(']') ) ) {
+                ++j;
+            }
+            if (j >= n) {
+                rx += QLatin1String("\\[");
+            } else {
+                QString set = wildcard.mid(i + 1, j - i - 1);
+                if ( set.startsWith( QLatin1Char('!') ) ) {
+                    set[0] = QLatin1Char('^');
+                }
+                set.replace( QLatin1String("\\"), QLatin1String("\\\\") );
+                set.replace( QLatin1String("["), QLatin1String("\\[") );
+                rx += QLatin1Char('[') + set + QLatin1Char(']');
+                i = j;
+            }
+        } else {
+            rx += QRegularExpression::escape( QString(c) );
+        }
+    }
+
+    return QRegularExpression::anchoredPattern(rx);
+}
+
+/* Equivalent of QRegExp(wildcard, cs, QRegExp::Wildcard[Unix]) for exact matches.*/
+inline QRegularExpression
+wildcardRegularExpression(const QString & wildcard,
+                          Qt::CaseSensitivity cs,
+                          bool unixEscapes = false)
+{
+    return QRegularExpression( wildcardToRegularExpression(wildcard, unixEscapes),
+                               cs == Qt::CaseInsensitive ? QRegularExpression::CaseInsensitiveOption : QRegularExpression::NoPatternOption );
+}
 
 } // namespace QtCompat
 

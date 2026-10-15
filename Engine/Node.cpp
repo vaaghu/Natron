@@ -42,7 +42,6 @@
 #include <QtCore/QWaitCondition>
 #include <QtCore/QTextStream>
 #include <QtCore/QFile>
-#include <QtCore/QRegExp>
 
 #include <ofxNatron.h>
 

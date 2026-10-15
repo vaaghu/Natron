@@ -33,6 +33,7 @@
 #include <stdexcept>
 
 #include "Global/GLIncludes.h" //!<must be included before QGlWidget because of gl.h and glew.h
+#include <QtCore/QRegularExpression>
 
 #include <QtWidgets/QMenu>
 #include <QtWidgets/QToolButton>
@@ -1068,7 +1069,7 @@ NATRON_NAMESPACE_ANONYMOUS_ENTER
 static QStringList
 explode(const QString& str)
 {
-    QRegExp rx( QString::fromUtf8("(\\ |\\-|\\.|\\/|\\t|\\n)") ); //RegEx for ' ' '/' '.' '-' '\t' '\n'
+    QRegularExpression rx( QString::fromUtf8("(\\ |\\-|\\.|\\/|\\t|\\n)") ); //RegEx for ' ' '/' '.' '-' '\t' '\n'
     QStringList ret;
     int startIndex = 0;
 

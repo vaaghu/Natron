@@ -7,7 +7,7 @@
 #include <QImageReader>
 #include <QList>
 #include <QProcess>
-#include <QRegExp>
+#include <QRegularExpression>
 #include <QStringList>
 
 #include <cmath>
@@ -57,20 +57,18 @@ QString valueOf(const QStringList &lines, const char *key)
 QString ffmpegSequencePattern(const QString &pattern)
 {
   QString out = pattern;
-  QRegExp hashes(s("#+"));
-  const int pos = hashes.indexIn(out);
-  if (pos >= 0)
+  const QRegularExpressionMatch hashes = QRegularExpression(s("#+")).match(out);
+  if (hashes.hasMatch())
   {
     // (not arg(): it would treat the literal %0 as a placeholder)
-    out.replace(pos, hashes.matchedLength(), s("%0") + QString::number(hashes.matchedLength()) + QLatin1Char('d'));
+    out.replace(hashes.capturedStart(), hashes.capturedLength(), s("%0") + QString::number(hashes.capturedLength()) + QLatin1Char('d'));
     return out;
   }
-  QRegExp printfFrame(s("%0?(\\d*)d"));
-  const int ppos = printfFrame.indexIn(out);
-  if (ppos >= 0)
+  const QRegularExpressionMatch printfFrame = QRegularExpression(s("%0?(\\d*)d")).match(out);
+  if (printfFrame.hasMatch())
   {
-    const int width = qMax(1, printfFrame.cap(1).toInt());
-    out.replace(ppos, printfFrame.matchedLength(), s("%0") + QString::number(width) + QLatin1Char('d'));
+    const int width = qMax(1, printfFrame.captured(1).toInt());
+    out.replace(printfFrame.capturedStart(), printfFrame.capturedLength(), s("%0") + QString::number(width) + QLatin1Char('d'));
   }
   return out;
 }

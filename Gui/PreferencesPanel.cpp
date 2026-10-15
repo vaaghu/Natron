@@ -45,6 +45,7 @@ CLANG_DIAG_OFF(uninitialized)
 CLANG_DIAG_ON(deprecated)
 CLANG_DIAG_ON(uninitialized)
 
+#include "Global/QtCompat.h"
 #include "Engine/KnobTypes.h"
 #include "Engine/Settings.h"
 #include "Engine/Utils.h" // convertFromPlainText
@@ -819,7 +820,7 @@ PreferencesPanel::filterPlugins(const QString & txt)
             pattern.push_back(txt[i]);
         }
         pattern.push_back( QLatin1Char('*') );
-        QRegExp expr(pattern, Qt::CaseInsensitive, QRegExp::WildcardUnix);
+        QRegularExpression expr = QtCompat::wildcardRegularExpression(pattern, Qt::CaseInsensitive, true);
         std::list<QTreeWidgetItem*> itemsToDisplay;
         for (PluginTreeNodeList::iterator it = _imp->pluginsList.begin(); it != _imp->pluginsList.end(); ++it) {
             if ( it->plugin && it->plugin->getLabelWithoutSuffix().contains(expr) ) {

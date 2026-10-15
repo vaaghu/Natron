@@ -4,7 +4,7 @@
 #include <QFile>
 #include <QFileInfo>
 #include <QPair>
-#include <QRegExp>
+#include <QRegularExpression>
 #include <QXmlStreamReader>
 #include <algorithm>
 
@@ -275,7 +275,7 @@ ProjectInfo readProjectInfo(const QString &projectFilePath)
         value.replace(QString::fromUtf8("[Project]"), projectDir);
         // Relative to the project; Windows drive paths (C:/...) are absolute
         // even when read on another OS.
-        const bool windowsAbsolute = QRegExp(QString::fromUtf8("^[A-Za-z]:[/\\\\].*")).exactMatch(value);
+        const bool windowsAbsolute = QRegularExpression(QString::fromUtf8("^[A-Za-z]:[/\\\\]")).match(value).hasMatch();
         if (!value.isEmpty() && !windowsAbsolute && QFileInfo(value).isRelative())
         {
           value = QDir(projectDir).absoluteFilePath(value);
@@ -318,36 +318,58 @@ ProjectInfo readProjectInfo(const QString &projectFilePath)
 
 namespace
 {
+// Frame number placeholders of a sequence file name: ### or %04d.
+const QRegularExpression &frameToken()
+{
+  static const QRegularExpression token(QString::fromUtf8("#+|%0?\\d*d"));
+  return token;
+}
+
+// Anchored regex matching the whole file name, with each frame placeholder
+// replaced by numberRegex and the rest matched literally.
+QRegularExpression sequenceFileRegex(const QString &fileNamePattern, const QString &numberRegex)
+{
+  QString regex;
+  int last = 0;
+  QRegularExpressionMatchIterator it = frameToken().globalMatch(fileNamePattern);
+  while (it.hasNext())
+  {
+    const QRegularExpressionMatch m = it.next();
+    regex += QRegularExpression::escape(fileNamePattern.mid(last, m.capturedStart() - last));
+    regex += numberRegex;
+    last = m.capturedEnd();
+  }
+  regex += QRegularExpression::escape(fileNamePattern.mid(last));
+  return QRegularExpression(QRegularExpression::anchoredPattern(regex));
+}
+
 // Regex matching the frame number part of a sequence file name; the number
 // is captured.
-QRegExp sequenceRegex(const QString &fileNamePattern)
+QRegularExpression sequenceRegex(const QString &fileNamePattern)
 {
-  QString regex = QRegExp::escape(fileNamePattern);
-  regex.replace(QRegExp(QString::fromUtf8("#+")), QString::fromUtf8("(-?\\d+)"));
-  regex.replace(QRegExp(QString::fromUtf8("%0?\\d*d")), QString::fromUtf8("(-?\\d+)"));
-  return QRegExp(regex);
+  return sequenceFileRegex(fileNamePattern, QString::fromUtf8("(-?\\d+)"));
 }
 }
 
 bool isSequencePattern(const QString &outputPattern)
 {
   const QString name = QFileInfo(outputPattern).fileName();
-  return QRegExp(QString::fromUtf8("#+")).indexIn(name) >= 0 ||
-         QRegExp(QString::fromUtf8("%0?\\d*d")).indexIn(name) >= 0;
+  return frameToken().match(name).hasMatch();
 }
 
 QList<int> existingSequenceFrames(const QString &outputPattern)
 {
   QList<int> frames;
   const QFileInfo fi(outputPattern);
-  QRegExp match = sequenceRegex(fi.fileName());
+  const QRegularExpression match = sequenceRegex(fi.fileName());
 
   const QStringList files = QDir(fi.absolutePath()).entryList(QDir::Files);
   for (int i = 0; i < files.size(); ++i)
   {
-    if (match.exactMatch(files.at(i)))
+    const QRegularExpressionMatch m = match.match(files.at(i));
+    if (m.hasMatch())
     {
-      frames << match.cap(1).toInt();
+      frames << m.captured(1).toInt();
     }
   }
   std::sort(frames.begin(), frames.end());
@@ -359,19 +381,19 @@ QString sequenceFrameFile(const QString &outputPattern, int frame)
   const QFileInfo fi(outputPattern);
   QString name = fi.fileName();
 
-  QRegExp hashes(QString::fromUtf8("#+"));
-  if (hashes.indexIn(name) >= 0)
+  const QRegularExpressionMatch hashes = QRegularExpression(QString::fromUtf8("#+")).match(name);
+  if (hashes.hasMatch())
   {
-    const int width = hashes.matchedLength();
-    name.replace(hashes.pos(), width, QString::fromUtf8("%1").arg(frame, width, 10, QLatin1Char('0')));
+    const int width = hashes.capturedLength();
+    name.replace(hashes.capturedStart(), width, QString::fromUtf8("%1").arg(frame, width, 10, QLatin1Char('0')));
   }
   else
   {
-    QRegExp printfFrame(QString::fromUtf8("%0?(\\d*)d"));
-    if (printfFrame.indexIn(name) >= 0)
+    const QRegularExpressionMatch printfFrame = QRegularExpression(QString::fromUtf8("%0?(\\d*)d")).match(name);
+    if (printfFrame.hasMatch())
     {
-      const int width = printfFrame.cap(1).toInt();
-      name.replace(printfFrame.pos(), printfFrame.matchedLength(), QString::fromUtf8("%1").arg(frame, width, 10, QLatin1Char('0')));
+      const int width = printfFrame.captured(1).toInt();
+      name.replace(printfFrame.capturedStart(), printfFrame.capturedLength(), QString::fromUtf8("%1").arg(frame, width, 10, QLatin1Char('0')));
     }
   }
   return QDir(fi.absolutePath()).absoluteFilePath(name);
@@ -385,26 +407,21 @@ QString findExistingOutputFile(const QString &outputPattern)
   }
 
   // ### / %04d frame patterns: pick the lowest-numbered existing frame.
-  QRegExp hashes(QString::fromUtf8("#+"));
-  QRegExp printfFrame(QString::fromUtf8("%0?\\d*d"));
   const QFileInfo fi(outputPattern);
   QString name = fi.fileName();
 
-  if (hashes.indexIn(name) < 0 && printfFrame.indexIn(name) < 0)
+  if (!frameToken().match(name).hasMatch())
   {
     return QFile::exists(outputPattern) ? outputPattern : QString();
   }
 
-  QString regex = QRegExp::escape(name);
-  regex.replace(QRegExp(QString::fromUtf8("#+")), QString::fromUtf8("-?\\d+"));
-  regex.replace(QRegExp(QString::fromUtf8("%0?\\d*d")), QString::fromUtf8("-?\\d+"));
-  const QRegExp match(regex);
+  const QRegularExpression match = sequenceFileRegex(name, QString::fromUtf8("-?\\d+"));
 
   QStringList candidates;
   const QStringList files = QDir(fi.absolutePath()).entryList(QDir::Files, QDir::Name);
   for (int i = 0; i < files.size(); ++i)
   {
-    if (match.exactMatch(files.at(i)))
+    if (match.match(files.at(i)).hasMatch())
     {
       candidates << files.at(i);
     }

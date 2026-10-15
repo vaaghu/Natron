@@ -301,3 +301,7 @@ moc_predefs.h
 # shiboken-generated files
 Engine/Qt5
 Gui/Qt5
+
+# scripts/natron-build.sh output, Claude Code worktrees and settings
+/builds/
+/.claude/

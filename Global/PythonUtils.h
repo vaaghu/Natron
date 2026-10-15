@@ -53,12 +53,22 @@ NATRON_NAMESPACE_ENTER
 NATRON_PYTHON_NAMESPACE_ENTER
 
 /**
- * @brief Calls Py_SetPythonHome and set PYTHONPATH
+ * @brief Finds the Python home (Py_SetPythonHome before Python 3.8) and sets PYTHONPATH
  **/
 void setupPythonEnv(const std::string& binPath);
 
+#if PY_VERSION_HEX >= 0x03080000
+/**
+ * @brief Python >= 3.8: initializes Python with a PyConfig, after setupPythonEnv(): the Python home
+ * it found, argv as sys.argv (parsed as python command-line options if parseArgv) and no user site.
+ * Exits like Py_Initialize() on errors.
+ **/
+void initializePythonFromConfig(int argc, wchar_t* const* argv, bool parseArgv);
+#endif
+
 /**
  * @brief Must be called after setupPythonEnv(), calls Py_SetProgramName and Py_Initialize, PySys_SetArgv
+ * (initializePythonFromConfig() on Python >= 3.8)
  * @returns A pointer to the main module
  **/
 #if PY_MAJOR_VERSION >= 3

@@ -84,8 +84,14 @@ extern "C" {
         std::wstring utf16 = NATRON_NAMESPACE::StrUtils::utf8_to_utf16(commandLineArgsUtf8[i]);
         wideArgs[i] = wcsdup(utf16.c_str());
     }
+#if PY_VERSION_HEX >= 0x03080000
+    // Py_Main() would not get the Python home without the deprecated Py_SetPythonHome()
+    NATRON_NAMESPACE::NATRON_PYTHON_NAMESPACE::initializePythonFromConfig(argc, &wideArgs[0], true);
+    return Py_RunMain();
+#else
     int ret = Py_Main(commandLineArgsUtf8.size(), &wideArgs[0]);
     return ret;
+#endif
 #else
     std::vector<char*> utf8Args(argc);
     for (int i = 0; i < argc; ++i) {

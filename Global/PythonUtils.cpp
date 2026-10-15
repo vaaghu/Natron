@@ -20,7 +20,7 @@
 // ***** BEGIN PYTHON BLOCK *****
 // from <https://docs.python.org/3/c-api/intro.html#include-files>:
 // "Since Python may define some pre-processor definitions which affect the standard headers on some systems, you must include Python.h before any standard headers are included."
-#undef Py_LIMITED_API  // Needed for Py_NoUserSiteDirectory, PyBytes_AS_STRING
+#undef Py_LIMITED_API  // Needed for PyConfig, Py_NoUserSiteDirectory, PyBytes_AS_STRING
 #include <Python.h>
 // ***** END PYTHON BLOCK *****
 
@@ -66,13 +66,20 @@ static bool dirExists(const std::string& path)
     return false;
 }
 
+#if PY_VERSION_HEX >= 0x03080000
+// The Python home found by setupPythonEnv(), given to Python by initializePythonFromConfig()
+static std::wstring g_pythonHomeW;
+#endif
+
 void setupPythonEnv(const std::string& binPath)
 {
     //Disable user sites as they could conflict with Natron bundled packages.
     //If this is set, Python won’t add the user site-packages directory to sys.path.
     //See https://www.python.org/dev/peps/pep-0370/
     ProcInfo::putenv_wrapper("PYTHONNOUSERSITE", "1");
-    ++Py_NoUserSiteDirectory;
+#if PY_VERSION_HEX < 0x03080000
+    ++Py_NoUserSiteDirectory; // PyConfig.user_site_directory on Python >= 3.8
+#endif
 
     //
     // set up paths, clear those that don't exist or are not valid
@@ -145,12 +152,16 @@ void setupPythonEnv(const std::string& binPath)
     // Must be done before Py_Initialize (see doc of Py_Initialize)
     //
     // The argument should point to a zero-terminated character string in static storage whose contents will not change for the duration of the program’s execution
+    //
+    // Python >= 3.8: Py_SetPythonHome is deprecated, initializePythonFromConfig() sets PyConfig.home
 
     if ( !pythonHome.empty() ) {
 #     if defined(NATRON_CONFIG_SNAPSHOT) || defined(DEBUG)
-        printf( "Py_SetPythonHome(\"%s\")\n", pythonHome.c_str() );
+        printf( "Python home: \"%s\"\n", pythonHome.c_str() );
 #     endif
-#     if PY_MAJOR_VERSION >= 3
+#     if PY_VERSION_HEX >= 0x03080000
+        g_pythonHomeW = pythonHomeW;
+#     elif PY_MAJOR_VERSION >= 3
         // Python 3
         Py_SetPythonHome( const_cast<wchar_t*>( pythonHomeW.c_str() ) );
 #     else
@@ -236,6 +247,56 @@ void setupPythonEnv(const std::string& binPath)
 
 } // setupPythonEnv
 
+#if PY_VERSION_HEX >= 0x03080000
+void
+initializePythonFromConfig(int argc,
+                           wchar_t* const* argv,
+                           bool parseArgv)
+{
+    PyConfig config;
+    PyConfig_InitPythonConfig(&config);
+    // Natron's arguments are not Python options (but natron-python's are)
+    config.parse_argv = parseArgv ? 1 : 0;
+    // user sites could conflict with the bundled packages (PYTHONNOUSERSITE is also set)
+    config.user_site_directory = 0;
+
+    PyStatus status = PyConfig_SetArgv(&config, argc, argv);
+    if ( !PyStatus_Exception(status) && (argc > 0) ) {
+        status = PyConfig_SetString(&config, &config.program_name, argv[0]);
+    }
+    if ( !PyStatus_Exception(status) && !g_pythonHomeW.empty() ) {
+        status = PyConfig_SetString(&config, &config.home, g_pythonHomeW.c_str());
+    }
+    if ( !PyStatus_Exception(status) ) {
+        status = Py_InitializeFromConfig(&config);
+    }
+    PyConfig_Clear(&config);
+    if ( PyStatus_Exception(status) ) {
+        // like Py_Initialize(), which aborts when the initialization fails
+        Py_ExitStatusException(status);
+    }
+}
+
+// What PySys_SetArgv() did besides setting sys.argv: prepend the directory of
+// sys.argv[0] (resolved if it exists, '' otherwise) to sys.path.
+static void
+prependArgv0DirToSysPath()
+{
+    PyObject* globals = PyDict_New();
+    PyDict_SetItemString( globals, "__builtins__", PyEval_GetBuiltins() );
+    PyObject* v = PyRun_String("import os, sys\n"
+                               "argv0 = sys.argv[0] if sys.argv else ''\n"
+                               "sys.path.insert(0, os.path.dirname(os.path.realpath(argv0) if os.path.exists(argv0) else argv0))\n",
+                               Py_file_input, globals, globals);
+    if (v) {
+        Py_DECREF(v);
+    } else {
+        PyErr_Print();
+    }
+    Py_DECREF(globals);
+}
+#endif // PY_VERSION_HEX >= 0x03080000
+
 #if PY_MAJOR_VERSION >= 3
 PyObject* initializePython3(const std::vector<wchar_t*>& commandLineArgsWide)
 #else
@@ -264,7 +325,9 @@ PyObject* initializePython2(const std::vector<char*>& commandLineArgsUtf8)
     // Must be done before Py_Initialize (see doc of Py_Initialize)
     //
 
-#if PY_MAJOR_VERSION >= 3
+#if PY_VERSION_HEX >= 0x03080000
+    // set by initializePythonFromConfig()
+#elif PY_MAJOR_VERSION >= 3
     // Python 3
     Py_SetProgramName(commandLineArgsWide[0]);
 #else
@@ -281,7 +344,15 @@ PyObject* initializePython2(const std::vector<char*>& commandLineArgsUtf8)
 #if defined(NATRON_CONFIG_SNAPSHOT) || defined(DEBUG)
     printf("Py_Initialize()\n");
 #endif
+#if PY_VERSION_HEX >= 0x03080000
+    initializePythonFromConfig( (int)commandLineArgsWide.size(), &commandLineArgsWide[0], false );
+    const wchar_t* pythonHome = g_pythonHomeW.empty() ? NULL : g_pythonHomeW.c_str();
+#else
     Py_Initialize();
+#  if PY_MAJOR_VERSION >= 3
+    const wchar_t* pythonHome = Py_GetPythonHome();
+#  endif
+#endif
     // pythonHome must be const, so that the c_str() pointer is never invalidated
 
 #if PY_MAJOR_VERSION >= 3
@@ -289,11 +360,11 @@ PyObject* initializePython2(const std::vector<char*>& commandLineArgsUtf8)
     // https://github.com/NatronGitHub/Natron/issues/696
     // (only when a Python home was set: PyUnicode_FromWideChar(NULL) fails and
     // leaves an exception that makes the import of __main__ below fail)
-    if ( Py_GetPythonHome() ) {
-        PyObject *prefix = PyUnicode_FromWideChar(Py_GetPythonHome(), -1);
+    if (pythonHome) {
+        PyObject *prefix = PyUnicode_FromWideChar(pythonHome, -1);
         PySys_SetObject(const_cast<char*>("prefix"), prefix);
         Py_XDECREF(prefix);
-        PyObject *exec_prefix = PyUnicode_FromWideChar(Py_GetPythonHome(), -1);
+        PyObject *exec_prefix = PyUnicode_FromWideChar(pythonHome, -1);
         PySys_SetObject(const_cast<char*>("exec_prefix"), exec_prefix);
         Py_XDECREF(exec_prefix);
     }
@@ -303,7 +374,10 @@ PyObject* initializePython2(const std::vector<char*>& commandLineArgsUtf8)
     // PySys_SetArgv
     /////////////////////////////////////////
     //
-#if PY_MAJOR_VERSION >= 3
+#if PY_VERSION_HEX >= 0x03080000
+    // sys.argv is set by initializePythonFromConfig()
+    prependArgv0DirToSysPath(); /// relative module import
+#elif PY_MAJOR_VERSION >= 3
     // Python 3
     PySys_SetArgv( commandLineArgsWide.size(), const_cast<wchar_t**>(&commandLineArgsWide[0]) ); /// relative module import
 #else
@@ -334,6 +408,12 @@ PyObject* initializePython2(const std::vector<char*>& commandLineArgsUtf8)
 #if defined(NATRON_CONFIG_SNAPSHOT) || defined(DEBUG)
     /// print info about python lib
     {
+#if PY_VERSION_HEX >= 0x03080000
+        // the Py_*Flag globals and Py_Get*() are deprecated: see sys.flags and the sys values below
+        printf( "PATH is %s\n", getenv("PATH") );
+        printf( "PYTHONPATH is %s\n", getenv("PYTHONPATH") );
+        printf( "PYTHONHOME is %s\n", getenv("PYTHONHOME") );
+#else
         printf( "PATH is %s\n", Py_GETENV("PATH") );
         printf( "PYTHONPATH is %s\n", Py_GETENV("PYTHONPATH") );
         printf( "PYTHONHOME is %s\n", Py_GETENV("PYTHONHOME") );
@@ -376,6 +456,9 @@ PyObject* initializePython2(const std::vector<char*>& commandLineArgsUtf8)
         printf( "Py_GetProgramFullPath is %ls\n", Py_GetProgramFullPath() );
         printf( "Py_GetPath is %ls\n", Py_GetPath() );
         printf( "Py_GetPythonHome is %ls\n", Py_GetPythonHome() );
+#endif
+#endif // PY_VERSION_HEX >= 0x03080000
+#if PY_MAJOR_VERSION >= 3
 
 #define DUMP_SYS(NAME) \
             do { \
@@ -392,6 +475,7 @@ PyObject* initializePython2(const std::vector<char*>& commandLineArgsUtf8)
 
         PyObject *obj;
         DUMP_SYS(version);
+        DUMP_SYS(flags);
         DUMP_SYS(_base_executable);
         DUMP_SYS(base_prefix);
         DUMP_SYS(base_exec_prefix);
@@ -417,10 +501,13 @@ PyObject* initializePython2(const std::vector<char*>& commandLineArgsUtf8)
         PyErr_Clear();
 
         ///This is faster than PyRun_SimpleString since is doesn't call PyImport_AddModule("__main__")
-        std::string script("from distutils.sysconfig import get_python_lib; print('Python library is in ' + get_python_lib())");
+        // distutils was removed in Python 3.12
+        std::string script("import sysconfig; print('Python library is in ' + sysconfig.get_paths()['purelib'])");
         PyObject* v = PyRun_String(script.c_str(), Py_file_input, dict, 0);
         if (v) {
             Py_DECREF(v);
+        } else {
+            PyErr_Clear();
         }
 #endif // PY_MAJOR_VERSION >= 3
     }

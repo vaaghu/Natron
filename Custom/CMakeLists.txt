@@ -35,9 +35,9 @@ add_library(NatronCustom STATIC
 )
 target_link_libraries(NatronCustom
     PUBLIC
-        Qt5::Core
-        Qt5::Gui
-        Qt5::Network
+        Qt::Core
+        Qt::Gui
+        Qt::Network
 )
 target_include_directories(NatronCustom
     PUBLIC

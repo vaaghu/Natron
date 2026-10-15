@@ -28,17 +28,17 @@ set(PYENGINE_OUT ${CMAKE_CURRENT_BINARY_DIR}/Qt${QT_VERSION_MAJOR})
 set(PYENGINE_INCLUDE_DIRS ${PYSIDE_INCLUDE_DIRS} ${PYSIDE_INCLUDE_DIRS}/QtCore)
 list(APPEND PYENGINE_INCLUDE_DIRS ${QTCORE_INCLUDE_DIRS} ${Python3_INCLUDE_DIRS} ${Boost_INCLUDE_DIRS})
 list(TRANSFORM PYENGINE_INCLUDE_DIRS PREPEND "-I" OUTPUT_VARIABLE PYENGINE_INCS)
-set(PYENGINE_HEADER PySide2_Engine_Python.h)
-set(POST_SHIBOKEN ../tools/utils/runPostShiboken2.sh)
+set(PYENGINE_HEADER ${NATRON_PYSIDE_NAME}_Engine_Python.h)
+set(POST_SHIBOKEN ${NATRON_POST_SHIBOKEN})
 
 set(shiboken_args
-    "--enable-parent-ctor-heuristic" "--use-isnull-as-nb_nonzero"
+    "--enable-parent-ctor-heuristic" "${NATRON_SHIBOKEN_NB_BOOL_OPTION}"
     "--avoid-protected-hack" "--enable-pyside-extensions"
     "-I." "-I.." "-I../Global" "-I../libs/OpenFX/include" ${PYENGINE_INCS}
     "-T${PYSIDE_TYPESYSTEMS}" "--output-directory=${PYENGINE_OUT}"
     "${PYENGINE_HEADER}" "typesystem_engine.xml")
 if(APPLE)
-    list(PREPEND shiboken_args -I${Qt5_DIR}/../../../include)
+    list(PREPEND shiboken_args -I${NATRON_QT_DIR}/../../../include)
  endif()
  
 execute_process(COMMAND ${Python3_EXECUTABLE} ../tools/utils/sourceList.py typesystem_engine.xml ${PYENGINE_OUT}
@@ -46,7 +46,7 @@ execute_process(COMMAND ${Python3_EXECUTABLE} ../tools/utils/sourceList.py types
     OUTPUT_VARIABLE PyEngine_SOURCES)
 set_property(SOURCE ${PyEngine_SOURCES} PROPERTY SKIP_AUTOGEN ON)
 add_custom_command(OUTPUT ${PyEngine_SOURCES}
-    COMMAND Shiboken2::shiboken2 ${shiboken_args}
+    COMMAND ${NATRON_SHIBOKEN_GENERATOR} ${shiboken_args}
     COMMAND bash ${POST_SHIBOKEN} ${PYENGINE_OUT}/NatronEngine natronengine
     DEPENDS ${PYENGINE_HEADER} ${NatronEngine_HEADERS} ${POST_SHIBOKEN} typesystem_engine.xml
     WORKING_DIRECTORY ${CMAKE_CURRENT_SOURCE_DIR})
@@ -77,11 +77,11 @@ target_link_libraries(NatronEngine
         Boost::serialization
         PkgConfig::Cairo
     PRIVATE
-        Shiboken2::libshiboken
-        PySide2::pyside2
-        Qt5::Core
-        Qt5::Concurrent
-        Qt5::Network
+        ${NATRON_SHIBOKEN_LIB}
+        ${NATRON_PYSIDE_LIB}
+        Qt::Core
+        Qt::Concurrent
+        Qt::Network
         Python3::Module
         ${XDG_LIBS}
         ceres

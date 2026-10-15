@@ -26,7 +26,18 @@ project(Natron
     LANGUAGES CXX C
 )
 
-set(CMAKE_CXX_STANDARD 14)
+set(NATRON_QT_MAJOR 5 CACHE STRING "Qt major version to build with (5 or 6)")
+set_property(CACHE NATRON_QT_MAJOR PROPERTY STRINGS 5 6)
+if(NOT NATRON_QT_MAJOR MATCHES "^[56]$")
+    message(FATAL_ERROR "NATRON_QT_MAJOR must be 5 or 6, not '${NATRON_QT_MAJOR}'")
+endif()
+
+if(NATRON_QT_MAJOR EQUAL 6)
+    # Qt 6 requires C++17
+    set(CMAKE_CXX_STANDARD 17)
+else()
+    set(CMAKE_CXX_STANDARD 14)
+endif()
 
 option(NATRON_SYSTEM_LIBS "use system versions of dependencies instead of bundled ones" OFF)
 option(NATRON_BUILD_TESTS "build the Natron test suite" ON)
@@ -55,7 +66,13 @@ if(WIN32)
     set(Python3_FIND_REGISTRY NEVER)
 endif()
 find_package(Python3 COMPONENTS Interpreter Development)
-find_package(Qt5 5.15 CONFIG REQUIRED COMPONENTS Core Gui Network Widgets Concurrent)
+# The modules use the versionless Qt:: targets (Qt 5.15 and Qt 6).
+if(NATRON_QT_MAJOR EQUAL 6)
+    find_package(Qt6 6.5 CONFIG REQUIRED COMPONENTS Core Gui Network Widgets Concurrent OpenGL OpenGLWidgets)
+else()
+    find_package(Qt5 5.15 CONFIG REQUIRED COMPONENTS Core Gui Network Widgets Concurrent)
+endif()
+set(QT_VERSION_MAJOR ${NATRON_QT_MAJOR})
 
 if(IS_DEBUG_BUILD AND WIN32)
     # Explicitly setting SHIBOKEN_PYTHON_LIBRARIES variable to avoid PYTHON_DEBUG_LIBRARY-NOTFOUND
@@ -63,22 +80,54 @@ if(IS_DEBUG_BUILD AND WIN32)
     set(SHIBOKEN_PYTHON_LIBRARIES ${Python3_LIBRARIES})
 endif()
 
-find_package(Shiboken2 5.15 CONFIG REQUIRED COMPONENTS libshiboken2 shiboken2)
-
-if(IS_DEBUG_BUILD AND WIN32)
-    # Remove NDEBUG from Shiboken2 INTERFACE_COMPILE_DEFINITIONS so it is not inherited in debug builds.
-    get_property(ShibokenInterfaceDefs TARGET Shiboken2::libshiboken PROPERTY INTERFACE_COMPILE_DEFINITIONS)
-    list(REMOVE_ITEM ShibokenInterfaceDefs NDEBUG)
-    set_property(TARGET Shiboken2::libshiboken PROPERTY INTERFACE_COMPILE_DEFINITIONS ShibokenInterfaceDefs)
+# Python bindings: PySide2/Shiboken2 with Qt 5, PySide6/Shiboken6 with Qt 6.
+# NATRON_SHIBOKEN_LIB, NATRON_SHIBOKEN_GENERATOR and NATRON_PYSIDE_LIB are the
+# targets to use, NATRON_PYSIDE_NAME is PySide2 or PySide6.
+if(NATRON_QT_MAJOR EQUAL 6)
+    find_package(Shiboken6 6.5 CONFIG REQUIRED COMPONENTS libshiboken)
+    # since PySide 6.5 the generator comes in its own package
+    find_package(Shiboken6Tools 6.5 CONFIG QUIET)
+    find_package(PySide6 6.5 CONFIG REQUIRED COMPONENTS pyside6)
+    set(NATRON_PYSIDE_NAME PySide6)
+    set(NATRON_SHIBOKEN_LIB Shiboken6::libshiboken)
+    set(NATRON_SHIBOKEN_GENERATOR Shiboken6::shiboken6)
+    set(NATRON_PYSIDE_LIB PySide6::pyside6)
+    set(NATRON_SHIBOKEN_NB_BOOL_OPTION "--use-isnull-as-nb-bool")
+    set(NATRON_POST_SHIBOKEN ${CMAKE_SOURCE_DIR}/scripts/runPostShiboken6.sh)
+else()
+    find_package(Shiboken2 5.15 CONFIG REQUIRED COMPONENTS libshiboken2 shiboken2)
+    find_package(PySide2 5.15 CONFIG REQUIRED COMPONENTS pyside2)
+    set(NATRON_PYSIDE_NAME PySide2)
+    set(NATRON_SHIBOKEN_LIB Shiboken2::libshiboken)
+    set(NATRON_SHIBOKEN_GENERATOR Shiboken2::shiboken2)
+    set(NATRON_PYSIDE_LIB PySide2::pyside2)
+    set(NATRON_SHIBOKEN_NB_BOOL_OPTION "--use-isnull-as-nb_nonzero")
+    set(NATRON_POST_SHIBOKEN ${CMAKE_SOURCE_DIR}/tools/utils/runPostShiboken2.sh)
+endif()
+if(NOT TARGET ${NATRON_SHIBOKEN_GENERATOR})
+    message(FATAL_ERROR "The shiboken generator (${NATRON_SHIBOKEN_GENERATOR}) was not found")
 endif()
 
-find_package(PySide2 5.15 CONFIG REQUIRED COMPONENTS pyside2)
-set(QT_VERSION_MAJOR 5)
-get_target_property(PYSIDE_INCLUDE_DIRS PySide2::pyside2 INTERFACE_INCLUDE_DIRECTORIES)
-string(REGEX REPLACE "(.*)QtCore$" "\\1" Qt5_INCLUDE_DIR ${Qt5Core_INCLUDE_DIRS})
-set(QTCORE_INCLUDE_DIRS ${Qt5_INCLUDE_DIR} ${Qt5Core_INCLUDE_DIRS})
-set(QTGUI_INCLUDE_DIRS ${Qt5Gui_INCLUDE_DIRS})
-set(QTWIDGETS_INCLUDE_DIRS ${Qt5Widgets_INCLUDE_DIRS})
+if(IS_DEBUG_BUILD AND WIN32)
+    # Remove NDEBUG from the Shiboken INTERFACE_COMPILE_DEFINITIONS so it is not inherited in debug builds.
+    get_property(ShibokenInterfaceDefs TARGET ${NATRON_SHIBOKEN_LIB} PROPERTY INTERFACE_COMPILE_DEFINITIONS)
+    list(REMOVE_ITEM ShibokenInterfaceDefs NDEBUG)
+    set_property(TARGET ${NATRON_SHIBOKEN_LIB} PROPERTY INTERFACE_COMPILE_DEFINITIONS ShibokenInterfaceDefs)
+endif()
+
+get_target_property(PYSIDE_INCLUDE_DIRS ${NATRON_PYSIDE_LIB} INTERFACE_INCLUDE_DIRECTORIES)
+# Qt include directories, passed to the shiboken generator
+get_target_property(QTCORE_INCLUDE_DIRS Qt::Core INTERFACE_INCLUDE_DIRECTORIES)
+get_target_property(QTGUI_INCLUDE_DIRS Qt::Gui INTERFACE_INCLUDE_DIRECTORIES)
+get_target_property(QTWIDGETS_INCLUDE_DIRS Qt::Widgets INTERFACE_INCLUDE_DIRECTORIES)
+foreach(dir ${QTCORE_INCLUDE_DIRS})
+    if(dir MATCHES "(.*)/QtCore$")
+        # the parent of QtCore, for <QtCore/...> includes
+        list(APPEND QTCORE_INCLUDE_DIRS ${CMAKE_MATCH_1})
+    endif()
+endforeach()
+# root of the Qt installation, for the macOS framework headers
+set(NATRON_QT_DIR ${Qt${NATRON_QT_MAJOR}_DIR})
 
 #Since in Natron and OpenFX all strings are supposed UTF-8 and that the constructor
 #for QString(const char*) assumes ASCII strings, we may run into troubles

@@ -3028,7 +3028,11 @@ AppManager::initPython()
     }
     // Set QT_API for QtPy
     // https://github.com/spyder-ide/qtpy
+#if QT_VERSION >= QT_VERSION_CHECK(6, 0, 0)
+    qputenv("QT_API", "pyside6");
+#else
     qputenv("QT_API", "pyside2");
+#endif
 } // AppManager::initPython
 
 void

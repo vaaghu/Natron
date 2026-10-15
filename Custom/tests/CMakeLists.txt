@@ -4,9 +4,14 @@
 if(CMAKE_SOURCE_DIR STREQUAL CMAKE_CURRENT_SOURCE_DIR)
     cmake_minimum_required(VERSION 3.10)
     project(NatronCustomTests CXX)
-    set(CMAKE_CXX_STANDARD 14)
+    set(NATRON_QT_MAJOR 5 CACHE STRING "Qt major version to build with (5 or 6)")
+    if(NATRON_QT_MAJOR EQUAL 6)
+        set(CMAKE_CXX_STANDARD 17)
+    else()
+        set(CMAKE_CXX_STANDARD 14)
+    endif()
     set(CMAKE_AUTOMOC ON)
-    find_package(Qt5 REQUIRED COMPONENTS Core Gui Network)
+    find_package(Qt${NATRON_QT_MAJOR} REQUIRED COMPONENTS Core Gui Network)
     add_subdirectory(.. NatronCustom)
     enable_testing()
 endif()
@@ -30,9 +35,9 @@ target_include_directories(CustomTests
 target_link_libraries(CustomTests
     PRIVATE
         NatronCustom
-        Qt5::Core
-        Qt5::Gui
-        Qt5::Network
+        Qt::Core
+        Qt::Gui
+        Qt::Network
         Threads::Threads
 )
 

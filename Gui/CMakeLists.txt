@@ -27,18 +27,24 @@ list(APPEND PYGUI_INCLUDE_DIRS ${PYSIDE_INCLUDE_DIRS} ${PYSIDE_INCLUDE_DIRS}/QtC
     ${PYSIDE_INCLUDE_DIRS}/QtGui ${PYSIDE_INCLUDE_DIRS}/QtWidgets)
 list(APPEND PYGUI_INCLUDE_DIRS ${QTCORE_INCLUDE_DIRS} ${QTGUI_INCLUDE_DIRS}
     ${QTWIDGETS_INCLUDE_DIRS} ${Python3_INCLUDE_DIRS} ${Boost_INCLUDE_DIRS})
+if(NATRON_QT_MAJOR EQUAL 6)
+    # QOpenGLWidget and the QOpenGL* classes moved to their own modules in Qt 6
+    get_target_property(QTOPENGL_INCLUDE_DIRS Qt::OpenGL INTERFACE_INCLUDE_DIRECTORIES)
+    get_target_property(QTOPENGLWIDGETS_INCLUDE_DIRS Qt::OpenGLWidgets INTERFACE_INCLUDE_DIRECTORIES)
+    list(APPEND PYGUI_INCLUDE_DIRS ${QTOPENGL_INCLUDE_DIRS} ${QTOPENGLWIDGETS_INCLUDE_DIRS})
+endif()
 list(TRANSFORM PYGUI_INCLUDE_DIRS PREPEND "-I" OUTPUT_VARIABLE PYGUI_INCS)
-set(PYGUI_HEADER PySide2_Gui_Python.h)
-set(POST_SHIBOKEN ../tools/utils/runPostShiboken2.sh)
+set(PYGUI_HEADER ${NATRON_PYSIDE_NAME}_Gui_Python.h)
+set(POST_SHIBOKEN ${NATRON_POST_SHIBOKEN})
 
 set(shiboken_args
-    "--enable-parent-ctor-heuristic" "--use-isnull-as-nb_nonzero"
+    "--enable-parent-ctor-heuristic" "${NATRON_SHIBOKEN_NB_BOOL_OPTION}"
     "--avoid-protected-hack" "--enable-pyside-extensions"
     ${PYGUI_INCS}
     "-T../Engine" "-T${PYSIDE_TYPESYSTEMS}" "--output-directory=${PYGUI_OUT}"
     "${PYGUI_HEADER}" "typesystem_natronGui.xml")
 if(APPLE)
-   list(APPEND shiboken_args -I${Qt5_DIR}/../../../include)
+   list(APPEND shiboken_args -I${NATRON_QT_DIR}/../../../include)
 endif()
 
 execute_process(COMMAND ${Python3_EXECUTABLE} ../tools/utils/sourceList.py typesystem_natronGui.xml ${PYGUI_OUT}
@@ -46,7 +52,7 @@ execute_process(COMMAND ${Python3_EXECUTABLE} ../tools/utils/sourceList.py types
     OUTPUT_VARIABLE PyGui_SOURCES)
 set_property(SOURCE ${PyGui_SOURCES} PROPERTY SKIP_AUTOGEN ON)
 add_custom_command(OUTPUT ${PyGui_SOURCES}
-    COMMAND Shiboken2::shiboken2 ${shiboken_args}
+    COMMAND ${NATRON_SHIBOKEN_GENERATOR} ${shiboken_args}
     COMMAND bash ${POST_SHIBOKEN} ${PYGUI_OUT}/NatronGui natrongui
     DEPENDS ${PYGUI_HEADER} ${NatronEngine_HEADERS} ${NatronGui_HEADERS} ${POST_SHIBOKEN} typesystem_natronGui.xml
     WORKING_DIRECTORY ${CMAKE_CURRENT_SOURCE_DIR})
@@ -63,19 +69,23 @@ list(APPEND NatronGui_SOURCES
 add_library(NatronGui STATIC ${NatronGui_HEADERS} ${NatronGui_SOURCES})
 target_link_libraries(NatronGui
     PUBLIC
-        Shiboken2::libshiboken
-        PySide2::pyside2
-        Qt5::Core
-        Qt5::Concurrent
-        Qt5::Network
-        Qt5::Gui
-        Qt5::Widgets
+        ${NATRON_SHIBOKEN_LIB}
+        ${NATRON_PYSIDE_LIB}
+        Qt::Core
+        Qt::Concurrent
+        Qt::Network
+        Qt::Gui
+        Qt::Widgets
         Python3::Module
         NatronEngine
     PRIVATE
         qhttpserver
         NatronCustom
 )
+if(NATRON_QT_MAJOR EQUAL 6)
+    # QOpenGLWidget and the QOpenGL* classes moved to their own modules in Qt 6
+    target_link_libraries(NatronGui PUBLIC Qt::OpenGL Qt::OpenGLWidgets)
+endif()
 target_include_directories(NatronGui
     PRIVATE
         ${PYSIDE_INCLUDE_DIRS}/QtCore

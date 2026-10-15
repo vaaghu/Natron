@@ -14,10 +14,10 @@ side actually uses it at run time.
 
 | Dependency | Version | Notes |
 |---|---|---|
-| C++ compiler | C++14 | GCC, Clang or MinGW-w64 (MSVC partly supported) |
-| CMake | ≥ 3.16.7 | `CMakeLists.txt`; qmake (`Project.pro`) is also supported |
+| C++ compiler | C++14 (Qt 5), C++17 (Qt 6) | GCC, Clang or MinGW-w64 (MSVC partly supported) |
+| CMake | ≥ 3.16.7 | `CMakeLists.txt`; `-DNATRON_QT_MAJOR=6` builds with Qt 6 (default 5); qmake (`Project.pro`) is also supported, Qt 5.15 only |
 | Python 3 interpreter | | Runs `tools/utils/sourceList.py` at configure time |
-| shiboken2 generator | 5.15 | Generates the Python bindings (`Engine/`, `Gui/` typesystems) |
+| shiboken2 / shiboken6 generator | 5.15 / ≥ 6.5 | Generates the Python bindings (`Engine/`, `Gui/` typesystems) |
 | pkg-config | | Finds cairo, fontconfig, expat, PySide, shiboken |
 | Docker | | `scripts/natron-build.sh` builds in `natrongithub/natron-sdk` or `natron-sdk-qt5` |
 
@@ -25,9 +25,9 @@ side actually uses it at run time.
 
 | Dependency | Version | Used by | Why |
 |---|---|---|---|
-| Qt Core, Gui, Network, Widgets, Concurrent | 5.15 (CMake); Qt 4.8 via qmake | all modules | UI, networking, threads, processes |
+| Qt Core, Gui, Network, Widgets, Concurrent (+ OpenGL, OpenGLWidgets with Qt 6) | 5.15, or ≥ 6.5 (6.8 LTS recommended) | all modules | UI, networking, threads, processes |
 | Python 3 (libpython) | 3.10 in the SDK | Engine, Gui, App, Renderer | Python scripting; renders run a generated Python script inside `NatronRenderer` |
-| PySide2 + libshiboken2 | 5.15 (PySide 1 with Qt 4) | Engine, Gui | Python bindings of Natron and Qt |
+| PySide2 + libshiboken2, or PySide6 + libshiboken6 | 5.15 / same version as Qt 6 | Engine, Gui | Python bindings of Natron and Qt; scripts should import Qt through qtpy to work with both |
 | Boost | headers + serialization | Engine | Project (`.ntp`) load and save |
 | cairo, fontconfig | | Engine | Roto/shape rasterisation, fonts |
 | expat | | HostSupport | OFX host XML |

@@ -287,12 +287,16 @@ PyObject* initializePython2(const std::vector<char*>& commandLineArgsUtf8)
 #if PY_MAJOR_VERSION >= 3
     // Py_SetPath clears sys.prefix and sys.exec_prefix
     // https://github.com/NatronGitHub/Natron/issues/696
-    PyObject *prefix = PyUnicode_FromWideChar(Py_GetPythonHome(), -1);
-    PySys_SetObject(const_cast<char*>("prefix"), prefix);
-    Py_XDECREF(prefix);
-    PyObject *exec_prefix = PyUnicode_FromWideChar(Py_GetPythonHome(), -1);
-    PySys_SetObject(const_cast<char*>("exec_prefix"), exec_prefix);
-    Py_XDECREF(exec_prefix);
+    // (only when a Python home was set: PyUnicode_FromWideChar(NULL) fails and
+    // leaves an exception that makes the import of __main__ below fail)
+    if ( Py_GetPythonHome() ) {
+        PyObject *prefix = PyUnicode_FromWideChar(Py_GetPythonHome(), -1);
+        PySys_SetObject(const_cast<char*>("prefix"), prefix);
+        Py_XDECREF(prefix);
+        PyObject *exec_prefix = PyUnicode_FromWideChar(Py_GetPythonHome(), -1);
+        PySys_SetObject(const_cast<char*>("exec_prefix"), exec_prefix);
+        Py_XDECREF(exec_prefix);
+    }
 #endif
 
     /////////////////////////////////////////

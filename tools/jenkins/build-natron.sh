@@ -324,9 +324,11 @@ if [ "$QT_VERSION_MAJOR" -ge 6 ]; then
     fi
     if [ "$NO_BUILD" != "1" ]; then
         printStatusMessage "Building Natron (CMake, Qt ${QT_VERSION})..."
+        # CC and CXX carry flags for qmake ("g++ -std=c++14"): CMake takes
+        # only the compiler, CMakeLists.txt sets the C++ standard.
         env CFLAGS="${BF:-}" CXXFLAGS="${BF:-}" cmake -S . -B build-qt6 -G Ninja \
             -DCMAKE_BUILD_TYPE="$NATRON_CMAKE_BUILD_TYPE" \
-            -DCMAKE_C_COMPILER="$CC" -DCMAKE_CXX_COMPILER="$CXX" \
+            -DCMAKE_C_COMPILER="${CC%% *}" -DCMAKE_CXX_COMPILER="${CXX%% *}" \
             -DNATRON_QT_MAJOR=6 \
             -DPython3_EXECUTABLE="$NATRON_CMAKE_PYTHON" \
             -DNATRON_BUILD_TESTS="$([ "${SKIP_NATRON_TESTS:-}" = "1" ] && echo OFF || echo ON)" \

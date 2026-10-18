@@ -4,8 +4,9 @@
 #include <QObject>
 #include <QVariant>
 #include <QStringList>
-#include <QFileSystemWatcher>
 #include <QTimer>
+
+class QFileSystemWatcher;
 
 class StateStore : public QObject
 {
@@ -71,6 +72,9 @@ private:
   QHash<QString, QVariant> m_store;
   QString m_path;
   QTimer m_saveTimer;
-  QFileSystemWatcher m_watcher; // image files of image values
+  // The image files of image values: created with the first one, as a
+  // QFileSystemWatcher needs an event dispatcher (the store is created before
+  // the application).
+  QFileSystemWatcher *m_watcher;
   bool m_dirty;
 };

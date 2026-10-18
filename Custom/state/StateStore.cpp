@@ -7,6 +7,7 @@
 #include <QDir>
 #include <QFile>
 #include <QFileInfo>
+#include <QFileSystemWatcher>
 #include <QVariantMap>
 
 namespace
@@ -17,12 +18,12 @@ const int kSaveDelayMs = 300;
 
 StateStore::StateStore(QObject *parent)
     : QObject(parent),
+      m_watcher(nullptr),
       m_dirty(false)
 {
   m_saveTimer.setSingleShot(true);
   m_saveTimer.setInterval(kSaveDelayMs);
   connect(&m_saveTimer, SIGNAL(timeout()), this, SLOT(onSaveTimer()));
-  connect(&m_watcher, SIGNAL(fileChanged(QString)), this, SLOT(onImageFileChanged(QString)));
 }
 
 StateStore::~StateStore()
@@ -130,19 +131,29 @@ void StateStore::updateWatchedFiles()
     }
   }
 
-  const QStringList watched = m_watcher.files();
+  if (!m_watcher)
+  {
+    if (paths.isEmpty())
+    {
+      return;
+    }
+    m_watcher = new QFileSystemWatcher(this);
+    connect(m_watcher, SIGNAL(fileChanged(QString)), this, SLOT(onImageFileChanged(QString)));
+  }
+
+  const QStringList watched = m_watcher->files();
   for (int i = 0; i < watched.size(); ++i)
   {
     if (!paths.contains(watched.at(i)))
     {
-      m_watcher.removePath(watched.at(i));
+      m_watcher->removePath(watched.at(i));
     }
   }
   for (int i = 0; i < paths.size(); ++i)
   {
     if (!watched.contains(paths.at(i)))
     {
-      m_watcher.addPath(paths.at(i));
+      m_watcher->addPath(paths.at(i));
     }
   }
 }

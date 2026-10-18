@@ -396,7 +396,9 @@ for location in "${COPY_LOCATIONS[@]}"; do
     # system of the SDK): many desktops do not install them (e.g. libxcb-cursor,
     # without which Qt 6 applications do not start under X11).
     if [ "${QT_VERSION_MAJOR}" -ge 6 ]; then
-        for xlib in libxcb-cursor.so.0 libxcb-icccm.so.4 libxcb-image.so.0 libxcb-keysyms.so.1 libxcb-render-util.so.0 libxcb-util.so.1 libxkbcommon-x11.so.0; do
+        # libxkbcommon-x11 uses the internals of libxkbcommon: both from the
+        # SDK, or it crashes with the system's libxkbcommon (when another version).
+        for xlib in libxcb-cursor.so.0 libxcb-icccm.so.4 libxcb-image.so.0 libxcb-keysyms.so.1 libxcb-render-util.so.0 libxcb-util.so.1 libxkbcommon-x11.so.0 libxkbcommon.so.0; do
             for d in /usr/lib64 /usr/lib; do
                 if [ -e "$d/$xlib" ]; then
                     cp -fL "$d/$xlib" "${location}/lib/"

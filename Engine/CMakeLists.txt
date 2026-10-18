@@ -84,6 +84,7 @@ target_link_libraries(NatronEngine
         Qt::Network
         Python3::Module
         ${XDG_LIBS}
+        ${CMAKE_DL_LIBS}
         ceres
         hoedown
         mv

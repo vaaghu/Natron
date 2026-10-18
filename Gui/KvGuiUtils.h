@@ -80,6 +80,10 @@ QString typeLabelForName(const QString& name); // "Text", "Number", "On/Off", "C
 // panes' corner button). Add the actions to *menu.
 QToolButton* panelMenuButton(QWidget* parent, QMenu** menu);
 
+// The dashboard window's style sheet (Resources/Stylesheets/dashboard.qss)
+// with the colors of the Natron theme.
+QString dashboardStyleSheet();
+
 // Dashboard look, shared by every panel: margins and spacing of a panel's
 // layout; tables and lists without grid or focus box, with alternating
 // rows and left-aligned headers; grey secondary text.

@@ -289,6 +289,13 @@
         <file>Resources/Images/zebra_off.png</file>
         <file>Resources/Images/zebra_on.png</file>
         <file>Resources/Stylesheets/mainstyle.qss</file>
+        <file>Resources/Stylesheets/dashboard.qss</file>
+        <file>Resources/Images/dashboard_arrow_down.png</file>
+        <file>Resources/Images/dashboard_arrow_down@2x.png</file>
+        <file>Resources/Images/dashboard_arrow_up.png</file>
+        <file>Resources/Images/dashboard_arrow_up@2x.png</file>
+        <file>Resources/Images/dashboard_check.png</file>
+        <file>Resources/Images/dashboard_check@2x.png</file>
         <file>Resources/Images/rotoNodeIcon.png</file>
         <file>Resources/Images/interp_constant.png</file>
         <file>Resources/Images/interp_linear.png</file>

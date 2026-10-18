@@ -30,22 +30,26 @@ CLANG_DIAG_OFF(uninitialized)
 #include <QBoxLayout>
 #include <QColor>
 #include <QColorDialog>
-#include <QApplication>
 #include <QDesktopServices>
 #include <QDir>
+#include <QFile>
 #include <QFileDialog>
 #include <QFileInfo>
+#include <QHash>
 #include <QHeaderView>
 #include <QLabel>
 #include <QListView>
 #include <QMenu>
 #include <QPixmap>
+#include <QRegularExpression>
 #include <QTableView>
 #include <QTextDocument>
 #include <QToolButton>
 #include <QUrl>
 CLANG_DIAG_ON(deprecated)
 CLANG_DIAG_ON(uninitialized)
+
+#include "Engine/Settings.h"
 
 #include "Gui/GuiApplicationManager.h" // appPTR
 #include "Gui/HoverWidgets.h"
@@ -75,6 +79,27 @@ QString
 escape(const QString& text)
 {
     return text.toHtmlEscaped();
+}
+
+QColor
+themeColor(void (Settings::*getter)(double*, double*, double*) const)
+{
+    double r, g, b;
+
+    ( appPTR->getCurrentSettings().get()->*getter )(&r, &g, &b);
+
+    return QColor::fromRgbF( qBound(0., r, 1.), qBound(0., g, 1.), qBound(0., b, 1.) );
+}
+
+// a, t of the way to b.
+QColor
+mix(const QColor& a,
+    const QColor& b,
+    double t)
+{
+    return QColor::fromRgbF( a.redF() + (b.redF() - a.redF()) * t,
+                             a.greenF() + (b.greenF() - a.greenF()) * t,
+                             a.blueF() + (b.blueF() - a.blueF()) * t );
 }
 
 NATRON_NAMESPACE_ANONYMOUS_EXIT
@@ -225,6 +250,70 @@ chooseImageFile(QWidget* parent,
                                         filter);
 }
 
+QString
+dashboardStyleSheet()
+{
+    QFile file( QString::fromUtf8(":/Resources/Stylesheets/dashboard.qss") );
+
+    if ( !file.open(QIODevice::ReadOnly | QIODevice::Text) ) {
+        return QString();
+    }
+
+    // The theme colors (Preferences > Appearance), and shades between them:
+    // mixing works with black or white themes too, where darker() and
+    // lighter() do nothing.
+    const QColor sunken = themeColor(&Settings::getSunkenColor);
+    const QColor base = themeColor(&Settings::getBaseColor);
+    const QColor raised = themeColor(&Settings::getRaisedColor);
+    const QColor text = themeColor(&Settings::getTextColor);
+    const QColor accent = themeColor(&Settings::getSelectionColor);
+    const QColor view = mix(base, sunken, 0.5);
+    QHash<QString, QColor> colors;
+
+    colors[QString::fromUtf8("window")] = base;
+    colors[QString::fromUtf8("sunken")] = sunken;
+    colors[QString::fromUtf8("popup")] = mix(base, raised, 0.35);
+    colors[QString::fromUtf8("view")] = view;
+    colors[QString::fromUtf8("viewAlt")] = mix(view, raised, 0.18);
+    colors[QString::fromUtf8("viewHover")] = mix(view, raised, 0.45);
+    colors[QString::fromUtf8("selection")] = mix(view, accent, 0.4);
+    colors[QString::fromUtf8("input")] = mix(base, sunken, 0.6);
+    colors[QString::fromUtf8("inputDisabled")] = base;
+    colors[QString::fromUtf8("control")] = mix(base, raised, 0.75);
+    colors[QString::fromUtf8("controlHover")] = mix(raised, text, 0.1);
+    colors[QString::fromUtf8("controlPressed")] = mix(base, sunken, 0.3);
+    colors[QString::fromUtf8("controlDisabled")] = base;
+    colors[QString::fromUtf8("borderSoft")] = mix(base, text, 0.08);
+    colors[QString::fromUtf8("border")] = mix(base, text, 0.18);
+    colors[QString::fromUtf8("borderStrong")] = mix(base, text, 0.32);
+    colors[QString::fromUtf8("scrollHandle")] = mix(base, text, 0.28);
+    colors[QString::fromUtf8("scrollHandleHover")] = mix(base, text, 0.45);
+    colors[QString::fromUtf8("text")] = text;
+    colors[QString::fromUtf8("textDim")] = mix(text, base, 0.4);
+    colors[QString::fromUtf8("textDisabled")] = mix(text, base, 0.62);
+    colors[QString::fromUtf8("accent")] = accent;
+    colors[QString::fromUtf8("accentHover")] = mix(accent, Qt::white, 0.15);
+    colors[QString::fromUtf8("accentDisabled")] = mix(accent, base, 0.6);
+    colors[QString::fromUtf8("accentText")] = (accent.lightnessF() > 0.45) ? QColor(20, 20, 20) : QColor(Qt::white);
+
+    // ${name} -> #rrggbb
+    const QString source = QString::fromUtf8( file.readAll() );
+    const QRegularExpression token( QString::fromUtf8("\\$\\{(\\w+)\\}") );
+    QString sheet;
+    qsizetype from = 0;
+    QRegularExpressionMatchIterator it = token.globalMatch(source);
+    while ( it.hasNext() ) {
+        const QRegularExpressionMatch match = it.next();
+        sheet += source.mid(from, match.capturedStart() - from);
+        const QString name = match.captured(1);
+        sheet += colors.value(name, text).name();
+        from = match.capturedEnd();
+    }
+    sheet += source.mid(from);
+
+    return sheet;
+}
+
 QToolButton*
 panelMenuButton(QWidget* parent,
                 QMenu** menu)
@@ -249,22 +338,11 @@ setPanelLayout(QBoxLayout* layout)
     layout->setSpacing(kPanelSpacing);
 }
 
-// Alternate rows: a shade lighter than the views' background (the style
-// sheet's soft background, the palette's Light).
-static QString
-alternateRowStyle(const char* viewClass)
-{
-    const QColor alternate = QApplication::palette().color(QPalette::Light).lighter(112);
-
-    return QString::fromUtf8("%1 { alternate-background-color: %2; }").arg( QString::fromUtf8(viewClass) ).arg( alternate.name() );
-}
-
 void
 styleTable(QTableView* table)
 {
     table->setShowGrid(false);
-    table->setAlternatingRowColors(true);
-    table->setStyleSheet( alternateRowStyle("QTableView") );
+    table->setAlternatingRowColors(true); // colors: dashboard.qss
     table->setSelectionBehavior(QAbstractItemView::SelectRows);
     table->setItemDelegate( new PlainItemDelegate(table) );
     table->setHorizontalScrollMode(QAbstractItemView::ScrollPerPixel);
@@ -279,8 +357,7 @@ styleTable(QTableView* table)
 void
 styleList(QListView* list)
 {
-    list->setAlternatingRowColors(true);
-    list->setStyleSheet( alternateRowStyle("QListView") );
+    list->setAlternatingRowColors(true); // colors: dashboard.qss
     list->setItemDelegate( new PlainItemDelegate(list) );
 }
 
@@ -288,10 +365,8 @@ QLabel*
 secondaryLabel(QWidget* parent)
 {
     QLabel* label = new QLabel(parent);
-    // The application style sheet sets label colors: dim the text color there.
-    const QColor text = QApplication::palette().color(QPalette::Text);
 
-    label->setStyleSheet( QString::fromUtf8("QLabel { color: rgba(%1, %2, %3, 60%); }").arg( text.red() ).arg( text.green() ).arg( text.blue() ) );
+    label->setProperty("secondary", true); // dimmed by dashboard.qss
     label->setTextFormat(Qt::PlainText);
 
     return label;

@@ -327,8 +327,10 @@ SwitcherPanel::createTransitions()
     }
 
     _cutButton = new QPushButton(tr("Cut"), transitions);
+    _cutButton->setObjectName( QString::fromUtf8("switcherCut") ); // style sheet
     _cutButton->setToolTip( tr("Put Preview on air at once. Preview stays as it is.") );
     _fadeButton = new QPushButton(tr("Fade"), transitions);
+    _fadeButton->setObjectName( QString::fromUtf8("switcherFade") );
     _fadeButton->setToolTip( tr("Crossfade from Program to Preview in the time below. Preview stays as it is.") );
     _durationSpin = new QSpinBox(transitions);
     _durationSpin->setRange(0, 10000);
@@ -336,6 +338,7 @@ SwitcherPanel::createTransitions()
     _durationSpin->setSuffix( tr(" ms") );
     _durationSpin->setToolTip( tr("Duration of Fade and Fade to Black") );
     _fadeToBlackButton = new QPushButton(tr("FTB"), transitions);
+    _fadeToBlackButton->setObjectName( QString::fromUtf8("switcherFadeToBlack") );
     _fadeToBlackButton->setCheckable(true);
     _fadeToBlackButton->setToolTip( tr("Fade to Black: fade Program to black, or back from black") );
     _tbar = new QSlider(Qt::Vertical, transitions);
@@ -353,6 +356,9 @@ SwitcherPanel::createTransitions()
     column->addWidget(_fadeToBlackButton);
     column->addSpacing(6);
     column->addWidget(_tbar, 1, Qt::AlignHCenter);
+    // Sizes with the dashboard style sheet's padding.
+    _formatCombo->ensurePolished();
+    _durationSpin->ensurePolished();
     transitions->setFixedWidth( qMax( 110, qMax( _formatCombo->sizeHint().width(), _durationSpin->sizeHint().width() ) + 4 ) );
 
     QObject::connect( _formatCombo, SIGNAL(activated(int)), this, SLOT(onFormatChosen(int)) );

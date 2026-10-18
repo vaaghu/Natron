@@ -310,6 +310,8 @@ DashboardWindow::DashboardWindow(::StateStore* store,
 {
     setWindowTitle( tr("%1 - Dashboard").arg( QString::fromUtf8(NATRON_APPLICATION_NAME) ) );
     resize(1600, 960);
+    // Over the editor's style sheet: also for the panels, menus and dialogs.
+    setStyleSheet( KvGui::dashboardStyleSheet() );
 
     createPanels();
     DelayedToolTips::install(this, kDashboardToolTipDelayMs);

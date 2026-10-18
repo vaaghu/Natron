@@ -282,9 +282,14 @@ AppManagerPrivate::AppManagerPrivate()
 
     runningThreadsCount = 0;
 
-#if defined(__NATRON_LINUX__)
-    onWayland = qEnvironmentVariableIsSet("WAYLAND_DISPLAY") && !qEnvironmentVariableIsSet("NATRON_DISABLE_WAYLAND");
+#if defined(__NATRON_LINUX__) && defined(__NATRON_WAYLAND__)
+    // Wayland contexts only when Qt is on Wayland too: with another platform
+    // (QT_QPA_PLATFORM=xcb, or no Wayland plug-in), the X11 ones.
+    const QString qpaPlatform = qEnvironmentVariable("QT_QPA_PLATFORM");
+    onWayland = qEnvironmentVariableIsSet("WAYLAND_DISPLAY") && !qEnvironmentVariableIsSet("NATRON_DISABLE_WAYLAND") &&
+                (qpaPlatform.isEmpty() || qpaPlatform.startsWith(QLatin1String("wayland")));
 #else
+    // Built without Wayland support (see OSGLContext_wayland.cpp): X11 (or XWayland).
     onWayland = false;
 #endif
 }

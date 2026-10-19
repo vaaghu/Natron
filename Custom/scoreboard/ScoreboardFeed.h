@@ -64,6 +64,9 @@ public:
   // Sets the keys whose value differs from the store's. Returns those keys.
   QStringList apply(const QVariantMap &values);
 
+  // When the last packet was decoded (invalid before the first one).
+  QDateTime lastPacketTime() const;
+
   // GET /scoreboard: {listening, port, error, packets, rejected, lastPacket,
   //                   lastSender, values}
   // POST /scoreboard: {"packet": "FF FE 01 01 ..."} or {"packets": [...]},

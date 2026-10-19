@@ -32,6 +32,8 @@ add_library(NatronCustom STATIC
     sdi/SdiOutput.cpp
     scoreboard/ScoreboardCommon.h
     scoreboard/ScoreboardCommon.cpp
+    scoreboard/LiveStats.h
+    scoreboard/LiveStats.cpp
     scoreboard/ScoreboardFeed.h
     scoreboard/ScoreboardFeed.cpp
 )

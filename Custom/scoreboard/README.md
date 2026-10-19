@@ -630,6 +630,7 @@ The body has 20 entries of 4 bytes: shirt number (3 ASCII bytes), then
 |---|---|
 | `ScoreboardFeed.h/.cpp` | UDP listener, packet decoder, `/scoreboard` HTTP route |
 | `ScoreboardCommon.h/.cpp` | clock and period text, writing the keys: shared by the feeds |
+| `LIVESTATS.md` | LiveStats integration: design, priority rules, verification, limits |
 | `LiveStats.h/.cpp` | LiveStats model: TV feed messages and data.json into keys |
 | `LiveStatsFeed.h/.cpp` | LiveStats TCP client, data.json polling, images, `/livestats` HTTP route |
 | `simulate_livestats.py` | LiveStats simulator (TV feed TCP or online data.json) |

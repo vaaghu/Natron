@@ -67,6 +67,10 @@ public:
   // When the last packet was decoded (invalid before the first one).
   QDateTime lastPacketTime() const;
 
+  // Leaves the player keys (scoreboard.<team>.player.*) alone: set while
+  // the LiveStats feed, with its full box score, provides them.
+  void setSkipPlayerKeys(bool skip);
+
   // GET /scoreboard: {listening, port, error, packets, rejected, lastPacket,
   //                   lastSender, values}
   // POST /scoreboard: {"packet": "FF FE 01 01 ..."} or {"packets": [...]},
@@ -97,4 +101,5 @@ private:
   QString m_lastRejection;
   QDateTime m_lastPacket;
   QString m_lastSender;
+  bool m_skipPlayerKeys;
 };

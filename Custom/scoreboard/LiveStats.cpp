@@ -1160,6 +1160,11 @@ qlonglong LiveStatsModel::lastMessageId() const
   return m_lastMessageId;
 }
 
+void LiveStatsModel::resetMessageId()
+{
+  m_lastMessageId = 0;
+}
+
 bool LiveStatsModel::clockRunning() const
 {
   return m_hasClock && m_clockRunning;

@@ -188,7 +188,8 @@ ScoreboardFeed::ScoreboardFeed(StateStore *store, QObject *parent)
       m_store(store),
       m_port(0),
       m_packets(0),
-      m_rejected(0)
+      m_rejected(0),
+      m_skipPlayerKeys(false)
 {
   connect(&m_socket, SIGNAL(readyRead()), this, SLOT(onReadyRead()));
 }
@@ -298,11 +299,30 @@ QDateTime ScoreboardFeed::lastPacketTime() const
   return m_lastPacket;
 }
 
+void ScoreboardFeed::setSkipPlayerKeys(bool skip)
+{
+  m_skipPlayerKeys = skip;
+}
+
 bool ScoreboardFeed::receive(const QByteArray &packet, const QString &sender, QVariantMap *result)
 {
   QString type;
   QString error;
-  const QVariantMap values = decode(packet, &type, &error);
+  QVariantMap values = decode(packet, &type, &error);
+  if (m_skipPlayerKeys)
+  {
+    for (QVariantMap::iterator it = values.begin(); it != values.end();)
+    {
+      if (it.key().contains(s(".player.")))
+      {
+        it = values.erase(it);
+      }
+      else
+      {
+        ++it;
+      }
+    }
+  }
 
   if (!error.isEmpty())
   {

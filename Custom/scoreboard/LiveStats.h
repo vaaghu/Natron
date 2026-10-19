@@ -74,6 +74,8 @@ public:
 
   // Highest messageId received (TV feed), 0 before any.
   qlonglong lastMessageId() const;
+  // Back to 0: the feed restarted and numbers its messages from 1 again.
+  void resetMessageId();
 
   // Photo and logo URLs of the current data.
   QStringList imageUrls() const;

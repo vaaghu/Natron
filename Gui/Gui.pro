@@ -238,6 +238,7 @@ SOURCES += \
     ../Custom/sdi/SdiOutput.cpp \
     ../Custom/scoreboard/ScoreboardCommon.cpp \
     ../Custom/scoreboard/LiveStats.cpp \
+    ../Custom/scoreboard/LiveStatsFeed.cpp \
     ../Custom/scoreboard/ScoreboardFeed.cpp \
     Splitter.cpp \
     TabGroup.cpp \
@@ -407,6 +408,7 @@ HEADERS += \
     ../Custom/sdi/SdiOutput.h \
     ../Custom/scoreboard/ScoreboardCommon.h \
     ../Custom/scoreboard/LiveStats.h \
+    ../Custom/scoreboard/LiveStatsFeed.h \
     ../Custom/scoreboard/ScoreboardFeed.h \
     Splitter.h \
     TabGroup.h \

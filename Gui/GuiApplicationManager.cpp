@@ -92,7 +92,9 @@ GuiApplicationManager::~GuiApplicationManager()
     if (_imp->httpServer) {
         _imp->httpServer->removeRouteHandler( _imp->ndiManager.get() );
         _imp->httpServer->removeRouteHandler( _imp->scoreboardFeed.get() );
+        _imp->httpServer->removeRouteHandler( _imp->liveStatsFeed.get() );
     }
+    _imp->liveStatsFeed.reset();
     _imp->scoreboardFeed.reset();
     _imp->ndiManager.reset(); // stops the NDI channels
 }
@@ -1052,6 +1054,40 @@ GuiApplicationManager::initGui(const CLArgs& args)
     _imp->scoreboardFeed.reset( new ScoreboardFeed(&_imp->stateStore) );
     _imp->scoreboardFeed->start( static_cast<unsigned short>(scoreboardPort) );
     _imp->httpServer->addRouteHandler( _imp->scoreboardFeed.get() ); // /scoreboard
+
+    // FIBA LiveStats: the TV feed of NATRON_LIVESTATS_HOST (port
+    // NATRON_LIVESTATS_PORT, default 7677), or else the online data of match
+    // NATRON_LIVESTATS_MATCH, polled every NATRON_LIVESTATS_INTERVAL seconds
+    // (default 2). Off when neither is set; POST /livestats starts it too.
+    // See Custom/scoreboard.
+    _imp->liveStatsFeed.reset( new LiveStatsFeed( &_imp->stateStore, _imp->scoreboardFeed.get() ) );
+    if ( !_imp->stateStore.filePath().isEmpty() ) {
+        _imp->liveStatsFeed->setImageDirectory( QFileInfo( _imp->stateStore.filePath() ).dir().absoluteFilePath( QString::fromUtf8("livestats-images") ) );
+    }
+    {
+        const QByteArray baseUrl = qgetenv("NATRON_LIVESTATS_URL");
+        if ( !baseUrl.isEmpty() ) {
+            _imp->liveStatsFeed->setBaseUrl( QString::fromUtf8( baseUrl.constData() ) );
+        }
+        const QString host = QString::fromUtf8( qgetenv("NATRON_LIVESTATS_HOST").constData() ).trimmed();
+        const QString match = QString::fromUtf8( qgetenv("NATRON_LIVESTATS_MATCH").constData() ).trimmed();
+        if ( !host.isEmpty() ) {
+            bool ok = false;
+            int port = qgetenv("NATRON_LIVESTATS_PORT").toInt(&ok);
+            if ( !ok || (port <= 0) || (port >= 65536) ) {
+                port = 7677;
+            }
+            _imp->liveStatsFeed->connectTo( host, static_cast<unsigned short>(port) );
+        } else if ( !match.isEmpty() ) {
+            bool ok = false;
+            double interval = qgetenv("NATRON_LIVESTATS_INTERVAL").toDouble(&ok);
+            if ( !ok || (interval <= 0) ) {
+                interval = 2;
+            }
+            _imp->liveStatsFeed->pollMatch( match, static_cast<int>(interval * 1000) );
+        }
+    }
+    _imp->httpServer->addRouteHandler( _imp->liveStatsFeed.get() ); // /livestats
 
     return exec();
 } // GuiApplicationManager::initGui

@@ -1,0 +1,579 @@
+{
+  "info": {
+    "_postman_id": "961d2b56-ea1b-5605-8c5e-9f29efd62100",
+    "name": "Natron - FIBA LiveStats feed",
+    "description": "Feeds Natron's LiveStats feed by hand and controls it.\n\n\"Feed\" starts, stops and checks the feed (TV feed host or online match). \"Messages\" POSTs LiveStats TV feed messages to `/livestats`, read exactly as if they came over the TCP feed, and sets the `scoreboard.*` keys (bind Text nodes to them). Send Teams first: the other messages refer to players by pno.\n\nSet `baseUrl` if Natron uses another port (NATRON_HTTP_PORT) and `token` if it was started with NATRON_HTTP_TOKEN.",
+    "schema": "https://schema.getpostman.com/json/collection/v2.1.0/collection.json"
+  },
+  "auth": {
+    "type": "bearer",
+    "bearer": [
+      {
+        "key": "token",
+        "value": "{{token}}",
+        "type": "string"
+      }
+    ]
+  },
+  "item": [
+    {
+      "name": "Feed",
+      "item": [
+        {
+          "name": "Status and values",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/livestats",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "livestats"
+              ]
+            },
+            "description": "Mode, connection, messages received / rejected, console priority, and every key the feed set."
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('accepted', () => pm.response.to.have.status(200));"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "Connect to the TV feed",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/livestats",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "livestats"
+              ]
+            },
+            "description": "TCP to the LiveStats computer (set liveStatsHost).",
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"host\": \"{{liveStatsHost}}\",\n  \"port\": 7677\n}"
+            }
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('accepted', () => pm.response.to.have.status(200));"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "Poll an online match",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/livestats",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "livestats"
+              ]
+            },
+            "description": "Polls https://fibalivestats.dcd.shared.geniussports.com/data/<matchId>/data.json (set matchId).",
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"matchId\": \"{{matchId}}\",\n  \"interval\": 2\n}"
+            }
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('accepted', () => pm.response.to.have.status(200));"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "Poll the simulator",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/livestats",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "livestats"
+              ]
+            },
+            "description": "simulate_livestats.py online",
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"url\": \"http://127.0.0.1:8080/data/1/data.json\",\n  \"interval\": 1\n}"
+            }
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('accepted', () => pm.response.to.have.status(200));"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "Stop",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/livestats",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "livestats"
+              ]
+            },
+            "description": "Stops reading; the keys stay.",
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"stop\": true\n}"
+            }
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('accepted', () => pm.response.to.have.status(200));"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "Reset",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/livestats",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "livestats"
+              ]
+            },
+            "description": "Removes the keys the feed set.",
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"reset\": true\n}"
+            }
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('accepted', () => pm.response.to.have.status(200));"
+                ]
+              }
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "name": "Messages",
+      "item": [
+        {
+          "name": "Teams",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/livestats",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "livestats"
+              ]
+            },
+            "description": "Rosters: names, shirt numbers, starters, on court.",
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"message\": {\n    \"type\": \"teams\",\n    \"messageId\": 1,\n    \"teams\": [\n      {\n        \"teamNumber\": 1,\n        \"detail\": {\n          \"teamName\": \"Home City\",\n          \"teamNickname\": \"City\",\n          \"teamCode\": \"HOM\",\n          \"isHomeCompetitor\": 1\n        },\n        \"coach\": {\n          \"firstName\": \"Ann\",\n          \"familyName\": \"Coach\"\n        },\n        \"players\": [\n          {\n            \"pno\": 1,\n            \"shirtNumber\": \"7\",\n            \"firstName\": \"Sam\",\n            \"familyName\": \"Smith\",\n            \"scoreboardName\": \"S. SMITH\",\n            \"playingPosition\": \"G\",\n            \"starter\": 1,\n            \"captain\": 1,\n            \"active\": 1\n          },\n          {\n            \"pno\": 2,\n            \"shirtNumber\": \"4\",\n            \"firstName\": \"Alex\",\n            \"familyName\": \"Rivers\",\n            \"scoreboardName\": \"A. RIVERS\",\n            \"playingPosition\": \"F\",\n            \"starter\": 1,\n            \"active\": 1\n          },\n          {\n            \"pno\": 3,\n            \"shirtNumber\": \"12\",\n            \"firstName\": \"Bob\",\n            \"familyName\": \"Bench\",\n            \"scoreboardName\": \"B. BENCH\",\n            \"starter\": 0,\n            \"active\": 0\n          }\n        ]\n      },\n      {\n        \"teamNumber\": 2,\n        \"detail\": {\n          \"teamName\": \"Visitors BC\",\n          \"teamNickname\": \"Visitors\",\n          \"teamCode\": \"VIS\",\n          \"isHomeCompetitor\": 0\n        },\n        \"players\": [\n          {\n            \"pno\": 1,\n            \"shirtNumber\": \"9\",\n            \"firstName\": \"Ian\",\n            \"familyName\": \"Fischer\",\n            \"scoreboardName\": \"I. FISCHER\",\n            \"starter\": 1,\n            \"active\": 1\n          }\n        ]\n      }\n    ]\n  }\n}"
+            }
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('accepted', () => pm.response.to.have.status(200));",
+                  "pm.sendRequest({url: pm.variables.replaceIn('{{baseUrl}}/state'), header: {Authorization: 'Bearer ' + pm.collectionVariables.get('token')}}, (err, res) => {",
+                  "  pm.test('scoreboard.home.player.7.name is Sam Smith', () => pm.expect(String(res.json()['scoreboard.home.player.7.name'].value)).to.eql('Sam Smith'));",
+                  "});"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "Status",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/livestats",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "livestats"
+              ]
+            },
+            "description": "Period, clocks, scores, timeouts left, team fouls.",
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"message\": {\n    \"type\": \"status\",\n    \"messageId\": 2,\n    \"status\": \"INPROGRESS\",\n    \"period\": {\n      \"current\": 2,\n      \"periodType\": \"REGULAR\"\n    },\n    \"clock\": \"05:07:00\",\n    \"shotClock\": \"00:14:00\",\n    \"clockRunning\": 0,\n    \"possession\": 1,\n    \"scores\": [\n      {\n        \"teamNumber\": 1,\n        \"score\": 51,\n        \"timeoutsRemaining\": 2,\n        \"teamFouls\": 3\n      },\n      {\n        \"teamNumber\": 2,\n        \"score\": 48,\n        \"timeoutsRemaining\": 1,\n        \"teamFouls\": 4\n      }\n    ]\n  }\n}"
+            }
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('accepted', () => pm.response.to.have.status(200));",
+                  "pm.sendRequest({url: pm.variables.replaceIn('{{baseUrl}}/state'), header: {Authorization: 'Bearer ' + pm.collectionVariables.get('token')}}, (err, res) => {",
+                  "  pm.test('scoreboard.clock is 05:07', () => pm.expect(String(res.json()['scoreboard.clock'].value)).to.eql('05:07'));",
+                  "});"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "Boxscore",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/livestats",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "livestats"
+              ]
+            },
+            "description": "Player and team stats.",
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"message\": {\n    \"type\": \"boxscore\",\n    \"messageId\": 3,\n    \"teams\": [\n      {\n        \"teamNumber\": 1,\n        \"total\": {\n          \"team\": {\n            \"sPoints\": 51,\n            \"sReboundsTotal\": 20,\n            \"sAssists\": 12,\n            \"sFieldGoalsMade\": 20,\n            \"sFieldGoalsAttempted\": 41,\n            \"sBenchPoints\": 8\n          },\n          \"players\": [\n            {\n              \"pno\": 1,\n              \"sPoints\": 18,\n              \"sReboundsTotal\": 4,\n              \"sAssists\": 6,\n              \"sFieldGoalsMade\": 7,\n              \"sFieldGoalsAttempted\": 12,\n              \"sFoulsPersonal\": 2,\n              \"sMinutes\": 17.5,\n              \"sPlusMinusPoints\": 6\n            },\n            {\n              \"pno\": 2,\n              \"sPoints\": 9,\n              \"sReboundsTotal\": 9,\n              \"sAssists\": 1,\n              \"sMinutes\": 15.25\n            },\n            {\n              \"pno\": 3,\n              \"sPoints\": 8,\n              \"sMinutes\": 6\n            }\n          ]\n        },\n        \"periods\": [\n          {\n            \"period\": 1,\n            \"periodType\": \"REGULAR\",\n            \"team\": {\n              \"sPoints\": 27\n            }\n          },\n          {\n            \"period\": 2,\n            \"periodType\": \"REGULAR\",\n            \"team\": {\n              \"sPoints\": 24\n            }\n          }\n        ]\n      },\n      {\n        \"teamNumber\": 2,\n        \"total\": {\n          \"team\": {\n            \"sPoints\": 48\n          },\n          \"players\": [\n            {\n              \"pno\": 1,\n              \"sPoints\": 21,\n              \"sReboundsTotal\": 5\n            }\n          ]\n        }\n      }\n    ]\n  }\n}"
+            }
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('accepted', () => pm.response.to.have.status(200));",
+                  "pm.sendRequest({url: pm.variables.replaceIn('{{baseUrl}}/state'), header: {Authorization: 'Bearer ' + pm.collectionVariables.get('token')}}, (err, res) => {",
+                  "  pm.test('scoreboard.home.player.7.points is 18', () => pm.expect(String(res.json()['scoreboard.home.player.7.points'].value)).to.eql('18'));",
+                  "});"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "Action: 3PT made",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/livestats",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "livestats"
+              ]
+            },
+            "description": "Last action and last score.",
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"message\": {\n    \"type\": \"action\",\n    \"messageId\": 4,\n    \"actionNumber\": 120,\n    \"teamNumber\": 1,\n    \"pno\": 1,\n    \"period\": 2,\n    \"periodType\": \"REGULAR\",\n    \"clock\": \"05:01:00\",\n    \"actionType\": \"3pt\",\n    \"subType\": \"jumpshot\",\n    \"success\": 1,\n    \"score1\": \"54\",\n    \"score2\": \"48\"\n  }\n}"
+            }
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('accepted', () => pm.response.to.have.status(200));",
+                  "pm.sendRequest({url: pm.variables.replaceIn('{{baseUrl}}/state'), header: {Authorization: 'Bearer ' + pm.collectionVariables.get('token')}}, (err, res) => {",
+                  "  pm.test('scoreboard.lastAction.text is #7 S. SMITH 3PT made', () => pm.expect(String(res.json()['scoreboard.lastAction.text'].value)).to.eql('#7 S. SMITH 3PT made'));",
+                  "});"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "Standings",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/livestats",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "livestats"
+              ]
+            },
+            "description": "",
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"message\": {\n    \"type\": \"standings\",\n    \"standings\": [\n      {\n        \"teamName\": \"Home City\",\n        \"teamCode\": \"HOM\",\n        \"position\": 1,\n        \"played\": 4,\n        \"won\": 3,\n        \"lost\": 1,\n        \"standingPoints\": 7\n      },\n      {\n        \"teamName\": \"Visitors BC\",\n        \"teamCode\": \"VIS\",\n        \"position\": 2,\n        \"played\": 4,\n        \"won\": 2,\n        \"lost\": 2,\n        \"standingPoints\": 6\n      }\n    ]\n  }\n}"
+            }
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('accepted', () => pm.response.to.have.status(200));",
+                  "pm.sendRequest({url: pm.variables.replaceIn('{{baseUrl}}/state'), header: {Authorization: 'Bearer ' + pm.collectionVariables.get('token')}}, (err, res) => {",
+                  "  pm.test('scoreboard.standings.1.team is Home City', () => pm.expect(String(res.json()['scoreboard.standings.1.team'].value)).to.eql('Home City'));",
+                  "});"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "Schedule",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/livestats",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "livestats"
+              ]
+            },
+            "description": "",
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"message\": {\n    \"type\": \"schedule\",\n    \"matches\": [\n      {\n        \"matchTime\": \"2026-10-26 19:30:00\",\n        \"matchStatus\": \"SCHEDULED\",\n        \"competitors\": [\n          {\n            \"teamName\": \"Visitors BC\",\n            \"teamCode\": \"VIS\",\n            \"scoreString\": \"\",\n            \"isHomeCompetitor\": 1\n          },\n          {\n            \"teamName\": \"Home City\",\n            \"teamCode\": \"HOM\",\n            \"scoreString\": \"\",\n            \"isHomeCompetitor\": 0\n          }\n        ]\n      }\n    ]\n  }\n}"
+            }
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('accepted', () => pm.response.to.have.status(200));",
+                  "pm.sendRequest({url: pm.variables.replaceIn('{{baseUrl}}/state'), header: {Authorization: 'Bearer ' + pm.collectionVariables.get('token')}}, (err, res) => {",
+                  "  pm.test('scoreboard.schedule.1.home is Visitors BC', () => pm.expect(String(res.json()['scoreboard.schedule.1.home'].value)).to.eql('Visitors BC'));",
+                  "});"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "All at once",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/livestats",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "livestats"
+              ]
+            },
+            "description": "Every message above, in order.",
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"messages\": [\n    {\n      \"type\": \"teams\",\n      \"messageId\": 1,\n      \"teams\": [\n        {\n          \"teamNumber\": 1,\n          \"detail\": {\n            \"teamName\": \"Home City\",\n            \"teamNickname\": \"City\",\n            \"teamCode\": \"HOM\",\n            \"isHomeCompetitor\": 1\n          },\n          \"coach\": {\n            \"firstName\": \"Ann\",\n            \"familyName\": \"Coach\"\n          },\n          \"players\": [\n            {\n              \"pno\": 1,\n              \"shirtNumber\": \"7\",\n              \"firstName\": \"Sam\",\n              \"familyName\": \"Smith\",\n              \"scoreboardName\": \"S. SMITH\",\n              \"playingPosition\": \"G\",\n              \"starter\": 1,\n              \"captain\": 1,\n              \"active\": 1\n            },\n            {\n              \"pno\": 2,\n              \"shirtNumber\": \"4\",\n              \"firstName\": \"Alex\",\n              \"familyName\": \"Rivers\",\n              \"scoreboardName\": \"A. RIVERS\",\n              \"playingPosition\": \"F\",\n              \"starter\": 1,\n              \"active\": 1\n            },\n            {\n              \"pno\": 3,\n              \"shirtNumber\": \"12\",\n              \"firstName\": \"Bob\",\n              \"familyName\": \"Bench\",\n              \"scoreboardName\": \"B. BENCH\",\n              \"starter\": 0,\n              \"active\": 0\n            }\n          ]\n        },\n        {\n          \"teamNumber\": 2,\n          \"detail\": {\n            \"teamName\": \"Visitors BC\",\n            \"teamNickname\": \"Visitors\",\n            \"teamCode\": \"VIS\",\n            \"isHomeCompetitor\": 0\n          },\n          \"players\": [\n            {\n              \"pno\": 1,\n              \"shirtNumber\": \"9\",\n              \"firstName\": \"Ian\",\n              \"familyName\": \"Fischer\",\n              \"scoreboardName\": \"I. FISCHER\",\n              \"starter\": 1,\n              \"active\": 1\n            }\n          ]\n        }\n      ]\n    },\n    {\n      \"type\": \"status\",\n      \"messageId\": 2,\n      \"status\": \"INPROGRESS\",\n      \"period\": {\n        \"current\": 2,\n        \"periodType\": \"REGULAR\"\n      },\n      \"clock\": \"05:07:00\",\n      \"shotClock\": \"00:14:00\",\n      \"clockRunning\": 0,\n      \"possession\": 1,\n      \"scores\": [\n        {\n          \"teamNumber\": 1,\n          \"score\": 51,\n          \"timeoutsRemaining\": 2,\n          \"teamFouls\": 3\n        },\n        {\n          \"teamNumber\": 2,\n          \"score\": 48,\n          \"timeoutsRemaining\": 1,\n          \"teamFouls\": 4\n        }\n      ]\n    },\n    {\n      \"type\": \"boxscore\",\n      \"messageId\": 3,\n      \"teams\": [\n        {\n          \"teamNumber\": 1,\n          \"total\": {\n            \"team\": {\n              \"sPoints\": 51,\n              \"sReboundsTotal\": 20,\n              \"sAssists\": 12,\n              \"sFieldGoalsMade\": 20,\n              \"sFieldGoalsAttempted\": 41,\n              \"sBenchPoints\": 8\n            },\n            \"players\": [\n              {\n                \"pno\": 1,\n                \"sPoints\": 18,\n                \"sReboundsTotal\": 4,\n                \"sAssists\": 6,\n                \"sFieldGoalsMade\": 7,\n                \"sFieldGoalsAttempted\": 12,\n                \"sFoulsPersonal\": 2,\n                \"sMinutes\": 17.5,\n                \"sPlusMinusPoints\": 6\n              },\n              {\n                \"pno\": 2,\n                \"sPoints\": 9,\n                \"sReboundsTotal\": 9,\n                \"sAssists\": 1,\n                \"sMinutes\": 15.25\n              },\n              {\n                \"pno\": 3,\n                \"sPoints\": 8,\n                \"sMinutes\": 6\n              }\n            ]\n          },\n          \"periods\": [\n            {\n              \"period\": 1,\n              \"periodType\": \"REGULAR\",\n              \"team\": {\n                \"sPoints\": 27\n              }\n            },\n            {\n              \"period\": 2,\n              \"periodType\": \"REGULAR\",\n              \"team\": {\n                \"sPoints\": 24\n              }\n            }\n          ]\n        },\n        {\n          \"teamNumber\": 2,\n          \"total\": {\n            \"team\": {\n              \"sPoints\": 48\n            },\n            \"players\": [\n              {\n                \"pno\": 1,\n                \"sPoints\": 21,\n                \"sReboundsTotal\": 5\n              }\n            ]\n          }\n        }\n      ]\n    },\n    {\n      \"type\": \"action\",\n      \"messageId\": 4,\n      \"actionNumber\": 120,\n      \"teamNumber\": 1,\n      \"pno\": 1,\n      \"period\": 2,\n      \"periodType\": \"REGULAR\",\n      \"clock\": \"05:01:00\",\n      \"actionType\": \"3pt\",\n      \"subType\": \"jumpshot\",\n      \"success\": 1,\n      \"score1\": \"54\",\n      \"score2\": \"48\"\n    },\n    {\n      \"type\": \"standings\",\n      \"standings\": [\n        {\n          \"teamName\": \"Home City\",\n          \"teamCode\": \"HOM\",\n          \"position\": 1,\n          \"played\": 4,\n          \"won\": 3,\n          \"lost\": 1,\n          \"standingPoints\": 7\n        },\n        {\n          \"teamName\": \"Visitors BC\",\n          \"teamCode\": \"VIS\",\n          \"position\": 2,\n          \"played\": 4,\n          \"won\": 2,\n          \"lost\": 2,\n          \"standingPoints\": 6\n        }\n      ]\n    },\n    {\n      \"type\": \"schedule\",\n      \"matches\": [\n        {\n          \"matchTime\": \"2026-10-26 19:30:00\",\n          \"matchStatus\": \"SCHEDULED\",\n          \"competitors\": [\n            {\n              \"teamName\": \"Visitors BC\",\n              \"teamCode\": \"VIS\",\n              \"scoreString\": \"\",\n              \"isHomeCompetitor\": 1\n            },\n            {\n              \"teamName\": \"Home City\",\n              \"teamCode\": \"HOM\",\n              \"scoreString\": \"\",\n              \"isHomeCompetitor\": 0\n            }\n          ]\n        }\n      ]\n    }\n  ]\n}"
+            }
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('accepted', () => pm.response.to.have.status(200));"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "Bad message (expected 400)",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/livestats",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "livestats"
+              ]
+            },
+            "description": "",
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"message\": {\n    \"no\": \"type\"\n  }\n}"
+            }
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('rejected', () => pm.response.to.have.status(400));"
+                ]
+              }
+            }
+          ]
+        }
+      ]
+    }
+  ],
+  "variable": [
+    {
+      "key": "baseUrl",
+      "value": "http://localhost:3000",
+      "type": "string"
+    },
+    {
+      "key": "token",
+      "value": "",
+      "type": "string"
+    },
+    {
+      "key": "liveStatsHost",
+      "value": "127.0.0.1",
+      "type": "string"
+    },
+    {
+      "key": "matchId",
+      "value": "",
+      "type": "string"
+    }
+  ]
+}

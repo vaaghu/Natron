@@ -1,16 +1,22 @@
-# FIBA scoreboard feed (Ultra Score)
+# FIBA scoreboard feeds (Ultra Score, LiveStats)
 
 Natron reads the live game data straight from the arena's scoreboard
-console. The score, game clock, shot clock, fouls, timeouts, possession and
-player stats then update the graphics by themselves, with no one typing them
-in during the game.
+console and from FIBA LiveStats. The score, game clock, shot clock, fouls,
+timeouts, possession, rosters, the player box score, team stats, leaders,
+the last action, standings and the schedule then update the graphics by
+themselves, with no one typing them in during the game.
 
 ```
-Ultra Score console ──UDP :2800──► Natron ──► state store keys (scoreboard.*)
-                                              ├─► Text nodes bound to the keys
-                                              ├─► live NDI scenes (re-rendered)
-                                              └─► HTTP API: /state, /events, /scoreboard
+Ultra Score console ──UDP :2800──────┐
+LiveStats TV feed ────TCP :7677──────┼─► Natron ──► state store keys (scoreboard.*)
+LiveStats online ─────data.json──────┘              ├─► Text / Read nodes bound to the keys
+                                                    ├─► live NDI scenes (re-rendered)
+                                                    └─► HTTP API: /state, /events, /scoreboard, /livestats
 ```
+
+The console gives the clock and the score the fastest; LiveStats gives the
+names and the full stats. Use either, or both together: see
+[FIBA LiveStats feed](#fiba-livestats-feed).
 
 The console broadcasts binary "Data Out" packets on the venue network.
 Natron decodes them into keys of its state store, the same store the
@@ -24,6 +30,7 @@ the console changes it.
 - [Testing without a console](#testing-without-a-console)
 - [HTTP API](#http-api)
 - [Troubleshooting](#troubleshooting)
+- [FIBA LiveStats feed](#fiba-livestats-feed)
 - [Packet reference](#packet-reference)
 - [Limitations](#limitations)
 - [Source files](#source-files)
@@ -362,6 +369,195 @@ events.addEventListener('value', (e) => {
 | Score stuck after the console was corrected | Natron only follows the console. Correct it on the console |
 | Home and away swapped | the console's team A is `home`. Swap the bindings in the graphic, or the teams on the console |
 
+## FIBA LiveStats feed
+
+FIBA LiveStats (Genius Sports) is the statisticians' software. Natron reads
+it in one of two ways, into more `scoreboard.*` keys:
+
+| Mode | Reads | When |
+|---|---|---|
+| **TV feed** | TCP connection to the LiveStats computer, port 7677 (the [documented](https://developer.geniussports.com/livestats/tvfeed/index_basketball.html) in-venue feed) | in the venue, on the production network. The TV feed is a LiveStats option: the statistician has to turn it on |
+| **Online** | the match's `data.json` on `fibalivestats.dcd.shared.geniussports.com`, polled every 2 seconds | away from the venue, or without the TV feed. Not an official interface: a few seconds behind, and it may change |
+
+### Starting it
+
+At startup, from environment variables (off when neither is set):
+
+| Variable | Does |
+|---|---|
+| `NATRON_LIVESTATS_HOST=192.168.1.30` | TV feed from that computer |
+| `NATRON_LIVESTATS_PORT=7677` | its port (default 7677) |
+| `NATRON_LIVESTATS_MATCH=2345678` | online: polls that match (the number in the FIBA LiveStats match URL), or a whole `data.json` URL |
+| `NATRON_LIVESTATS_INTERVAL=2` | online: seconds between polls |
+| `NATRON_LIVESTATS_URL=…` | online: another server instead of `https://fibalivestats.dcd.shared.geniussports.com` (for the simulator) |
+
+Or while Natron runs, through the HTTP API:
+
+```bash
+curl -X POST localhost:3000/livestats -d '{"host": "192.168.1.30", "port": 7677}'
+curl -X POST localhost:3000/livestats -d '{"matchId": "2345678", "interval": 2}'
+curl -X POST localhost:3000/livestats -d '{"stop": true}'
+curl localhost:3000/livestats      # status and the keys it set
+```
+
+- **TV feed connection:** Natron sends the parameters message LiveStats
+  waits for, then reads one JSON message per line. If the connection drops,
+  or nothing comes for 30 seconds (LiveStats pings every 10), it reconnects
+  every 3 seconds. It then asks for the messages it missed. If LiveStats
+  was restarted meanwhile (its messages are numbered from 1 again), Natron
+  notices and reconnects at once, asking for everything.
+- **Firewall:** the LiveStats computer must accept TCP connections on its
+  port from the Natron machine.
+- **Online:** needs internet access and HTTPS (Qt's TLS backend, OpenSSL).
+
+### Console and LiveStats together
+
+| Keys | Written by |
+|---|---|
+| clock, shot clock, period, score, team fouls, timeouts, possession | the console while it sends packets. LiveStats writes them when the console has been silent for 5 seconds |
+| players (`scoreboard.<team>.player.*`) | LiveStats while it has players, otherwise the console |
+| everything else below | LiveStats only |
+
+`scoreboard.home.timeouts` means timeouts **left** when it comes from
+LiveStats. Between messages, Natron runs the LiveStats clocks itself, so a
+clock graphic doesn't stall.
+
+### Keys
+
+`<t>` is `home` or `away`. Home is the team LiveStats marks as home
+(`isHomeCompetitor`), else team 1. The online data has no such mark: home is
+team 1.
+
+**Match**
+
+| Key | Type | Value |
+|---|---|---|
+| `scoreboard.match.name` | text | match name |
+| `scoreboard.match.status` | text | `READY`, `WARMUP`, `INPROGRESS`, `PERIODBREAK`, `FINISHED`, … |
+| `scoreboard.match.periodStatus` | text | `PENDING`, `STARTED`, `ENDED`, `CONFIRMED` |
+| `scoreboard.match.competition` / `.round` / `.venue` / `.time` | text | from the match information |
+| `scoreboard.match.periodLength` | number | minutes |
+| `scoreboard.periodType` | text | `REGULAR`, `OVERTIME` |
+| `scoreboard.possessionArrow` | text | `home`, `away` or empty |
+
+**Teams**
+
+| Key | Type | Value |
+|---|---|---|
+| `scoreboard.<t>.name` / `.shortName` / `.code` / `.coach` | text | `Home City`, `City`, `HOM`, … |
+| `scoreboard.<t>.logo` | image | downloaded logo |
+| `scoreboard.<t>.period.<n>.score` | number | points in period `<n>` (5 = first overtime) |
+| `scoreboard.<t>.stats.<stat>` | number | team totals: the player stats below plus `benchPoints`, `biggestLead`, `biggestRun`, `leadChanges`, `timesTied`, `teamRebounds`, `teamTurnovers`, `foulsTeam` |
+
+**Players**, by shirt number: `scoreboard.<t>.player.<no>.<field>`
+
+| Field | Type | Value |
+|---|---|---|
+| `number`, `name`, `firstName`, `familyName`, `scoreboardName`, `position` | text | `name` is the TV name, or first and family name |
+| `starter`, `captain`, `onCourt` | on/off | |
+| `photo` | image | downloaded photo |
+| `points`, `rebounds`, `reboundsOffensive`, `reboundsDefensive`, `assists`, `steals`, `blocks`, `blocksReceived`, `turnovers`, `fouls`, `foulsTechnical`, `foulsOn` | number | |
+| `fgMade`, `fgAttempted`, `twoMade`, `twoAttempted`, `threeMade`, `threeAttempted`, `ftMade`, `ftAttempted` | number | shooting |
+| `fgPct`, `twoPct`, `threePct`, `ftPct` | number | whole percent, 0 with no attempt |
+| `pointsInPaint`, `fastBreakPoints`, `secondChancePoints`, `pointsFromTurnovers` | number | |
+| `efficiency`, `plusMinus` | number | |
+| `minutes` | text | `MM:SS` played |
+
+**Lists**, for graphics by position rather than by shirt number (same fields
+as players):
+
+| Key | Value |
+|---|---|
+| `scoreboard.<t>.roster.count`, `scoreboard.<t>.roster.<1…n>.<field>` | the players, starters first, then by shirt number |
+| `scoreboard.<t>.onCourt.count`, `scoreboard.<t>.onCourt.<1…5>.<field>` | the players on court, in roster order |
+
+**Leaders**, for `<stat>` = `points`, `rebounds`, `assists`, `steals`, `blocks`:
+
+| Key | Value |
+|---|---|
+| `scoreboard.<t>.leader.<stat>.name` / `.number` / `.value` | the team's leader (empty, 0 while nobody has any) |
+| `scoreboard.leader.<stat>.team` / `.name` / `.number` / `.value` | the game's leader (home on a tie) |
+
+**Play by play**
+
+| Key | Value |
+|---|---|
+| `scoreboard.lastAction.text` | `#7 S. SMITH 3PT made`, `VIS Timeout`, `#4 A. RIVERS Defensive rebound`, … |
+| `scoreboard.lastAction.type` / `.team` / `.number` / `.name` / `.clock` / `.period` | its parts (`type`: LiveStats' action type: `2pt`, `3pt`, `freethrow`, `rebound`, `foul`, …) |
+| `scoreboard.lastScore.text` / `.team` / `.number` / `.name` / `.points` | the last basket or free throw made |
+
+**Other games**
+
+| Key | Value |
+|---|---|
+| `scoreboard.standings.count`, `scoreboard.standings.<i>.position` / `.team` / `.code` / `.played` / `.won` / `.lost` / `.points` | the table, by position (TV feed) |
+| `scoreboard.schedule.count`, `scoreboard.schedule.<i>.home` / `.away` / `.homeCode` / `.awayCode` / `.homeScore` / `.awayScore` / `.time` / `.status` | the schedule (TV feed), or the other games being played (online: `status` is `Q2 05:07`) |
+
+Keys of players who leave the roster, or of table rows that are gone, are
+removed. `POST /livestats {"reset": true}` removes every key the feed set.
+
+### Photos and logos
+
+They are downloaded into `livestats-images/`, next to the dashboard's
+`state.json`, and set as image values, so Read nodes bound to them show
+them. LiveStats' photo links expire after a few hours: Natron keeps the
+files by link without its signature, and downloads each picture once.
+
+### Testing without LiveStats
+
+```bash
+# TV feed: a game that plays itself, on port 7677. --speed 10 fast-forwards it.
+python3 Custom/scoreboard/simulate_livestats.py tv
+NATRON_LIVESTATS_HOST=127.0.0.1 Natron
+
+# Online: the same game as a data.json on http://127.0.0.1:8080/data/<any>/data.json
+python3 Custom/scoreboard/simulate_livestats.py online
+NATRON_LIVESTATS_URL=http://127.0.0.1:8080 NATRON_LIVESTATS_MATCH=1 Natron
+```
+
+Use `--listen 0.0.0.0` to reach the simulator from another machine.
+
+`LiveStats.postman_collection.json` starts and stops the feed, and sends
+TV feed messages by hand (teams, status, boxscore, an action, standings,
+schedule): `POST /livestats` reads them exactly as if they came over the
+TCP feed. Send **Teams** first: the other messages name players by their
+number in the match.
+
+### HTTP API: `/livestats`
+
+`GET /livestats`:
+
+| Field | Meaning |
+|---|---|
+| `mode` | `tv`, `online` or empty (stopped) |
+| `connected` / `error` | TCP connected, or the last poll succeeded / why not |
+| `host`, `port` / `url`, `interval` | where it reads from |
+| `messages` / `rejected` / `lastRejection` | messages read / not LiveStats data, and why |
+| `lastMessage`, `lastMessageType`, `lastMessageId`, `lastSender` | the last message |
+| `consoleActive` | the console has the game state keys |
+| `values` | every key the feed set |
+
+`POST /livestats` takes one of:
+
+| Body | Does |
+|---|---|
+| `{"host": "…", "port": 7677}` | TV feed |
+| `{"matchId": "…", "interval": 2}` or `{"url": "…/data.json"}` | online |
+| `{"stop": true}` / `{"reset": true}` | stop reading / remove the keys |
+| `{"message": {…}}` or `{"messages": [ … ]}` | TV feed messages, read as if they came over TCP. A message without a `type` answers 400 |
+| `{"dataJson": {…}}` | a whole data.json |
+
+### Troubleshooting LiveStats
+
+| Symptom | Check |
+|---|---|
+| `"connected": false`, `error` "Connection refused" | the TV feed isn't on in LiveStats, or the port is different. Ask the statistician |
+| `error` "connection timed out" / "no data for 30 seconds" | the network between the two computers, the LiveStats computer's firewall |
+| online: `error` "… not found" | the match id is wrong, or the match isn't on FIBA LiveStats |
+| online: TLS / SSL errors | Qt can't load OpenSSL on this machine |
+| names come, but the clock is the console's | that's on purpose: the console has priority. Stop the console's Data Out to use LiveStats' clock |
+| `home` and `away` swapped | LiveStats doesn't mark the home team: swap the bindings |
+
 ## Packet reference
 
 Ultra Score Data Out packets, as decoded by the feed. Multi-byte length is
@@ -413,9 +609,9 @@ The body has 20 entries of 4 bytes: shirt number (3 ASCII bytes), then
 
 - **Timeout team:** the protocol doesn't say which team called a timeout,
   so there's no key for it. The timeout counter that went down tells you.
-- **Player names:** players come by shirt number only. Names, photos and
-  rosters come from elsewhere (for example the FIBA LiveStats JSON or
-  values set through `POST /state`).
+- **Player names:** the console sends players by shirt number only. Names,
+  photos and rosters come from the [FIBA LiveStats feed](#fiba-livestats-feed),
+  or from values set through `POST /state`.
 - **Unsupported data:**
   - penalty packets and other consoles' protocols
   - JSON sent over UDP
@@ -433,7 +629,12 @@ The body has 20 entries of 4 bytes: shirt number (3 ASCII bytes), then
 | File | What |
 |---|---|
 | `ScoreboardFeed.h/.cpp` | UDP listener, packet decoder, `/scoreboard` HTTP route |
+| `ScoreboardCommon.h/.cpp` | clock and period text, writing the keys: shared by the feeds |
+| `LiveStats.h/.cpp` | LiveStats model: TV feed messages and data.json into keys |
+| `LiveStatsFeed.h/.cpp` | LiveStats TCP client, data.json polling, images, `/livestats` HTTP route |
+| `simulate_livestats.py` | LiveStats simulator (TV feed TCP or online data.json) |
+| `LiveStats.postman_collection.json` | Postman collection for `/livestats` |
 | `scoreboard_console.sh` | keyboard console (bash, UDP broadcast) |
 | `simulate_ultrascore.py` | console simulator (UDP) |
 | `UltraScore.postman_collection.json` | Postman collection (HTTP) |
-| `Gui/GuiApplicationManager.cpp` | starts the feed (`NATRON_SCOREBOARD_PORT`) and adds its HTTP route |
+| `Gui/GuiApplicationManager.cpp` | starts the feeds (`NATRON_SCOREBOARD_PORT`, `NATRON_LIVESTATS_*`) and adds their HTTP routes |
